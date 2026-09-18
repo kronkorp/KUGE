@@ -1,0 +1,12 @@
+[submodule "vendor/kronknet"]
+	path = vendor/kronknet
+	url = git@github.com:kronkorp/kronknet.git
+[submodule "vendor/kronk3d"]
+	path = vendor/kronk3d
+	url = git@github.com:kronkorp/kronk3d.git
+[submodule "vendor/kronkpool"]
+	path = vendor/kronkpool
+	url = git@github.com:kronkorp/kronkpool.git
+[submodule "vendor/kronkworld"]
+	path = vendor/kronkworld
+	url = git@github.com:kronkorp/kronkworld.git
