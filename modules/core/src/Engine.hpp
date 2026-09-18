@@ -1,15 +1,19 @@
 
 #pragma once
 
+#include "kronkworld/Kronkworld.hpp"
+
 namespace kuge
 {
 
     class Engine
     {
-        private:
+        public:
             Engine();
             ~Engine();
 
+        private:
+            kw::World world;
     };
 
 }

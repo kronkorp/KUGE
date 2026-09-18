@@ -1,6 +1,7 @@
 #include "Server.hpp"
-#include "kronknet/callback/callback.h"
-#include "kronknet/server/server.h"
+extern "C" {
+    #include "kronknet/server/server.h"
+}
 
 kuge::Network::Server::Server(
     knPort port,

@@ -25,32 +25,42 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(kronkflow)
 
-# Kuge modules
-# Modules with their own CMakeLists.txt (network) are object libraries,
-# the others (core) are globbed directly
-add_subdirectory(modules/network)
-
-file(GLOB_RECURSE KUGE_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/modules/core/src/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/modules/core/src/*.c"
-)
-
 # Vendored libraries, compiled straight into kuge
 set(KUGE_VENDORS kronk3d kronknet kronkpool kronkworld)
 
 set(VENDOR_SOURCES "")
-set(VENDOR_INCLUDES "")
 foreach(vendor ${KUGE_VENDORS})
-    set(vendor_dir "${CMAKE_CURRENT_SOURCE_DIR}/vendor/${vendor}")
     file(GLOB_RECURSE vendor_srcs CONFIGURE_DEPENDS
-        "${vendor_dir}/src/*.cpp"
-        "${vendor_dir}/src/*.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/${vendor}/src/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/vendor/${vendor}/src/*.c"
     )
     list(APPEND VENDOR_SOURCES ${vendor_srcs})
-    list(APPEND VENDOR_INCLUDES "${vendor_dir}/include")
 endforeach()
 
-add_library(kuge SHARED ${KUGE_SOURCES} ${VENDOR_SOURCES})
+add_library(kuge-vendor OBJECT ${VENDOR_SOURCES})
+set_target_properties(kuge-vendor PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(kuge-vendor PRIVATE -Wall -Wextra)
+
+foreach(vendor ${KUGE_VENDORS})
+    # Public headers are visible to the kuge modules and to kuge's consumers,
+    # private headers (e.g. server.h) only to the vendor sources
+    target_include_directories(kuge-vendor
+        PUBLIC  "${CMAKE_CURRENT_SOURCE_DIR}/vendor/${vendor}/include"
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vendor/${vendor}/src"
+    )
+endforeach()
+
+# kronkworld's headers include kronkflow's
+target_link_libraries(kuge-vendor PUBLIC kronkflow-obj)
+
+# Kuge modules: each one is an object library defined in its own CMakeLists.txt
+set(KUGE_MODULES core logger network)
+foreach(module ${KUGE_MODULES})
+    add_subdirectory(modules/${module})
+    target_link_libraries(kuge-${module} PUBLIC kuge-vendor)
+endforeach()
+
+add_library(kuge SHARED)
 
 # Produce "kuge.so" rather than "libkuge.so"
 set_target_properties(kuge PROPERTIES
@@ -59,29 +69,13 @@ set_target_properties(kuge PROPERTIES
     SUFFIX ".so"
 )
 
-file(GLOB KUGE_MODULE_DIRS LIST_DIRECTORIES true "${CMAKE_CURRENT_SOURCE_DIR}/modules/*")
-foreach(dir ${KUGE_MODULE_DIRS})
-    if(IS_DIRECTORY "${dir}/src")
-        target_include_directories(kuge PUBLIC "${dir}/src")
-    endif()
+foreach(target vendor ${KUGE_MODULES})
+    target_sources(kuge PRIVATE $<TARGET_OBJECTS:kuge-${target}>)
+    # PUBLIC usage requirements (include dirs) propagate to kuge's consumers
+    target_link_libraries(kuge PUBLIC kuge-${target})
 endforeach()
-
-# Vendor sources include their own headers privately (e.g. server.h), so
-# expose each src root as well
-foreach(vendor ${KUGE_VENDORS})
-    target_include_directories(kuge PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/vendor/${vendor}/src")
-endforeach()
-target_include_directories(kuge PUBLIC ${VENDOR_INCLUDES})
-
-target_sources(kuge PRIVATE
-    $<TARGET_OBJECTS:kronkflow-obj>
-    $<TARGET_OBJECTS:kuge-network>
-)
-target_link_libraries(kuge PUBLIC kuge-network)
-target_link_libraries(kuge PUBLIC kronkflow)
-target_link_libraries(kuge PUBLIC pthread)
-
-target_compile_options(kuge PRIVATE -Wall -Wextra)
+target_sources(kuge PRIVATE $<TARGET_OBJECTS:kronkflow-obj>)
+target_link_libraries(kuge PUBLIC kronkflow pthread)
 
 option(KUGE_BUILD_EXAMPLE "Build the example/ executable" ON)
 if(KUGE_BUILD_EXAMPLE)
