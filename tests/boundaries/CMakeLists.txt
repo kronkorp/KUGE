@@ -54,3 +54,14 @@ set_tests_properties(boundary_server_not_client PROPERTIES
 kuge_boundary(net_not_server net_sees_server.cpp kuge-net)
 set_tests_properties(boundary_net_not_server PROPERTIES
     PASS_REGULAR_EXPRESSION "GameServer.hpp: No such file or directory")
+
+# Replication is used by the rooms and by the clients: it needs the network and the physics, and knows neither of them
+kuge_boundary(replication_sees_net replication_sees_net.cpp kuge-replication)
+
+kuge_boundary(replication_not_client replication_sees_client.cpp kuge-replication)
+set_tests_properties(boundary_replication_not_client PROPERTIES
+    PASS_REGULAR_EXPRESSION "ClientModule.hpp: No such file or directory")
+
+kuge_boundary(replication_not_server replication_sees_server.cpp kuge-replication)
+set_tests_properties(boundary_replication_not_server PROPERTIES
+    PASS_REGULAR_EXPRESSION "GameServer.hpp: No such file or directory")

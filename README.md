@@ -35,7 +35,7 @@ drawing code: the build system makes it impossible to include what you did not l
 | Multithreading: scenes on threads, messages, workers, background loading | done |
 | Network: transports (TCP, UDP, in-memory), reliable messages | done |
 | Server: lobby, rooms, sessions and tokens, matchmaking client | done |
-| Replication and prediction | planned |
+| Replication (snapshots, interpolation) and client-side prediction | done |
 | 3D (kronk3d) | planned |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
@@ -738,6 +738,123 @@ from any thread.
 `example/chat` is a real one: `kuge_chat_server [port]` and `kuge_chat_client <name> [host] [port]` (a chat room
 of four, in the terminal).
 
+## Replication module (`kuge-replication`)
+
+Depends on the network and the physics (not on the client, not on the server: a room and a client both
+use it). It answers "how does what happens in the room show on the screens of the players": the room says
+which entities exist, the clients get a copy that follows, and the player's own entity answers at once.
+
+```
+   room (server)                                                    client
+   World ── ReplicationServer ── snapshots (unreliable) ──▶ ReplicationClient ── World (a copy)
+             ▲   what changed since the last one that                │ interpolated a little in the past
+             │   the client acknowledged                             ▼
+   InputServer ◀── inputs (numbered, redundant) ── Prediction ── the player's entity, at once
+                      snapshot + "last input applied" ──▶ corrects it, replays the inputs the server has not seen
+```
+
+### What is replicated
+
+A `ReplicationRegistry`, built by one function that the room and the clients both call, lists the components
+that travel, and how:
+
+```cpp
+kuge::replication::ReplicationRegistry registry;
+
+registerTransform2D(registry, Replicate::Interpolated, /*predicted*/ true);
+registerBody(registry, Replicate::OnChange, /*predicted*/ true);
+registry.component<Health>("Health", Replicate::OnChange,
+    [](kuge::ByteWriter& out, const Health& h) { out.write(h.points); },
+    [](kuge::ByteReader& in) { return Health{in.read<int>()}; });
+```
+
+- `Replicate::Interpolated`: changes all the time (positions). Needs a `lerp`. The client draws it a moment
+  in the past, between the last two values it got.
+- `Replicate::OnChange`: sent when it changes, applied at once (health, score).
+- `Replicate::OnSpawn`: sent once, when the client learns of the entity (team, colour).
+- The order of the registrations is the number of a component on the wire (64 at most). A hash of the list
+  travels with each snapshot, and a client ignores those of a server whose list differs.
+
+### The room's side
+
+```cpp
+ReplicationServer replication(world(), registry, endpoint());
+InputServer<Steer> inputs(endpoint());
+
+// when a player joins:
+const NetworkId id = replication.track(ship, ShipType, /*owner*/ player.networkId);
+replication.addClient(player.connection);
+inputs.addClient(player.connection);
+
+// each tick:
+for (const auto& applied : inputs.collect()) {                 // one input per player, in order
+    steer(world, shipOf(applied.connection), applied.input);   // the function that the client predicts with, too
+    replication.setInputAck(applied.connection, applied.sequence);
+}
+/* ... the simulation ... */
+replication.update(time.tick);                                 // Replication stage
+```
+
+- **Snapshots** are unreliable and computed against the last one that the client **acknowledged**: a lost
+  snapshot only makes the next one a little bigger, and a client that has nothing (new, or too far behind) is
+  sent everything. Only what changed is in them (an entity that appeared, a component that changed, an entity
+  that went); the same world always gives the same bytes. A big snapshot comes in several packets.
+- The client builds each snapshot **from the one it acknowledged** (it keeps the last 32), not from the last
+  one it applied, so an entity that appeared and went between two acknowledged snapshots, or a value that
+  changed and came back, cannot be left wrong.
+- `setFilter` lets the room say what a client may see (interest management).
+- `track` / `untrack` (or removing the entity from the World) is all it takes: an entity that is not tracked
+  any more goes from the clients at the next snapshot.
+
+### The client's side
+
+```cpp
+ReplicationClient replication(world, registry);
+replication.onSpawn(ShipType, [](kw::World& world, kw::Entity e, const SpawnInfo&) { world.add<Sprite>(e, ...); });
+replication.setLocalPlayer(welcome.networkId);
+replication.attach(room);                     // the Endpoint from MatchmakingClient::onJoined
+...
+replication.update(frameSeconds);             // each frame
+```
+
+Entities appear in the World with a `Replicated` (network id, type, owner) and their components, and the prefab
+adds what the server does not send (the sprite). `entity(networkId)` finds one. Interpolated components are
+placed at `interpolationDelay` (0.1 s) behind the newest snapshot: smooth at any frame rate, though snapshots
+come 30 times a second and some are lost; past its last value an entity waits, nothing is invented.
+
+### Prediction
+
+```cpp
+PredictionConfig<Steer> config;
+config.build = [](kw::World& world) { buildLevel(world); return buildPlayer(world); };   // the same as the room's
+config.apply = &steerPlayer;                                                             // input -> entity
+config.step  = [](kw::World& world, double dt) { world.getResource<kuge::Physics2D>().step(world, float(dt)); };
+
+Prediction<Steer> prediction(config, world, registry, replication, room);
+...
+prediction.tick(steer);                       // each fixed tick, with what the player is doing
+```
+
+- **Each tick** the input is numbered, simulated on a **private world** that holds only the level and the
+  player, and copied to the entity that the game draws: the player answers at once, walls included. The last
+  four inputs go to the server in each packet, so a lost one is usually in the next.
+- **Each snapshot** carries the state of the player's entity and the number of the last input that state
+  includes. The private entity is put in that state, the inputs after it are simulated again, and that is the
+  new prediction. If the room simulates what the client simulated (same code, same inputs, deterministic
+  physics), **nothing changes**: with 100 ms of round trip and 10 % loss the prediction was corrected 3 times in
+  450 snapshots.
+- When the server does contradict the client (something it cannot know: another player, a wall that only the
+  server has), the entity is **not teleported**: it keeps being drawn where it was and slides to the new place
+  over `smoothing` seconds. Only a difference of more than `snapDistance` (a respawn) is shown at once.
+- The components to predict are the ones registered `predicted`; the entity's other components are the
+  server's (`OnChange`), and the player's own entity is never interpolated.
+- The room repeats the last input when the next one is not there, drops one that comes after its turn, and
+  can hold a few inputs back (`InputServerConfig::jitter`) to absorb jitter.
+
+Nothing in it reads a clock: it is driven by the ticks and the frame durations that the caller gives, so it is
+tested with a network, and a time, of its own: the same network and the same inputs give the same positions,
+tick for tick, bit for bit.
+
 ## Physics module (`kuge-physics`)
 
 It needs the core only, so a server has it too. Add it to a scene:
@@ -807,6 +924,7 @@ ctest --test-dir build --output-on-failure
 | `kuge_tests` | core: loop, scenes, modules, serializer, config, tilemaps, assets (reload, background), saves, snapshots, messages, and scenes on threads |
 | `kuge_net_tests` | net: messages on the wire, the reliable channel alone, the loopback, endpoints (handshake, timeouts, refusals, junk), a lossy network, real TCP and UDP sockets, scenes on threads that talk |
 | `kuge_server_tests` | server: joining, rooms filling and multiplying, tokens (wrong, used, expired), silent peers, leaving, the lobby lost, a cut cable, the end of a game and playing again at once, 24 clients, pooled rooms, stopping with players, real sockets, a room that cannot open |
+| `kuge_replication_tests` | replication: spawns, changes and removals over a network that loses and reorders, big snapshots, interpolation (smooth, still then moving, rotation), prediction (same inputs same positions, immediate answer, walls, 100 ms latency with loss, a wall the client cannot see, snaps, replay of a whole run), the inputs on the server, and the whole stack through a room with two players |
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
@@ -836,6 +954,7 @@ modules/physics/      kuge-physics
 modules/client/       kuge-client (input/, render/, animation/, audio/, ui/, backend/, sdl/)
 modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net, Matchmaking)
 modules/server/       kuge-server (GameServer, the lobby, RoomScene)
+modules/replication/  kuge-replication (registry, snapshots, interpolation, inputs, prediction)
 example/              the headless example, pong/, platformer/ and chat/
 tests/                one folder per module, and the boundary tests
 vendor/               submodules: kronkworld, kronkpool, kronknet, kronk3d

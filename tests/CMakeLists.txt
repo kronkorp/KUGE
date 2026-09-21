@@ -36,9 +36,11 @@ kuge_add_test(kuge_physics_tests kuge_physics_tests)
 add_subdirectory(boundaries)
 
 add_executable(kuge_replication_tests
+    replication/prediction_test.cpp
     replication/replication_test.cpp
+    replication/room_test.cpp
 )
-target_link_libraries(kuge_replication_tests PRIVATE kuge-replication kronklab-static)
+target_link_libraries(kuge_replication_tests PRIVATE kuge-replication kuge-server kronklab-static)
 target_compile_options(kuge_replication_tests PRIVATE -Wall -Wextra)
 kuge_add_test(kuge_replication_tests kuge_replication_tests)
 
