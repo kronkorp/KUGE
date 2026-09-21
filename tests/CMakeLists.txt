@@ -1,7 +1,10 @@
 add_executable(kuge_tests
+    core/asset_manager_test.cpp
     core/config_file_test.cpp
     core/engine_test.cpp
     core/fixed_timestep_test.cpp
+    core/math2d_test.cpp
+    core/module_test.cpp
     core/scene_test.cpp
     core/serializer_test.cpp
 )

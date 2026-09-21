@@ -1,4 +1,5 @@
 #include "Scene.hpp"
+#include "Engine.hpp"
 
 kuge::Scene::Scene(void) : m_world(std::make_unique<kw::World>())
 {
@@ -34,9 +35,10 @@ bool kuge::Scene::removeSystem(const kw::SystemHandle& handle)
     return m_world->removeSystem(handle);
 }
 
-void kuge::Scene::attach(const SceneContext& context) noexcept
+void kuge::Scene::attach(const SceneContext& context)
 {
     m_ctx = context;
+    m_ctx.engine().inject(*m_world);
 }
 
 void kuge::Scene::fixedTick(const Time& time)

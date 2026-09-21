@@ -67,7 +67,7 @@ namespace kuge
             friend class Engine;
             friend class SceneManager;
 
-            void attach(const SceneContext& context) noexcept;
+            void attach(const SceneContext& context);
             void fixedTick(const Time& time);
             void frame(const Time& time);
             void shutdown(void);

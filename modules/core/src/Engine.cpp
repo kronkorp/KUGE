@@ -3,6 +3,7 @@
 #include "LoggerLevel.hpp"
 #include <chrono>
 #include <csignal>
+#include <stdexcept>
 #include <thread>
 
 namespace
@@ -54,6 +55,9 @@ kuge::Engine::Engine(Config config)
       m_timestep(config.tickRate, config.maxCatchUp),
       m_scenes(*this)
 {
+    if (config.maxFps != 0 && config.maxFps < config.tickRate) {
+        throw std::invalid_argument("Engine: maxFps must be 0 or at least tickRate");
+    }
     m_time.tickRate = config.tickRate;
     m_time.dt = m_timestep.dt();
     Logger::logger().info("Engine constructed");
@@ -62,6 +66,10 @@ kuge::Engine::Engine(Config config)
 kuge::Engine::~Engine(void)
 {
     m_scenes.clear();
+    // The last one added may use the ones before it
+    while (!m_modules.empty()) {
+        m_modules.pop_back();
+    }
     Logger::logger().info("Engine destroyed");
 }
 
@@ -80,6 +88,13 @@ const kuge::Engine::Config& kuge::Engine::config(void) const noexcept
     return m_config;
 }
 
+void kuge::Engine::inject(kw::World& world)
+{
+    for (auto& module : m_modules) {
+        module->inject(world);
+    }
+}
+
 void kuge::Engine::stop(void) noexcept
 {
     m_stop = true;
@@ -92,6 +107,12 @@ bool kuge::Engine::step(double frameSeconds)
 
     if (!scene || m_stop) {
         return false;
+    }
+    for (auto& module : m_modules) {
+        module->beginFrame(*this);
+    }
+    if (m_stop) {
+        return false;   // e.g. the window was closed: no need to simulate more
     }
     const std::uint32_t ticks = m_timestep.advance(frameSeconds);
 
@@ -106,6 +127,9 @@ bool kuge::Engine::step(double frameSeconds)
     m_time.alpha = m_timestep.alpha();
     m_time.frameDt = frameSeconds;
     scene->frame(m_time);
+    for (auto& module : m_modules) {
+        module->endFrame(*this);
+    }
     m_scenes.apply();
     return !m_stop && !m_scenes.empty();
 }
@@ -127,8 +151,15 @@ int kuge::Engine::run(void)
         if (!step(frame)) {
             break;
         }
-        // Nothing to do until the next tick: don't burn a core waiting for it
-        std::this_thread::sleep_for(std::chrono::duration<double>(m_timestep.untilNextTick()));
+        // Nothing to do until the next tick (or the next frame, if they are
+        // more frequent): don't burn a core waiting for it
+        const double wait = m_config.maxFps == 0
+            ? m_timestep.untilNextTick()
+            : 1.0 / m_config.maxFps - std::chrono::duration<double>(Clock::now() - now).count();
+
+        if (wait > 0.0) {
+            std::this_thread::sleep_for(std::chrono::duration<double>(wait));
+        }
     }
     m_scenes.clear();
     // NOTE: Reset here and not at the start: a stop() that comes from another
