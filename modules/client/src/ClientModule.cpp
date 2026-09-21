@@ -1,5 +1,6 @@
 #include "ClientModule.hpp"
 #include "Engine.hpp"
+#include "Logger.hpp"
 #include "Ref.hpp"
 #include "animation/Animation.hpp"
 #include "audio/DummyAudio.hpp"
@@ -26,13 +27,19 @@ kuge::ClientModule::ClientModule(Backend backend, ClientConfig config)
       m_config(config),
       m_textures([this](const std::filesystem::path& path) {
           return Texture::fromFile(*m_backend.renderer, path);
+      }, [](Texture& texture, const std::filesystem::path& path) {
+          texture.reloadFromFile(path);
       }),
       m_mixer(*m_backend.audio),
       m_sounds([this](const std::filesystem::path& path) {
           return std::make_shared<Sound>(*m_backend.audio, m_backend.audio->loadSound(path));
+      }, [this](Sound& sound, const std::filesystem::path& path) {
+          sound.replace(m_backend.audio->loadSound(path));   // loaded first: it may throw
       }),
       m_musics([this](const std::filesystem::path& path) {
           return std::make_shared<Music>(*m_backend.audio, m_backend.audio->loadMusic(path));
+      }, [this](Music& music, const std::filesystem::path& path) {
+          music.replace(m_backend.audio->loadMusic(path));
       }),
       m_text(*m_backend.renderer)
 {
@@ -74,6 +81,14 @@ void kuge::ClientModule::beginFrame(Engine& engine)
         }
         m_input.handle(event);
     }
+    if (m_config.watchAssets > 0.0) {
+        const auto now = std::chrono::steady_clock::now();
+
+        if (std::chrono::duration<double>(now - m_lastWatch).count() >= m_config.watchAssets) {
+            m_lastWatch = now;
+            reloadAssets();
+        }
+    }
     m_text.beginFrame();
     m_backend.renderer->begin(m_config.clearColor);
 }
@@ -86,6 +101,25 @@ void kuge::ClientModule::endFrame(Engine&)
     }
     m_backend.renderer->present();
     m_mixer.update();
+}
+
+std::size_t kuge::ClientModule::reloadAssets(void)
+{
+    std::size_t count = 0;
+    const auto tell = [&count](const auto& report) {
+        count += report.reloaded.size();
+        for (const auto& [path, why] : report.failed) {
+            Logger::logger().warn("reload: '{}' kept as it was: {}", path.string(), why);
+        }
+        for (const auto& path : report.reloaded) {
+            Logger::logger().info("reload: '{}'", path.string());
+        }
+    };
+
+    tell(m_textures.reloadChanged());
+    tell(m_sounds.reloadChanged());
+    tell(m_musics.reloadChanged());
+    return count;
 }
 
 std::optional<kuge::Image> kuge::ClientModule::takeScreenshot(void)

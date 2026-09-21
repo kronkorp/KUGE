@@ -22,6 +22,9 @@ namespace kuge
 
             SoundId id(void) const noexcept { return m_id; }
 
+            //! Puts another sound in this one (a reload): what plays the old one stops
+            void replace(SoundId id) noexcept { m_audio.destroySound(m_id); m_id = id; }
+
         private:
             IAudio& m_audio;
             SoundId m_id;
@@ -38,6 +41,9 @@ namespace kuge
             Music& operator=(const Music&) = delete;
 
             MusicId id(void) const noexcept { return m_id; }
+
+            //! Puts another music in this one (a reload)
+            void replace(MusicId id) noexcept { m_audio.destroyMusic(m_id); m_id = id; }
 
         private:
             IAudio& m_audio;

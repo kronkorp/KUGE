@@ -42,6 +42,14 @@ namespace kuge
             //! @throw ImageError
             static std::shared_ptr<Texture> fromFile(IRenderer2D& renderer, const std::filesystem::path& path);
 
+            //! Puts another picture in this texture: whoever holds it draws the new one.
+            //! The id and the size change. If the renderer cannot keep the new picture
+            //! (it throws), the texture is left as it was.
+            void replace(int width, int height, std::span<const std::uint8_t> rgba);
+
+            //! replace() with the picture of a file. @throw ImageError (the texture is left as it was)
+            void reloadFromFile(const std::filesystem::path& path);
+
         private:
             IRenderer2D& m_renderer;
             TextureId    m_id;

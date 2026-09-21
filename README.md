@@ -31,7 +31,7 @@ drawing code: the build system makes it impossible to include what you did not l
 | Save/load (slots, snapshots), user folders | done |
 | Audio (buses, sounds at a place, music), fonts and text, UI (menus, HUD) | done |
 | A complete solo game (`kuge_platformer`) | done |
-| Hot reload of assets | not done |
+| Hot reload of textures, sounds and musics | done |
 | Multithreading (scenes on threads) | planned |
 | Network, server, replication | planned |
 | 3D (kronk3d) | planned |
@@ -215,7 +215,7 @@ reach systems as `kuge::Ref<T>` resources (a pointer that lives in the World):
 | `Serializer.hpp` | `ByteWriter` / `ByteReader`: binary data, little-endian, the same on every machine. Everything read is checked (sizes announced by the data are verified before allocating). Versioned headers (`writeHeader`/`readHeader`), atomic file writes (`writeFile`). |
 | `ConfigFile.hpp` | `key = value` files with `[sections]`, typed reads with fallbacks, alphabetical output. |
 | `TileMap.hpp` | A level made of tiles, as data (see [Tilemaps](#tilemaps)). |
-| `AssetManager.hpp` | Loads files once and shares them while somebody holds them. |
+| `AssetManager.hpp` | Loads files once and shares them while somebody holds them. With a reloader, `reloadChanged()` reloads in place the files that changed (see [Hot reload](#hot-reload)). |
 | `Save.hpp` | `SaveSlots`: named, versioned, checksummed save files (see [Saves](#saves)). |
 | `Snapshot.hpp` | `SnapshotRegistry`: what of a `World` goes in a save, and how. |
 | `UserDirectory.hpp` | `userDirectory(UserDir::Config or Data, game)`: where the player's files live. |
@@ -422,6 +422,30 @@ navigation with the keyboard or gamepad, mouse hover and click) and drawing (Fra
 after the sprites). A menu is therefore: build the entities, then a system that reads
 `UiEvents` and acts (see `MenuLogic` in `example/platformer/Platformer.hpp`). Layout is one
 frame behind what you just changed.
+
+### Hot reload
+
+While you work on a game, you do not want to restart it for each change of a picture or a
+sound. Ask the client to watch its assets:
+
+```cpp
+engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend({}), kuge::ClientConfig{.watchAssets = 0.5});
+```
+
+Every 0.5 second (0, the default, means never) the textures, sounds and musics that were
+loaded with `client.textures()` / `sounds()` / `musics()` are compared with their files (by
+date and size). A file that changed is **reloaded in place**: the `Texture` object stays the
+same, so every sprite that holds it draws the new picture on the next frame, with nothing
+to do (its size may change too). `client.reloadAssets()` does the same check at once.
+
+- A file that cannot be read (a picture that is half written, a wrong format) is logged and
+  the asset **keeps its old content**; the file is only tried again when it changes once more.
+- A file that is missing is left alone (editors often delete, then write).
+- An asset that nobody holds any more is not reloaded: the next `load()` reads the file.
+- Fonts and files you read yourself (tilemaps, `.anim`) are not watched.
+
+The mechanism is generic: give a reloader (a function that reads a file *into* an existing
+asset) to any `AssetManager<T>`, and call `reloadChanged()` from the thread that uses it.
 
 ### Saves
 

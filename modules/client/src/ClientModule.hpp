@@ -10,6 +10,7 @@
 #include "render/Components.hpp"
 #include "render/Texture.hpp"
 #include "ui/TextRenderer.hpp"
+#include <chrono>
 #include <map>
 #include <memory>
 #include <optional>
@@ -22,6 +23,9 @@ namespace kuge
     struct ClientConfig
     {
         Color clearColor{24, 24, 32, 255};   //!< What the screen is filled with each frame
+        //! Hot reload: every this many seconds, textures, sounds and musics whose file
+        //! changed are reloaded in place (0: never; see reloadAssets()). For development.
+        double watchAssets = 0.0;
     };
 
     ////////////////////////////////////////////////////////////////////////////
@@ -62,6 +66,12 @@ namespace kuge
             //! @throw FontError if the backend has no fonts, or the file is not one
             std::shared_ptr<IFont> loadFont(const std::filesystem::path& file, int pointSize);
 
+            //! Reloads, in place, the textures, sounds and musics whose file changed since
+            //! they were loaded, and logs the ones that could not be (they keep their old
+            //! content). Done by itself each `watchAssets` seconds if the config asks.
+            //! @return  How many were reloaded
+            std::size_t reloadAssets(void);
+
             //! Keeps the image of the next frame before it is shown (see takeScreenshot())
             void requestScreenshot(void) noexcept { m_screenshotRequested = true; }
 
@@ -86,6 +96,7 @@ namespace kuge
             AssetManager<Music>       m_musics;
             TextRenderer              m_text;
             std::map<std::pair<std::string, int>, std::weak_ptr<IFont>> m_fonts;
+            std::chrono::steady_clock::time_point m_lastWatch = std::chrono::steady_clock::now();
             bool                      m_screenshotRequested = false;
             std::optional<Image>      m_screenshot;
     };

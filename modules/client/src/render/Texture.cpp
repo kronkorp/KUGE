@@ -25,3 +25,20 @@ std::shared_ptr<kuge::Texture> kuge::Texture::fromFile(IRenderer2D& renderer, co
 
     return fromPixels(renderer, image.width, image.height, image.rgba);
 }
+
+void kuge::Texture::replace(int width, int height, std::span<const std::uint8_t> rgba)
+{
+    const TextureId id = m_renderer.createTexture(width, height, rgba);   // first: it may throw
+
+    m_renderer.destroyTexture(m_id);
+    m_id = id;
+    m_width = width;
+    m_height = height;
+}
+
+void kuge::Texture::reloadFromFile(const std::filesystem::path& path)
+{
+    const Image image = decodeImageFile(path);
+
+    replace(image.width, image.height, image.rgba);
+}

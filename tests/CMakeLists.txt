@@ -1,5 +1,6 @@
 add_executable(kuge_tests
     core/asset_manager_test.cpp
+    core/asset_reload_test.cpp
     core/config_file_test.cpp
     core/engine_test.cpp
     core/fixed_timestep_test.cpp
@@ -36,6 +37,7 @@ if(TARGET kuge-client)
         client/animation_test.cpp
         client/audio_test.cpp
         client/client_module_test.cpp
+        client/hot_reload_test.cpp
         client/image_test.cpp
         client/input_map_test.cpp
         client/keys_test.cpp
