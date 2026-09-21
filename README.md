@@ -33,7 +33,8 @@ drawing code: the build system makes it impossible to include what you did not l
 | A complete solo game (`kuge_platformer`) | done |
 | Hot reload of textures, sounds and musics | done |
 | Multithreading: scenes on threads, messages, workers, background loading | done |
-| Network, server, replication | planned |
+| Network: transports (TCP, UDP, in-memory), reliable messages | done |
+| Server (rooms, sessions), replication | planned |
 | 3D (kronk3d) | planned |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
@@ -569,6 +570,99 @@ game (Resume / Save game / Main menu). Continue restores the hero, the coins tha
 and the counter. It is the model to read to see how the modules fit together, and it is what
 `tests/client/platformer_test.cpp` plays: on the dummy backend, tick by tick.
 
+## Network module (`kuge-net`)
+
+Depends on the core only (never on the client): a server links it without SDL.
+
+```
+        Net (a scene's endpoints, polled in the Network stage)
+         |
+      Endpoint  -- typed messages (KUGE_MESSAGE), handshake, channels, keep-alive, timeouts
+         |
+      ITransport -- whole packets: TCP (framed), UDP, or in-memory Loopback
+```
+
+### Messages
+
+```cpp
+struct PlayerMoved {
+    KUGE_MESSAGE(PlayerMoved, id, position, heading)   // the fields that go on the wire, in this order
+    std::uint32_t id = 0;
+    kuge::Vec2    position;
+    float         heading = 0;
+};
+```
+
+`KUGE_MESSAGE` gives the struct an id (a hash of its name: the same on every machine) and
+says how to write and read it through the core's `Serializer` (little-endian, checked reads).
+Fields can be numbers, bools, enums, strings, vectors, arrays, optionals, `Vec2`, `Rect`, and
+other messages (up to 24 fields). Both sides need the same name and fields. The struct must be
+a type of a namespace, not a local class.
+
+### Endpoints
+
+```cpp
+kuge::net::Endpoint server(transport, kuge::net::Role::Server);
+server.onConnected([](kuge::net::ConnectionId id) { ... });
+server.onDisconnected([](kuge::net::ConnectionId id, kuge::net::DisconnectReason why) { ... });
+server.on<PlayerMoved>([&](kuge::net::ConnectionId from, const PlayerMoved& moved) { ... });
+
+server.send(id, PlayerMoved{...}, kuge::net::Channel::Unreliable);
+server.broadcast(Chat{...}, kuge::net::Channel::Reliable, /*except*/ id);
+server.poll();                 // once per tick: reads, sends what is due, calls the handlers
+```
+
+- **Channels.** `Unreliable` is sent once: it may be lost, arrive twice or out of order (positions,
+  inputs). `Reliable` arrives **once and in order**, however many times it has to be sent: each
+  message is numbered, acknowledged (the acks ride on the traffic, with a bit mask for what came out
+  of order), and sent again after a wait that follows the round trip time and doubles at each miss.
+  A window (256 in flight) and a queue (1024) bound the memory: `send` returns `false` when they
+  are full, instead of growing. Over TCP nothing is ever sent twice.
+- **Handshake.** A client sends `Connect` until the server answers `Accept`; "connected" therefore
+  means that the other side answered, even over UDP where a socket knows nothing. A server that is
+  full, or has another `protocol` version, refuses (`DisconnectReason::Refused`).
+- **Keep-alive and timeouts.** A silent connection sends something every second, and a peer that says
+  nothing for 10 seconds is gone (`Timeout`). Leaving (`disconnect`, or destroying the endpoint) tells
+  the peer at once. All the delays are in `EndpointConfig`, with a clock you can replace.
+- **Handlers** run at the end of `poll()`, when the endpoint is in order: they may send, broadcast,
+  disconnect, and add or remove endpoints.
+- **Bad data** (junk packets, cut messages, unknown types) is dropped and counted in `stats()`, never
+  fatal. A message is at most 8192 bytes with its header.
+- One thread uses an endpoint at a time (the one that polls it).
+
+### Transports
+
+| Transport | Made with | Notes |
+|---|---|---|
+| TCP | `makeTcpServer(port)`, `makeTcpClient(host, port)` | The stream is cut into whole packets (4-byte length, then the packet), whatever way TCP cuts or glues the bytes. A peer that announces a packet larger than 8192 is dropped. |
+| UDP | `makeUdpServer(port)`, `makeUdpClient(host, port)` | A packet is a datagram. |
+| Loopback | `LoopbackNetwork::listen(name)`, `connect(name)` | In memory, by name, **thread-safe**: a client and a server in the same process, on different threads (a player who hosts the match). |
+
+TCP and UDP go through kronknet, IPv4 only ("localhost" or a dotted address). A server that cannot
+bind throws; a client that cannot reach its server does not throw, its endpoint reports a
+disconnection.
+
+`LoopbackNetwork` can misbehave on purpose: `Conditions{.loss, .duplicate, .latency, .jitter, .seed}`
+lose, repeat, delay and reorder packets (the same seed loses the same ones), and its clock can be
+replaced, so a test can make ten seconds pass in no time. The reliable channel is tested over
+50 % loss and repeats with it.
+
+### In a scene
+
+```cpp
+kuge::net::installNet(setup());                                   // a Net resource, polled in the Network stage
+auto& net = world().getResource<kuge::net::Net>();
+
+auto& server = net.listen(kuge::net::Protocol::Udp, 4242);        // or net.listen("room", loopbackNetwork)
+auto& client = net.connect(kuge::net::Protocol::Tcp, "127.0.0.1", 4242);
+```
+
+A scene's endpoints are polled by its own thread and destroyed with the scene (their peers are
+told). Two scenes on two threads talk through a network address, or through a loopback: a
+client on the main thread and a room on its own thread is the "player who hosts" case.
+kronknet is not thread-safe (a counter is shared by the whole process), so every call into it goes
+through one lock.
+
 ## Physics module (`kuge-physics`)
 
 It needs the core only, so a server has it too. Add it to a scene:
@@ -636,6 +730,7 @@ ctest --test-dir build --output-on-failure
 | Program | Covers |
 |---|---|
 | `kuge_tests` | core: loop, scenes, modules, serializer, config, tilemaps, assets (reload, background), saves, snapshots, messages, and scenes on threads |
+| `kuge_net_tests` | net: messages on the wire, the reliable channel alone, the loopback, endpoints (handshake, timeouts, refusals, junk), a lossy network, real TCP and UDP sockets, scenes on threads that talk |
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
@@ -663,7 +758,7 @@ modules/logger/       kuge-logger
 modules/core/         kuge-core
 modules/physics/      kuge-physics
 modules/client/       kuge-client (input/, render/, animation/, audio/, ui/, backend/, sdl/)
-modules/net/          kuge-net (not finished)
+modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net)
 example/              the headless example, pong/ and platformer/
 tests/                one folder per module, and the boundary tests
 vendor/               submodules: kronkworld, kronkpool, kronknet, kronk3d

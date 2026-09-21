@@ -1,5 +1,5 @@
 // Must NOT compile: kuge-core does not depend on kuge-net
-#include "server/Server.hpp"
+#include "Endpoint.hpp"
 
 int main()
 {
