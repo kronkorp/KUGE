@@ -20,3 +20,10 @@ set_tests_properties(boundary_logger_not_core PROPERTIES
 kuge_boundary(core_not_net core_sees_net.cpp kuge-core)
 set_tests_properties(boundary_core_not_net PROPERTIES
     PASS_REGULAR_EXPRESSION "server/Server.hpp: No such file or directory")
+
+# The physics needs the core, and nothing of the client: a server has it too
+kuge_boundary(physics_sees_core physics_sees_core.cpp kuge-physics)
+
+kuge_boundary(physics_not_client physics_sees_client.cpp kuge-physics)
+set_tests_properties(boundary_physics_not_client PROPERTIES
+    PASS_REGULAR_EXPRESSION "ClientModule.hpp: No such file or directory")

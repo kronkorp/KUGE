@@ -12,6 +12,19 @@ target_link_libraries(kuge_tests PRIVATE kuge-core kronklab-static)
 target_compile_options(kuge_tests PRIVATE -Wall -Wextra)
 kuge_add_test(kuge_tests kuge_tests)
 
+# The physics only needs the core
+add_executable(kuge_physics_tests
+    physics/physics_property_test.cpp
+    physics/physics_test.cpp
+    physics/queries_test.cpp
+    physics/shapes_test.cpp
+    physics/spatial_grid_test.cpp
+)
+target_link_libraries(kuge_physics_tests PRIVATE kuge-physics kronklab-static)
+target_include_directories(kuge_physics_tests PRIVATE physics)
+target_compile_options(kuge_physics_tests PRIVATE -Wall -Wextra)
+kuge_add_test(kuge_physics_tests kuge_physics_tests)
+
 add_subdirectory(boundaries)
 
 if(TARGET kuge-client)
