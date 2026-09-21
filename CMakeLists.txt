@@ -17,6 +17,7 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
 endif()
 
 option(KUGE_BUILD_SHARED  "Also build kuge.so, an aggregate of every module" ON)
+option(KUGE_BUILD_CLIENT  "Build the client module (window, inputs, 2D rendering: needs SDL2)" ON)
 option(KUGE_BUILD_EXAMPLE "Build the example/ executable" ON)
 option(KUGE_BUILD_TESTS   "Build the tests (run them with ctest)" ON)
 set(KUGE_SANITIZE "" CACHE STRING "Build with a sanitizer: address (+ undefined) or thread")
@@ -63,6 +64,18 @@ else()
         "Commit the guard in kronkpool and bump the submodule.")
 endif()
 
+if(KUGE_BUILD_CLIENT)
+    find_package(SDL2 REQUIRED)
+
+    # Header-only image loader. Pinned, and only fetched for the client.
+    FetchContent_Declare(
+        stb
+        GIT_REPOSITORY https://github.com/nothings/stb.git
+        GIT_TAG        2c980bb59875b0d32144a71867fbdebb2f77cd20
+    )
+    FetchContent_MakeAvailable(stb)
+endif()
+
 FetchContent_Declare(
     kronkflow
     GIT_REPOSITORY https://github.com/kronkorp/kronkflow
@@ -83,6 +96,9 @@ kuge_vendor(kronkworld DEPENDS kronkflow)
 add_subdirectory(modules/logger)
 add_subdirectory(modules/core)
 add_subdirectory(modules/net)
+if(KUGE_BUILD_CLIENT)
+    add_subdirectory(modules/client)
+endif()
 
 # kuge.so: every module in one shared library (games can also link the modules
 # they use directly, which is what the example does)
