@@ -19,7 +19,8 @@ namespace kuge
      * scenes (in the reverse order it was added). The engine calls it:
      *  - onAttach() once, when it is added;
      *  - inject() every time a scene is entered, before its onEnter(): put in
-     *    the World the resources the systems of the scene need;
+     *    the World the resources the systems of the scene need (see also
+     *    sharedAcrossThreads());
      *  - beginFrame() before the fixed ticks of each loop (read the inputs...),
      *    and endFrame() after the frame (show what was drawn...).
      */
@@ -30,6 +31,12 @@ namespace kuge
             virtual ~Module(void) = default;
 
             virtual void onAttach(Engine&) {}
+
+            //! Can what inject() gives be used from any thread? A window, a renderer or a
+            //! sound device cannot: a module that says no (the default) only injects into
+            //! the scenes that run on the main thread, not into spawned ones on other threads.
+            virtual bool sharedAcrossThreads(void) const noexcept { return false; }
+
             virtual void inject(kw::World&) {}
             virtual void beginFrame(Engine&) {}
             virtual void endFrame(Engine&) {}

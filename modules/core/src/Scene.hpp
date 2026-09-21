@@ -1,9 +1,11 @@
 #pragma once
 
+#include "Message.hpp"
 #include "SceneContext.hpp"
 #include "Time.hpp"
 #include "kronkworld/Kronkworld.hpp"
 #include <cstddef>
+#include <exception>
 #include <memory>
 #include <vector>
 
@@ -60,7 +62,7 @@ namespace kuge
     class Scene
     {
         public:
-            virtual ~Scene(void) = default;
+            virtual ~Scene(void);
 
             Scene(const Scene&)            = delete;
             Scene& operator=(const Scene&) = delete;
@@ -77,6 +79,11 @@ namespace kuge
             //! The scene over this one was popped: it runs again.
             virtual void onResume(void) {}
 
+            //! A message that another scene sent (see SceneHandle). Called at the start of each
+            //! loop of the scene, before its ticks, in the order they were sent. A scene that is
+            //! paused (another is over it) gets them when it runs again.
+            virtual void onMessage(const Message&) {}
+
         protected:
             Scene(void);
 
@@ -85,6 +92,8 @@ namespace kuge
 
             //! Adds a system, and remembers it to remove it when the scene is left.
             //! Fixed: at the fixed rate, Frame: once per frame (see kuge::stage).
+            //! A system that throws ends the pass (the systems after it do not run) and the
+            //! exception comes out of the tick or the frame of the scene.
             kw::SystemHandle addSystem(
                 kw::Schedule             schedule,
                 kw::StageId              stage,
@@ -102,15 +111,21 @@ namespace kuge
             friend class Engine;
             friend class SceneManager;
             friend class SceneSetup;
+            friend class SceneLoop;
 
-            void attach(const SceneContext& context);
+            void attach(const SceneContext& context, bool mainThread);
+            void deliverMessages(void);
             void fixedTick(const Time& time);
             void frame(const Time& time);
             void shutdown(void);
+            void rethrowError(void);
+            SceneHandle handle(void) const { return SceneHandle(m_mailbox); }
 
+            std::shared_ptr<Mailbox>      m_mailbox;   // shared: a SceneHandle keeps it after the scene
             std::unique_ptr<kw::World>    m_world;
             SceneContext                  m_ctx;
             std::vector<kw::SystemHandle> m_systems;
+            std::exception_ptr            m_error;     // what a system threw: see addSystem()
     };
 
 }

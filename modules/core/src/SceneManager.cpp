@@ -2,7 +2,8 @@
 #include "Logger.hpp"
 #include <exception>
 
-kuge::SceneManager::SceneManager(Engine& engine) noexcept : m_engine(engine)
+kuge::SceneManager::SceneManager(Engine& engine, const Time& time, SceneHandle parent, bool mainThread) noexcept
+    : m_engine(engine), m_time(time), m_parent(std::move(parent)), m_mainThread(mainThread)
 {
 }
 
@@ -15,6 +16,11 @@ kuge::SceneManager::~SceneManager(void)
     } catch (...) {
         Logger::logger().error("A scene threw while being left");
     }
+}
+
+void kuge::SceneManager::changeTo(std::unique_ptr<Scene> scene)
+{
+    enqueue(Kind::Change, std::make_unique<ReadyFactory>(std::move(scene)));
 }
 
 void kuge::SceneManager::pop(void)
@@ -89,7 +95,8 @@ bool kuge::SceneManager::empty(void) const noexcept
 // from inside it
 void kuge::SceneManager::enter(std::unique_ptr<Scene> scene)
 {
-    scene->attach(SceneContext(m_engine));
+    // The parent is the one that spawned the loop: it is the root scene's parent
+    scene->attach(SceneContext(m_engine, *this, m_time, scene->handle(), m_stack.empty() ? m_parent : SceneHandle()), m_mainThread);
     m_stack.push_back(std::move(scene));
     m_stack.back()->onEnter();
 }

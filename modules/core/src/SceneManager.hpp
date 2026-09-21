@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Scene.hpp"
+#include "SceneHandle.hpp"
+#include "Time.hpp"
 #include <cstddef>
 #include <deque>
 #include <memory>
@@ -26,7 +28,11 @@ namespace kuge
     class SceneManager
     {
         public:
-            explicit SceneManager(Engine& engine) noexcept;
+            //! @param time        The clock of the loop these scenes run in (scene ctx().time())
+            //! @param parent      Who spawned the first scene (empty: nobody)
+            //! @param mainThread  Do the scenes run on the main thread? Then the modules
+            //!                    give them everything; if not, only what they share
+            SceneManager(Engine& engine, const Time& time, SceneHandle parent = {}, bool mainThread = true) noexcept;
             ~SceneManager(void);
 
             SceneManager(const SceneManager&)            = delete;
@@ -38,6 +44,9 @@ namespace kuge
             {
                 enqueue(Kind::Change, makeFactory<T>(std::forward<Args>(args)...));
             }
+
+            //! Same as change(), with a scene that is already made
+            void changeTo(std::unique_ptr<Scene> scene);
 
             //! Pauses the current scene and enters a T over it
             template<typename T, typename ...Args>
@@ -103,7 +112,19 @@ namespace kuge
             void enter(std::unique_ptr<Scene> scene);
             void leaveTop(void);
 
+            //! A scene that was made before
+            struct ReadyFactory final : Factory
+            {
+                explicit ReadyFactory(std::unique_ptr<Scene> scene) : m_scene(std::move(scene)) {}
+                std::unique_ptr<Scene> make(void) override { return std::move(m_scene); }
+
+                std::unique_ptr<Scene> m_scene;
+            };
+
             Engine&                             m_engine;
+            const Time&                         m_time;
+            SceneHandle                         m_parent;
+            bool                                m_mainThread;
             std::vector<std::unique_ptr<Scene>> m_stack;
             std::deque<Op>                      m_pending;
     };
