@@ -113,6 +113,10 @@ namespace kuge
         public:
             explicit ByteReader(std::span<const std::uint8_t> data) noexcept : m_data(data) {}
 
+            // A reader looks at bytes that it does not own: a temporary would be gone
+            // before the first read. Keep the vector in a variable.
+            explicit ByteReader(std::vector<std::uint8_t>&&) = delete;
+
             template<Scalar T>
             T read(void)
             {

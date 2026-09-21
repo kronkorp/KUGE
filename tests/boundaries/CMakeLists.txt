@@ -27,3 +27,11 @@ kuge_boundary(physics_sees_core physics_sees_core.cpp kuge-physics)
 kuge_boundary(physics_not_client physics_sees_client.cpp kuge-physics)
 set_tests_properties(boundary_physics_not_client PROPERTIES
     PASS_REGULAR_EXPRESSION "ClientModule.hpp: No such file or directory")
+
+# A ByteReader reads bytes it does not own: on a temporary vector it would read
+# freed memory, so that does not compile
+kuge_boundary(reader_on_variable reader_on_variable.cpp kuge-core)
+
+kuge_boundary(reader_on_temporary reader_on_temporary.cpp kuge-core)
+set_tests_properties(boundary_reader_on_temporary PROPERTIES
+    PASS_REGULAR_EXPRESSION "deleted")

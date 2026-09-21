@@ -5,8 +5,10 @@ add_executable(kuge_tests
     core/fixed_timestep_test.cpp
     core/math2d_test.cpp
     core/module_test.cpp
+    core/save_test.cpp
     core/scene_test.cpp
     core/serializer_test.cpp
+    core/snapshot_test.cpp
     core/tilemap_test.cpp
 )
 target_link_libraries(kuge_tests PRIVATE kuge-core kronklab-static)
