@@ -24,8 +24,9 @@ namespace kuge
     };
 
     //! Frame, stage Render: draws the entities that have a Transform2D and a
-    //! Sprite, through the Camera2D. Lowest layer first, and always in the same
-    //! order for the same scene, whatever order the World holds them in.
+    //! Sprite or a TilemapView, through the Camera2D. Lowest layer first, and
+    //! always in the same order for the same scene, whatever order the World
+    //! holds them in.
     class SpriteRender : public kw::ISystem
     {
         public:
@@ -39,9 +40,14 @@ namespace kuge
                 kw::Entity  entity;
                 TextureDraw draw;
                 bool        plain;   //!< A rectangle with no texture
+                bool        tiles;   //!< A layer of a tilemap: the entity says which
             };
 
-            std::vector<Item> m_items;   //!< Kept between frames: no allocation each time
+            void drawTiles(kw::World& world, kw::Entity entity, IRenderer2D& renderer);
+
+            std::vector<Item>  m_items;    //!< Kept between frames: no allocation each time
+            std::vector<float> m_columns;  //!< Screen edges of the columns of a tilemap
+            std::vector<float> m_rows;
     };
 
 }

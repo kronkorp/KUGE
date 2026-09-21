@@ -1,6 +1,7 @@
 #include "ClientModule.hpp"
 #include "Engine.hpp"
 #include "Ref.hpp"
+#include "animation/Animation.hpp"
 #include "input/ActionState.hpp"
 #include "render/Components.hpp"
 #include <stdexcept>
@@ -44,6 +45,7 @@ void kuge::ClientModule::inject(kw::World& world)
     world.addResource<WhitePixel>(WhitePixel{m_white});
     world.addResource<ActionState>();
     world.addResource<Camera2D>();
+    world.addResource<AnimationEvents>();
 }
 
 void kuge::ClientModule::beginFrame(Engine& engine)

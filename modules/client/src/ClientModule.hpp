@@ -34,7 +34,7 @@ namespace kuge
      *  - kuge::Ref<IWindow>, Ref<IRenderer2D>, Ref<InputMap>,
      *    Ref<AssetManager<Texture>> (the textures of files);
      *  - ActionState (what the player asked for at the last tick, see SampleInput);
-     *  - Camera2D, and WhitePixel.
+     *  - Camera2D, WhitePixel, and AnimationEvents (the cues of the animations).
      * See ClientScene for the systems that use them.
      */
     ////////////////////////////////////////////////////////////////////////////

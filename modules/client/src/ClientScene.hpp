@@ -2,6 +2,7 @@
 
 #include "Scene.hpp"
 #include "Stage.hpp"
+#include "animation/AnimateSprites.hpp"
 #include "render/Systems.hpp"
 
 namespace kuge
@@ -26,11 +27,13 @@ namespace kuge
     {
         protected:
             //! Fixed, Input: SampleInput then SnapshotTransforms.
-            //! Frame, Render: SpriteRender.
+            //! Fixed, Late: AnimateSprites.
+            //! Frame, Render: SpriteRender (sprites and tilemaps).
             void installClientSystems(void)
             {
                 addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<SampleInput>());
                 addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<SnapshotTransforms>());
+                addSystem(kw::Schedule::Fixed, stage::Late, std::make_unique<AnimateSprites>());
                 addSystem(kw::Schedule::Frame, stage::Render, std::make_unique<SpriteRender>());
             }
     };

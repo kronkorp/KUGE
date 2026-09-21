@@ -20,6 +20,7 @@ add_executable(kuge_physics_tests
     physics/queries_test.cpp
     physics/shapes_test.cpp
     physics/spatial_grid_test.cpp
+    physics/tilemap_collision_test.cpp
 )
 target_link_libraries(kuge_physics_tests PRIVATE kuge-physics kronklab-static)
 target_include_directories(kuge_physics_tests PRIVATE physics)
@@ -30,13 +31,16 @@ add_subdirectory(boundaries)
 
 if(TARGET kuge-client)
     add_executable(kuge_client_tests
+        client/animation_test.cpp
         client/client_module_test.cpp
         client/image_test.cpp
         client/input_map_test.cpp
         client/keys_test.cpp
         client/pong_test.cpp
         client/sdl_backend_test.cpp
+        client/spritesheet_test.cpp
         client/sprites_test.cpp
+        client/tilemap_render_test.cpp
     )
     target_link_libraries(kuge_client_tests PRIVATE kuge-client kronklab-static)
     target_include_directories(kuge_client_tests PRIVATE ${PROJECT_SOURCE_DIR}/example/pong)
