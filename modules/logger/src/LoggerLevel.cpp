@@ -29,8 +29,10 @@ std::ostream& operator<<(std::ostream& os, LoggerLevel level)
 std::string timeToStr(void)
 {
     const time_t time = std::time(nullptr);
-    std::tm* localTime = std::localtime(&time);
+    std::tm localTime = {};
     std::stringstream ss;
-    ss << std::put_time(localTime, "%Y-%m-%d %H:%M:%S"); 
+
+    localtime_r(&time, &localTime);   // not localtime(): its buffer is shared by every thread
+    ss << std::put_time(&localTime, "%Y-%m-%d %H:%M:%S");
     return ss.str();
 }

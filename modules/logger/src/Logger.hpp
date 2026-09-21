@@ -2,9 +2,11 @@
 
 #include "LoggerLevel.hpp"
 #include "handler/base/IHandler.hpp"
+#include <atomic>
 #include <endian.h>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <format>
 #include <string>
@@ -22,17 +24,13 @@ public:
     bool enable(void) const;
     void enable(bool enabled);
 
+    //! The logger of the process, made on first use. Thread-safe: any thread may
+    //! call it, and log through it (a line is never cut by another one).
     static Logger &logger(void)
     {
-        static std::shared_ptr<Logger> logger;
+        static const std::shared_ptr<Logger> instance = makeDefault();
 
-        if (logger == nullptr) {
-            logger = std::make_shared<Logger>();
-            logger->registerHandler(std::make_shared<std::ofstream>("latest.log", std::ios::app));
-            logger->registerHandler(std::make_shared<std::ostream>(std::cout.rdbuf()));
-            logger->setLevel(LoggerLevel::DEBUG);
-        }
-        return *logger;
+        return *instance;
     }
 
     void debug(std::string_view format);
@@ -141,6 +139,7 @@ public:
         if (level < this->m_currentLevel || !this->enable()) return;
         const std::string formatted = std::vformat(format, std::make_format_args(args...));
 
+        std::lock_guard lock(this->m_mutex);
         for (auto& handler : this->m_handlers) {
             handler->log(level, formatted);
         }
@@ -172,7 +171,10 @@ public:
     ////////////////////////////////////////////////////////////////////////////
 
 private:
+    static std::shared_ptr<Logger> makeDefault(void);
+
+    std::mutex                                   m_mutex;                             //!< Held while the handlers write: they are not thread-safe
     std::vector<std::unique_ptr<ILoggerHandler>> m_handlers;                          //!< The handlers (the streams)
-    LoggerLevel                                  m_currentLevel = LoggerLevel::INFO;  //!< The current level of the logger (Debuf, info, ...). All lower level will be ignored
-    bool                                         m_enable = true;
+    std::atomic<LoggerLevel>                     m_currentLevel{LoggerLevel::INFO};   //!< The current level of the logger (Debuf, info, ...). All lower level will be ignored
+    std::atomic<bool>                            m_enable{true};
 };

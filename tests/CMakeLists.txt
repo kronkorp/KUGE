@@ -32,6 +32,16 @@ kuge_add_test(kuge_physics_tests kuge_physics_tests)
 
 add_subdirectory(boundaries)
 
+add_executable(kuge_logger_tests logger/logger_test.cpp)
+target_link_libraries(kuge_logger_tests PRIVATE kuge-logger kronklab-static)
+target_compile_options(kuge_logger_tests PRIVATE -Wall -Wextra)
+kuge_add_test(kuge_logger_tests kuge_logger_tests)
+
+add_executable(kuge_logger_init_tests logger/first_use_test.cpp)
+target_link_libraries(kuge_logger_init_tests PRIVATE kuge-logger kronklab-static)
+target_compile_options(kuge_logger_init_tests PRIVATE -Wall -Wextra)
+kuge_add_test(kuge_logger_init_tests kuge_logger_init_tests)
+
 if(TARGET kuge-client)
     add_executable(kuge_client_tests
         client/animation_test.cpp

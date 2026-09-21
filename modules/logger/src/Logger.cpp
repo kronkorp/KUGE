@@ -18,8 +18,20 @@ Logger::Logger(std::shared_ptr<std::ostream> handler)
     this->registerHandler(handler);
 }
 
+std::shared_ptr<Logger> Logger::makeDefault(void)
+{
+    auto logger = std::make_shared<Logger>();
+
+    logger->registerHandler(std::make_shared<std::ofstream>("latest.log", std::ios::app));
+    logger->registerHandler(std::make_shared<std::ostream>(std::cout.rdbuf()));
+    logger->setLevel(LoggerLevel::DEBUG);
+    return logger;
+}
+
 void Logger::registerHandler(std::shared_ptr<std::ostream> handler)
 {
+    std::lock_guard lock(this->m_mutex);
+
     if ((handler->rdbuf() == std::cout.rdbuf() && isatty(STDOUT_FILENO)) ||
         (handler->rdbuf() == std::cerr.rdbuf() && isatty(STDERR_FILENO))) {
             this->m_handlers.push_back(std::make_unique<TtyLoggerHandler>(handler));
