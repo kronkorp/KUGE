@@ -17,3 +17,16 @@ if(TARGET kuge-client AND TARGET kuge-physics)
     target_include_directories(kuge_platformer PRIVATE platformer)
     target_compile_options(kuge_platformer PRIVATE -Wall -Wextra)
 endif()
+
+# A chat: a server with no window (lobby and rooms), and a client for the terminal
+if(TARGET kuge-server)
+    add_executable(kuge_chat_server chat/server.cpp)
+    target_link_libraries(kuge_chat_server PRIVATE kuge-server)
+    target_include_directories(kuge_chat_server PRIVATE chat)
+    target_compile_options(kuge_chat_server PRIVATE -Wall -Wextra)
+
+    add_executable(kuge_chat_client chat/client.cpp)
+    target_link_libraries(kuge_chat_client PRIVATE kuge-net)
+    target_include_directories(kuge_chat_client PRIVATE chat)
+    target_compile_options(kuge_chat_client PRIVATE -Wall -Wextra)
+endif()

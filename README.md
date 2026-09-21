@@ -34,7 +34,8 @@ drawing code: the build system makes it impossible to include what you did not l
 | Hot reload of textures, sounds and musics | done |
 | Multithreading: scenes on threads, messages, workers, background loading | done |
 | Network: transports (TCP, UDP, in-memory), reliable messages | done |
-| Server (rooms, sessions), replication | planned |
+| Server: lobby, rooms, sessions and tokens, matchmaking client | done |
+| Replication and prediction | planned |
 | 3D (kronk3d) | planned |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
@@ -82,6 +83,7 @@ A dedicated server would link `kuge-core` and `kuge-physics` only.
 | `build/example/kuge_example` | A headless scene that counts ticks. Ctrl+C ends it cleanly. |
 | `build/example/kuge_pong` | Pong for two players. W/S and Up/Down, Space to serve, Esc to quit. `keybinds.cfg` is written on the first launch: edit it to rebind. |
 
+| `build/example/kuge_chat_server`, `kuge_chat_client` | A chat over the network: a server with no window (lobby and rooms of four), and a terminal client. `kuge_chat_client Ana --say hello --wait 2` says it once and leaves. |
 | `build/example/kuge_platformer` | A platformer that uses everything: tilemap, animations, physics, HUD text, menus, sounds and saves. A/D or arrows, Space to jump, Esc to pause (Resume / Save game / Main menu). Collect the 8 coins; avoid the blobs. `--font <file.ttf>` picks the font. |
 
 `kuge_pong --frames 90 --screenshot out.ppm` plays a scripted match without waiting and
@@ -663,6 +665,79 @@ client on the main thread and a room on its own thread is the "player who hosts"
 kronknet is not thread-safe (a counter is shared by the whole process), so every call into it goes
 through one lock.
 
+## Server module (`kuge-server`)
+
+A game server with no window and no drawing code: it needs the core and the network only (a
+test checks that it cannot include the client).
+
+```
+ client                        lobby (well known address)                room (its own address)
+   | -- JoinRoom ------------->  |                                          |
+   | <-- RoomAssigned(address, token)                                       |
+   | ------------------------- connect ----------------------------------> |
+   | ------------------------- Hello(token) ----------------------------->  |
+   | <------------------------ Welcome(networkId) -------------------------- |
+   |                          ... the game ...                              |
+   | <------------------------ RoomClosed --------------------------------- |
+   | (back in the lobby, which the client never left)
+```
+
+```cpp
+class DeathmatchRoom : public kuge::server::RoomScene
+{
+    public:
+        using RoomScene::RoomScene;
+    protected:
+        void onRoomEnter() override
+        {
+            on<Input>([this](const Player& who, const Input& input) { ... });      // messages of the game, from players only
+            addSystem(kw::Schedule::Fixed, kuge::stage::Simulation, std::make_unique<Simulate>());
+        }
+        void onPlayerJoined(const Player& p) override { send(p.networkId, Snapshot{...}); }
+        void onPlayerLeft(const Player& p, kuge::net::DisconnectReason) override { ... }
+};
+
+int main()
+{
+    kuge::server::GameServer server({.lobbyPort = 4242});
+    server.addRoomType<DeathmatchRoom>("deathmatch", {.maxPlayers = 8});
+    return server.run();          // until Ctrl+C: every room is closed properly
+}
+```
+
+The client side is in `kuge-net` (a client links it without the rooms): a `MatchmakingClient`
+connects to the lobby, `join("deathmatch", "Ana")` asks for a room, and `onJoined` gives the
+`Endpoint` of the room, on which the game registers its messages.
+
+- **Lobby.** A scene on its own thread. Clients connect to it (TCP by default: the connection
+  stays for the whole session, and losing it takes the player out of the room). It finds the room
+  of the asked kind that has a free place (the fullest first), or makes one, up to `maxRooms`. A room is
+  a scene spawned on its own thread (or on the workers: `RoomTypeConfig::policy`), on a UDP port taken
+  from a range, or at a name of a loopback. It refuses with `JoinError` (unknown kind, full, room could
+  not start...).
+- **Tokens.** The lobby gives the client the address of the room and a random 64-bit token, and tells
+  the room to expect it. The token opens the door **once** and expires after `tokenTtl` (10 s): a
+  client that never comes loses its place. A client that connects to a room and does not say `Hello` in
+  `helloTimeout` is dropped; an unknown or used token is `Rejected`. Nothing a client sends to a room
+  before its `Hello` is given to the game.
+- **Network ids.** A welcomed player is a `Player` with a `networkId` (1, 2, 3... in this room, never
+  reused): how the game names it. `playerId` is server-wide.
+- **The end.** `finish()` (or an idle room: `idleTimeout`, or the server stopping) tells the players,
+  gives the last messages a moment to leave (`linger`), and leaves the scene. The lobby gets the place and
+  the port back, and the clients are in the lobby again: the lobby learns that the game is over *before* the
+  players do, so that a client that asks for another game at once is not told "already in a room".
+- **Brutal losses.** A client whose cable is cut is found by the timeouts of the endpoints (or by the lobby
+  when its connection dies), and its place is freed.
+- **Headless.** `GameServer` uses an engine in `Headless` mode.
+
+`ServerConfig` says how it is reached: `Transport::Sockets` (a lobby on `lobbyPort` over TCP or UDP, the rooms on
+UDP ports from `roomPortFirst`, `roomAddress` being what clients are told to use) or `Transport::Loopback` (by
+name, in the process, for tests or a game that hosts its own server). `stats()` counts rooms, players and joins
+from any thread.
+
+`example/chat` is a real one: `kuge_chat_server [port]` and `kuge_chat_client <name> [host] [port]` (a chat room
+of four, in the terminal).
+
 ## Physics module (`kuge-physics`)
 
 It needs the core only, so a server has it too. Add it to a scene:
@@ -731,6 +806,7 @@ ctest --test-dir build --output-on-failure
 |---|---|
 | `kuge_tests` | core: loop, scenes, modules, serializer, config, tilemaps, assets (reload, background), saves, snapshots, messages, and scenes on threads |
 | `kuge_net_tests` | net: messages on the wire, the reliable channel alone, the loopback, endpoints (handshake, timeouts, refusals, junk), a lossy network, real TCP and UDP sockets, scenes on threads that talk |
+| `kuge_server_tests` | server: joining, rooms filling and multiplying, tokens (wrong, used, expired), silent peers, leaving, the lobby lost, a cut cable, the end of a game and playing again at once, 24 clients, pooled rooms, stopping with players, real sockets, a room that cannot open |
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
@@ -758,8 +834,9 @@ modules/logger/       kuge-logger
 modules/core/         kuge-core
 modules/physics/      kuge-physics
 modules/client/       kuge-client (input/, render/, animation/, audio/, ui/, backend/, sdl/)
-modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net)
-example/              the headless example, pong/ and platformer/
+modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net, Matchmaking)
+modules/server/       kuge-server (GameServer, the lobby, RoomScene)
+example/              the headless example, pong/, platformer/ and chat/
 tests/                one folder per module, and the boundary tests
 vendor/               submodules: kronkworld, kronkpool, kronknet, kronk3d
 ```

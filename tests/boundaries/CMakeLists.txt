@@ -42,3 +42,15 @@ kuge_boundary(net_sees_core net_sees_core.cpp kuge-net)
 kuge_boundary(net_not_client net_sees_client.cpp kuge-net)
 set_tests_properties(boundary_net_not_client PROPERTIES
     PASS_REGULAR_EXPRESSION "ClientModule.hpp: No such file or directory")
+
+# The server needs the core and the network, and nothing of the client (it has no window);
+# the network knows nothing of the server (a client links it without the rooms)
+kuge_boundary(server_sees_net server_sees_net.cpp kuge-server)
+
+kuge_boundary(server_not_client server_sees_client.cpp kuge-server)
+set_tests_properties(boundary_server_not_client PROPERTIES
+    PASS_REGULAR_EXPRESSION "ClientModule.hpp: No such file or directory")
+
+kuge_boundary(net_not_server net_sees_server.cpp kuge-net)
+set_tests_properties(boundary_net_not_server PROPERTIES
+    PASS_REGULAR_EXPRESSION "GameServer.hpp: No such file or directory")
