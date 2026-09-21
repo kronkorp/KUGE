@@ -7,6 +7,7 @@ add_executable(kuge_tests
     core/module_test.cpp
     core/scene_test.cpp
     core/serializer_test.cpp
+    core/tilemap_test.cpp
 )
 target_link_libraries(kuge_tests PRIVATE kuge-core kronklab-static)
 target_compile_options(kuge_tests PRIVATE -Wall -Wextra)
