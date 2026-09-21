@@ -30,3 +30,8 @@ if(TARGET kuge-server)
     target_include_directories(kuge_chat_client PRIVATE chat)
     target_compile_options(kuge_chat_client PRIVATE -Wall -Wextra)
 endif()
+
+# R-Type: a server, a client and both in one process, from the same code
+if(TARGET kuge-server AND TARGET kuge-replication)
+    add_subdirectory(rtype)
+endif()

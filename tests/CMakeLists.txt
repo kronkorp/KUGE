@@ -35,6 +35,14 @@ kuge_add_test(kuge_physics_tests kuge_physics_tests)
 
 add_subdirectory(boundaries)
 
+# R-Type: the game of example/rtype, run as a host and as a dedicated server (needs the client module for its scene)
+if(TARGET kuge-client AND TARGET rtype-room)
+    add_executable(kuge_rtype_tests rtype/rtype_test.cpp)
+    target_link_libraries(kuge_rtype_tests PRIVATE rtype-client rtype-room kronklab-static)
+    target_compile_options(kuge_rtype_tests PRIVATE -Wall -Wextra)
+    kuge_add_test(kuge_rtype_tests kuge_rtype_tests)
+endif()
+
 add_executable(kuge_replication_tests
     replication/prediction_test.cpp
     replication/replication_test.cpp
@@ -113,4 +121,12 @@ if(TARGET kuge_platformer)
     add_test(NAME platformer_smoke
         COMMAND ${CMAKE_COMMAND} -DGAME=$<TARGET_FILE:kuge_platformer> -DOUT=${CMAKE_CURRENT_BINARY_DIR}/platformer.ppm
                 -P ${PROJECT_SOURCE_DIR}/cmake/RunPlatformer.cmake)
+endif()
+
+# R-Type as real programs: a server and a client over the network, then the host (both in one process)
+if(TARGET kuge_rtype_server AND TARGET kuge_rtype_client AND TARGET kuge_rtype_host)
+    add_test(NAME rtype_smoke
+        COMMAND sh ${PROJECT_SOURCE_DIR}/cmake/RunRType.sh
+                $<TARGET_FILE:kuge_rtype_server> $<TARGET_FILE:kuge_rtype_client> $<TARGET_FILE:kuge_rtype_host>
+                ${CMAKE_CURRENT_BINARY_DIR}/rtype)
 endif()

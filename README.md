@@ -36,6 +36,7 @@ drawing code: the build system makes it impossible to include what you did not l
 | Network: transports (TCP, UDP, in-memory), reliable messages | done |
 | Server: lobby, rooms, sessions and tokens, matchmaking client | done |
 | Replication (snapshots, interpolation) and client-side prediction | done |
+| One game, three ways (R-Type: server, client, host), with no window on the server | done |
 | 3D (kronk3d) | planned |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
@@ -84,6 +85,7 @@ A dedicated server would link `kuge-core` and `kuge-physics` only.
 | `build/example/kuge_pong` | Pong for two players. W/S and Up/Down, Space to serve, Esc to quit. `keybinds.cfg` is written on the first launch: edit it to rebind. |
 
 | `build/example/kuge_chat_server`, `kuge_chat_client` | A chat over the network: a server with no window (lobby and rooms of four), and a terminal client. `kuge_chat_client Ana --say hello --wait 2` says it once and leaves. |
+| `build/example/kuge_rtype_server [port]`, `kuge_rtype_client`, `kuge_rtype_host` | R-Type, the small one: up to four ships shoot waves of enemies. The **server** has no window, the **client** connects to it, the **host** runs the room and the window in one process (see [R-Type](#r-type-one-game-three-ways)). Arrows or WASD, Space to fire. `--frames N --screenshot f.ppm` plays a scripted pilot. |
 | `build/example/kuge_platformer` | A platformer that uses everything: tilemap, animations, physics, HUD text, menus, sounds and saves. A/D or arrows, Space to jump, Esc to pause (Resume / Save game / Main menu). Collect the 8 coins; avoid the blobs. `--font <file.ttf>` picks the font. |
 
 `kuge_pong --frames 90 --screenshot out.ppm` plays a scripted match without waiting and
@@ -855,6 +857,60 @@ Nothing in it reads a clock: it is driven by the ticks and the frame durations t
 tested with a network, and a time, of its own: the same network and the same inputs give the same positions,
 tick for tick, bit for bit.
 
+## R-Type: one game, three ways
+
+`example/rtype` is the check that the modules make any game, and that the separation of the client and the
+server is real. It is one game, in one set of files, run three ways, and none of them changes the engine:
+
+```
+example/rtype/
+  common/   what both sides share: the vocabulary (Steer, Health...), what is replicated, the arena, the rules
+  server/   RTypeRoom (a RoomScene) and main(): no window, links kuge-server
+  client/   RTypeScene (a ClientScene) and main(): a window, links kuge-client
+  host/     main(): both, in one process
+```
+
+| Program | What it is | How it reaches the room |
+|---|---|---|
+| `kuge_rtype_server [port]` | a **dedicated server**: lobby and rooms, no window (`Headless`) | clients come over TCP (lobby) and UDP (rooms) |
+| `kuge_rtype_client [--host H --port P]` | the **client**: window, keys, drawing | sockets |
+| `kuge_rtype_host` | a **player who hosts**: the client scene on the main thread, the room on a thread of its own | a loopback network of the process |
+| `platformer` (the other example) | **solo**: core, client, physics, no network at all | none |
+
+- The **rules** (`Rules.cpp`) are plain functions on a World: bullets fly, enemies come and wave, things hit, ships
+  die, the game is over. They are tested alone, and the room only calls them.
+- The **room** applies the inputs (`InputServer`), moves the ships (the same `steerShip` and physics as the
+  client's prediction), runs the rules, and shows the World to the clients (`ReplicationServer`). It knows
+  nothing of a screen.
+- The **client scene** joins with a `MatchmakingClient`, predicts its own ship (a private world with the arena and
+  the ship), draws the others between the snapshots, and puts a `Sprite` on each entity that appears (a prefab):
+  the server never sends how things look. It asks for another game when one ends.
+- The **host** is `RTypeScene` and `RTypeRoom` again: only `ClientOptions::sockets = false` changes, and a server
+  thread is started. A game that lets a player host the match is that, and nothing more.
+
+`ctest` plays it: the rules alone (a bullet kills, an enemy hits, the same seed gives the same game); a host with
+two pilots (they see each other, the bullets and the enemies, a game ends and the next one starts, pilots come and
+go); a dedicated server over real sockets, with four pilots; the server stopping with pilots in a game; and
+`rtype_smoke`, which starts the real programs (server, then client, then host) on SDL's dummy screen and checks
+the picture they leave.
+
+**What building it showed** (the point of the exercise: what the modules did not do well enough). Three
+defects, all fixed in the modules, none in the game:
+
+1. *`MatchmakingClient` did not say that a room was lost when the lobby was lost.* A game that holds the room's
+   endpoint (a prediction, a replication client) kept a pointer to something already destroyed. `onRoomClosed` now
+   fires for every way a room can end, except the ones the caller asked for.
+2. *A socket transport read one datagram per poll* (that is all kronknet does in one call). A room polled 60 times
+   a second heard 60 packets a second, and a client sending an input each tick plus acknowledgements filled the
+   socket faster than it was emptied: inputs were applied later and later. A poll now reads until the socket is
+   empty (at most 512 packets), tested with a burst of 200 datagrams in one poll.
+3. *An entity owned by a player was always taken for the player's predicted entity*, so its bullets were given to
+   the prediction and never moved. A client now says which type it predicts (`predictType`).
+
+It also shows a rule of thumb: the client and the room must agree on the clock. A scripted client that slept
+"16 ms" instead of 1/60 s ran 4 % faster than its room, and its inputs piled up; the room keeps two inputs of
+margin (`InputServerConfig::jitter`), and the scripted runs keep an absolute schedule.
+
 ## Physics module (`kuge-physics`)
 
 It needs the core only, so a server has it too. Add it to a scene:
@@ -925,10 +981,12 @@ ctest --test-dir build --output-on-failure
 | `kuge_net_tests` | net: messages on the wire, the reliable channel alone, the loopback, endpoints (handshake, timeouts, refusals, junk), a lossy network, real TCP and UDP sockets, scenes on threads that talk |
 | `kuge_server_tests` | server: joining, rooms filling and multiplying, tokens (wrong, used, expired), silent peers, leaving, the lobby lost, a cut cable, the end of a game and playing again at once, 24 clients, pooled rooms, stopping with players, real sockets, a room that cannot open |
 | `kuge_replication_tests` | replication: spawns, changes and removals over a network that loses and reorders, big snapshots, interpolation (smooth, still then moving, rotation), prediction (same inputs same positions, immediate answer, walls, 100 ms latency with loss, a wall the client cannot see, snaps, replay of a whole run), the inputs on the server, and the whole stack through a room with two players |
+| `kuge_rtype_tests` | R-Type: the rules, a host (server and client in one process), a dedicated server over sockets with four pilots, the server stopping with players |
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
 | `boundary_*` | a module cannot include what it does not link |
+| `rtype_smoke` | the real R-Type programs (server, client, host) play a scripted game and leave a picture that is checked |
 | `pong_smoke`, `platformer_smoke` | the real binaries play a scripted game and leave a picture that is checked |
 
 Things that are worth knowing:
@@ -955,7 +1013,7 @@ modules/client/       kuge-client (input/, render/, animation/, audio/, ui/, bac
 modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net, Matchmaking)
 modules/server/       kuge-server (GameServer, the lobby, RoomScene)
 modules/replication/  kuge-replication (registry, snapshots, interpolation, inputs, prediction)
-example/              the headless example, pong/, platformer/ and chat/
+example/              the headless example, pong/, platformer/, chat/ and rtype/ (common, server, client, host)
 tests/                one folder per module, and the boundary tests
 vendor/               submodules: kronkworld, kronkpool, kronknet, kronk3d
 ```
