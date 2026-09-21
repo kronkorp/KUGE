@@ -116,6 +116,7 @@ struct PredSim
         inputs = std::make_unique<kuge::replication::InputServer<Steer>>(*serverEndpoint, kuge::replication::InputServerConfig{.jitter = jitter});
         client->attach(*clientEndpoint);
         client->setLocalPlayer(1);
+        client->predictType(PLAYER);
         for (int i = 0; i < 300 && !(clientEndpoint->connected() && serverEndpoint->connected()); ++i) {
             now += DT;
             serverEndpoint->poll();

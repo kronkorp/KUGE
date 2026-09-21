@@ -153,6 +153,8 @@ namespace kuge::net
             void disconnect(void);
 
             void onJoined(std::function<void(Endpoint&, const Welcome&)> handler) { m_onJoined = std::move(handler); }
+            //! The room is over, or lost: the endpoint that onJoined gave is gone (drop whatever holds it). Called
+            //! for every way a room ends but leave() and disconnect(), which the caller asked for.
             void onRoomClosed(std::function<void(RoomEnd)> handler) { m_onRoomClosed = std::move(handler); }
             //! Joining did not work, or the lobby is lost
             void onFailed(std::function<void(const std::string&)> handler) { m_onFailed = std::move(handler); }

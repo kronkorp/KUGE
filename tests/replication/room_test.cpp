@@ -135,6 +135,7 @@ namespace
                 networkId = welcome.networkId;
                 replication = std::make_unique<replication::ReplicationClient>(world, registry);
                 replication->setLocalPlayer(welcome.networkId);
+                replication->predictType(PLAYER);
                 replication->attach(room);
                 replication::PredictionConfig<Steer> config;
 

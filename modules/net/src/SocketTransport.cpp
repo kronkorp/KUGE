@@ -21,6 +21,7 @@ namespace kuge::net
         std::mutex g_kronknet;
 
         constexpr std::size_t FRAME_HEADER = 4;
+        constexpr int         MAX_READS_PER_POLL = 512;   //!< Datagrams or chunks taken from a socket in one poll
     }
 
     // -- StreamFramer -------------------------------------------------------------------------
@@ -103,7 +104,16 @@ namespace kuge::net
                     {
                         std::lock_guard lock(g_kronknet);
 
-                        knServer_runOnce(m_server, 0);
+                        // One call of kronknet reads one datagram (or one chunk of a stream): go on while it finds something,
+                        // or a busy peer would fill the socket faster than it is emptied
+                        for (int round = 0; round < MAX_READS_PER_POLL; ++round) {
+                            const std::size_t before = m_events.size();
+
+                            knServer_runOnce(m_server, 0);
+                            if (m_events.size() == before) {
+                                break;
+                            }
+                        }
                     }
                     for (auto& event : m_events) {
                         out.push_back(std::move(event));
@@ -293,7 +303,13 @@ namespace kuge::net
                         {
                             std::lock_guard lock(g_kronknet);
 
-                            knClient_runOnce(m_client, 0);
+                            for (int round = 0; round < MAX_READS_PER_POLL; ++round) {
+                                const std::size_t before = m_events.size();
+
+                                if (knClient_runOnce(m_client, 0) != KNEVTOK || m_events.size() == before) {
+                                    break;
+                                }
+                            }
                             // kronknet reports an end of stream by stopping, without always calling back
                             if (!m_over && !knClient_isRunning(m_client)) {
                                 lost();

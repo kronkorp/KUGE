@@ -55,8 +55,13 @@ namespace kuge::net
             }
         });
         lobby.onDisconnected([this](ConnectionId, DisconnectReason) {
+            const bool inRoom = m_state == State::ConnectingRoom || m_state == State::InRoom;
+
             m_lobby = nullptr;
             dropRoom();
+            if (inRoom && m_onRoomClosed) {
+                m_onRoomClosed(RoomEnd::Error);   // the game holds the room's endpoint: it must hear that it is gone
+            }
             fail("the lobby was lost");
         });
         lobby.on<RoomAssigned>([this](ConnectionId, const RoomAssigned& assigned) { connectRoom(assigned); });

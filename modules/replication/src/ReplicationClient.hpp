@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 namespace kuge::replication
 {
@@ -87,9 +88,13 @@ namespace kuge::replication
             //! Called before an entity of this type is removed
             void onDestroy(EntityType type, DestroyHook hook) { m_destroy[type] = std::move(hook); }
 
-            //! Entities that belong to this player (the network id from Welcome) are the client's own: what
-            //! their `predicted` components hold is set when they appear, then only given to onOwned()
+            //! The network id of this player (from Welcome): what it owns can be predicted (see predictType)
             void setLocalPlayer(NetworkId player) { m_localPlayer = player; }
+
+            //! The entities of this type that belong to this player are the client's own: what their `predicted`
+            //! components hold is set when they appear, then only given to onOwned(). Other entities of the player
+            //! (its bullets, say) are ordinary ones, moved by the server.
+            void predictType(EntityType type) { m_predictedTypes.insert(type); }
             void onOwned(OwnedHook hook) { m_owned = std::move(hook); }
 
             std::optional<kw::Entity> entity(NetworkId id) const;
@@ -128,7 +133,7 @@ namespace kuge::replication
             void process(std::uint32_t tick, std::uint32_t baseTick, std::uint32_t inputAck, const Bytes& ops);
             void applyToWorld(const WorldState& next, std::uint32_t tick, std::uint32_t inputAck);
             void spawn(NetworkId id, const EntityRecord& record, std::uint32_t tick);
-            bool isOwned(const EntityRecord& record) const { return m_localPlayer != 0 && record.owner == m_localPlayer; }
+            bool isOwned(const EntityRecord& record) const { return m_localPlayer != 0 && record.owner == m_localPlayer && m_predictedTypes.count(record.type) != 0; }
             void ack(std::uint32_t tick);
 
             kw::World&                              m_world;
@@ -138,6 +143,7 @@ namespace kuge::replication
             std::map<EntityType, SpawnHook>         m_spawn;
             std::map<EntityType, DestroyHook>       m_destroy;
             NetworkId                               m_localPlayer = 0;
+            std::set<EntityType>                    m_predictedTypes;
             OwnedHook                               m_owned;
 
             std::map<std::uint32_t, WorldState>     m_states;        //!< Applied snapshots, by tick

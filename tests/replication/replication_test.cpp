@@ -506,6 +506,30 @@ Test(interpolation, rotation_by_the_short_way)
     Assert(std::fabs(sim.clientWorld.get<kuge::Transform2D>(*sim.client->entity(1)).rotation - 10.0f) < 0.01f, "and it ends at 10");
 }
 
+Test(replication, owned_but_not_predicted)
+{
+    // A player owns its ship and its bullets: only the ship is predicted. The bullets are moved by the server,
+    // like any entity, and are not given to the prediction.
+    RepSim sim;
+    std::vector<std::uint32_t> owned;
+
+    sim.client->setLocalPlayer(7);
+    sim.client->predictType(SHIP);
+    sim.client->onOwned([&owned](kw::Entity, const EntityRecord& record, std::uint32_t, std::uint32_t) { owned.push_back(record.type); });
+    const kw::Entity ship = sim.spawn(SHIP, 0, 0, 100, 1, 7);
+    const kw::Entity bullet = sim.spawn(BULLET, 0, 50, 1, 0, 7);
+
+    for (int t = 0; t < 120; ++t) {
+        sim.serverWorld.get<kuge::Transform2D>(bullet).position.x += 2.0f;
+        sim.step();
+    }
+    (void)ship;
+    Assert(!owned.empty() && std::all_of(owned.begin(), owned.end(), [](std::uint32_t type) { return type == SHIP; }), "only the ship was given to onOwned");
+    const auto onClient = sim.client->entity(2);
+
+    Assert(onClient.has_value() && sim.clientWorld.get<kuge::Transform2D>(*onClient).position.x > 150.0f, "the bullet moves on the client: %f", onClient ? sim.clientWorld.get<kuge::Transform2D>(*onClient).position.x : -1.0f);
+}
+
 Test(interpolation, a_new_entity_is_placed)
 {
     RepSim sim;

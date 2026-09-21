@@ -415,6 +415,38 @@ Test(udp, packets_both_ways)
     Assert(watch.serverEvents.back().packet == patterned(100, 1) && watch.clientEvents.back().packet == patterned(300, 2), "each datagram whole");
 }
 
+Test(udp, a_burst_in_one_poll)
+{
+    // kronknet reads one datagram per call: a transport must not leave the rest in the socket, or a peer that
+    // sends more than it polls (an input each tick, plus acknowledgements) is heard later and later
+    auto [server, port] = serve(false);
+    auto client = makeUdpClient("127.0.0.1", port);
+    Watch watch;
+
+    Assert(pollUntil(*server, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Connected) == 1; }), "ready");
+    for (std::uint8_t i = 0; i < 200; ++i) {
+        Assert(client->send(CLIENT_CONNECTION, std::vector<std::uint8_t>(20, i)), "sent %d", i);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::vector<TransportEvent> events;
+
+    server->poll(events);                                           // one poll
+    AssertEq(count(events, TransportEvent::Kind::Packet), 200, "all 200 came out of one poll");
+    // And the other way
+    ConnectionId id = 0;
+
+    for (const auto& event : events) {
+        if (event.kind == TransportEvent::Kind::Connected) { id = event.connection; }
+    }
+    for (std::uint8_t i = 0; i < 100; ++i) {
+        server->send(id, std::vector<std::uint8_t>(20, i));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    events.clear();
+    client->poll(events);
+    AssertEq(count(events, TransportEvent::Kind::Packet), 100, "and the client too");
+}
+
 Test(udp, the_biggest_datagram)
 {
     auto [server, port] = serve(false);
