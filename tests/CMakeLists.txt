@@ -39,6 +39,7 @@ if(TARGET kuge-client)
         client/image_test.cpp
         client/input_map_test.cpp
         client/keys_test.cpp
+        client/platformer_test.cpp
         client/pong_test.cpp
         client/sdl_audio_test.cpp
         client/sdl_font_test.cpp
@@ -52,7 +53,8 @@ if(TARGET kuge-client)
         client/ui_render_test.cpp
     )
     target_link_libraries(kuge_client_tests PRIVATE kuge-client kronklab-static)
-    target_include_directories(kuge_client_tests PRIVATE ${PROJECT_SOURCE_DIR}/example/pong)
+    target_include_directories(kuge_client_tests PRIVATE ${PROJECT_SOURCE_DIR}/example/pong ${PROJECT_SOURCE_DIR}/example/platformer)
+    target_link_libraries(kuge_client_tests PRIVATE kuge-physics)
     target_compile_options(kuge_client_tests PRIVATE -Wall -Wextra)
     kuge_add_test(kuge_client_tests kuge_client_tests)
 endif()
@@ -62,4 +64,10 @@ if(TARGET kuge_pong)
     add_test(NAME pong_smoke
         COMMAND ${CMAKE_COMMAND} -DPONG=$<TARGET_FILE:kuge_pong> -DOUT=${CMAKE_CURRENT_BINARY_DIR}/pong.ppm
                 -P ${PROJECT_SOURCE_DIR}/cmake/RunPong.cmake)
+endif()
+
+if(TARGET kuge_platformer)
+    add_test(NAME platformer_smoke
+        COMMAND ${CMAKE_COMMAND} -DGAME=$<TARGET_FILE:kuge_platformer> -DOUT=${CMAKE_CURRENT_BINARY_DIR}/platformer.ppm
+                -P ${PROJECT_SOURCE_DIR}/cmake/RunPlatformer.cmake)
 endif()
