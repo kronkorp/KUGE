@@ -44,6 +44,8 @@ namespace kuge
      *    Ref<AssetManager<Sound>> and Ref<AssetManager<Music>>;
      *  - ActionState (what the player asked for at the last tick, see SampleInput);
      *  - Camera2D, WhitePixel, and AnimationEvents (the cues of the animations);
+     *  - (textures().loadAsync() reads pictures on the worker threads: the texture is made,
+     *    and its ticket ready, at the start of a loop)
      *  - Ref<TextRenderer>, to draw text (see also loadFont() and the interface, ui/Ui.hpp).
      * See ClientScene for the systems that use them.
      */

@@ -1,4 +1,5 @@
 add_executable(kuge_tests
+    core/asset_async_test.cpp
     core/asset_manager_test.cpp
     core/asset_reload_test.cpp
     core/config_file_test.cpp
@@ -47,6 +48,7 @@ kuge_add_test(kuge_logger_init_tests kuge_logger_init_tests)
 if(TARGET kuge-client)
     add_executable(kuge_client_tests
         client/animation_test.cpp
+        client/async_load_test.cpp
         client/audio_test.cpp
         client/client_module_test.cpp
         client/hot_reload_test.cpp

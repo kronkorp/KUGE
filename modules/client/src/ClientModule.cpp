@@ -6,6 +6,7 @@
 #include "audio/DummyAudio.hpp"
 #include "input/ActionState.hpp"
 #include "render/Components.hpp"
+#include "render/ImageDecoder.hpp"
 #include <stdexcept>
 
 namespace
@@ -53,6 +54,16 @@ void kuge::ClientModule::onAttach(Engine& engine)
     if (engine.config().mode != Engine::Mode::Windowed) {
         throw std::logic_error("ClientModule needs an Engine in Mode::Windowed");
     }
+    // A picture is read and decoded on a worker, and made into a texture here (by pump(), in
+    // beginFrame()): a texture belongs to the thread of the renderer
+    m_textures.enableAsync(
+        [&engine]() -> ThreadPool& { return engine.pool(); },
+        [](const std::filesystem::path& path) -> std::any { return decodeImageFile(path); },
+        [this](std::any&& data, const std::filesystem::path&) {
+            const Image image = std::any_cast<Image>(std::move(data));
+
+            return Texture::fromPixels(*m_backend.renderer, image.width, image.height, image.rgba);
+        });
 }
 
 void kuge::ClientModule::inject(kw::World& world)
@@ -73,6 +84,7 @@ void kuge::ClientModule::inject(kw::World& world)
 
 void kuge::ClientModule::beginFrame(Engine& engine)
 {
+    m_textures.pump();
     m_events.clear();
     m_backend.input->poll(m_events);
     for (const Event& event : m_events) {

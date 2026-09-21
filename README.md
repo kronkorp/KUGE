@@ -32,7 +32,7 @@ drawing code: the build system makes it impossible to include what you did not l
 | Audio (buses, sounds at a place, music), fonts and text, UI (menus, HUD) | done |
 | A complete solo game (`kuge_platformer`) | done |
 | Hot reload of textures, sounds and musics | done |
-| Multithreading (scenes on threads) | planned |
+| Multithreading: scenes on threads, messages, workers, background loading | done |
 | Network, server, replication | planned |
 | 3D (kronk3d) | planned |
 
@@ -175,8 +175,69 @@ class MoveRight : public kw::ISystem
 };
 ```
 
+A system that throws ends that pass (the systems after it do not run) and the exception comes
+out of the scene's tick or frame, so `run()` and `step()` report it; nothing is left half done.
+
 `kuge::Time` is a resource of every scene's World: `dt` (the fixed step), `tick`, `alpha`
 (Frame only) and `frameDt`.
+
+### Threads
+
+Only the scenes of the main stack run on the thread that calls `run()`. Others can be
+**spawned**, with a policy that says where they run:
+
+| `RunPolicy` | Runs |
+|---|---|
+| `Main` | On the main thread, in the loop of the engine, next to the main scenes (a HUD, a host's game). |
+| `Dedicated` | On a thread of its own, with its own loop at the tick rate (a server room, a lobby). |
+| `Pooled` | On the worker threads: a driver works out when each scene is due and hands its tick to a worker. Many scenes on few threads. |
+
+```cpp
+kuge::SceneHandle room = ctx().spawn<RoomScene>(kuge::RunPolicy::Dedicated, settings);
+room.send(StartMatch{});     // from any thread
+...
+room.stop();                 // it is popped, at the start of its next loop
+```
+
+The scene is built by the caller with the arguments (they are copied or moved into it), and
+entered, ticked and left by the thread that runs it. `ctx().spawn` makes the caller its
+**parent**: `ctx().parent()` (in the spawned scene) is a handle to send answers to.
+`engine.spawn<T>()` does the same from outside a scene (no parent).
+
+**Nothing is shared between scenes**, whatever thread they run on: each has its own `World`
+and loop, and they only talk through **messages**.
+
+- `SceneHandle` (copyable, can outlive the scene) is all you get of another scene:
+  `send(value)`, `stop()`, `alive()`. `ctx().self()` is a scene's own handle, to give to others.
+- A message is any value (`Message`, moved in, so it may be a type that cannot be copied).
+  The receiver gets it in `onMessage(const Message&)`, at the start of each of its loops and
+  before its ticks, in the order they were sent, and reads it back by type:
+  `if (const auto* joined = message.as<PlayerJoined>()) { ... }`.
+- The mailbox is bounded (4096 by default): when it is full, or the scene is gone, `send`
+  returns `false` instead of growing without end.
+- A paused scene (another one is over it) hears its messages when it runs again.
+
+Good to know:
+
+- **A late scene does not pile up work.** A loop catches up at most `maxCatchUp` ticks (see
+  [The loop](#the-loop)); a pooled scene never gets a new tick while its last one still runs.
+- **Modules and threads.** A module's `inject()` gives resources to the scenes it is
+  entered in. The client's window, renderer and sound device belong to the main thread, so a
+  module only injects into the scenes of other threads if it says
+  `sharedAcrossThreads() == true` (the default is no). A server room does not get the client.
+- **Ending.** When `run()` ends (or the engine is destroyed) every spawned scene is left,
+  `onExit()` included, on the thread that ran it, and the threads are joined. Waiting threads
+  are woken at once (no waiting for the end of a sleep). A spawned scene that throws is logged
+  and stopped; the others go on.
+- `scenes()` and `time()` of a scene's `ctx()` are those of *its* loop: use them from the
+  scene, not from another thread.
+- `engine.pool()` is the pool of worker threads (`Config::workers`, default: one per CPU),
+  `ThreadPool::post(fn)` runs something on it. `engine.spawned()` counts the scenes still running.
+
+The parts, if you need to read them: `SceneLoop` (a scene stack and its clock, driven by
+whoever owns it), `TickDriver` (the pooled scenes), `Mailbox`, `StopSignal`.
+
+The `Logger` can be used from any thread: a line is never cut by another one.
 
 ### Modules
 
@@ -207,15 +268,17 @@ reach systems as `kuge::Ref<T>` resources (a pointer that lives in the World):
 
 | Header | What it gives |
 |---|---|
-| `Engine.hpp` | The loop. `Config{mode, tickRate, maxCatchUp, maxFps}`, `run()`, `stop()` (any thread), `step(seconds)` (one loop, for tests), SIGINT/SIGTERM handled. |
+| `Engine.hpp` | The loop. `Config{mode, tickRate, maxCatchUp, maxFps, workers}`, `run()`, `stop()` (any thread), `step(seconds)` (one loop, for tests), `spawn<T>(policy, ...)`, `pool()`, SIGINT/SIGTERM handled. |
 | `Scene.hpp`, `SceneManager.hpp` | Scenes and their stack. `Scene::setup()` gives a `SceneSetup` to functions that install systems (`installPhysics`). |
+| `Message.hpp`, `Mailbox.hpp`, `SceneHandle.hpp` | Messages between scenes (see [Threads](#threads)). |
+| `SceneLoop.hpp`, `TickDriver.hpp`, `ThreadPool.hpp`, `StopSignal.hpp` | What runs scenes on threads, and the worker threads (kronkpool). |
 | `Module.hpp`, `Ref.hpp` | Modules and `Ref<T>` resources. |
 | `Time.hpp`, `Stage.hpp`, `FixedTimestep.hpp` | The clock, the stages, and the accumulator (which knows nothing about clocks: it is tested by giving it frame durations). |
 | `Math2D.hpp`, `Transform2D.hpp` | `Vec2`, `Rect` (y points down, angles are degrees, clockwise), `Transform2D`, `PreviousTransform2D`. |
 | `Serializer.hpp` | `ByteWriter` / `ByteReader`: binary data, little-endian, the same on every machine. Everything read is checked (sizes announced by the data are verified before allocating). Versioned headers (`writeHeader`/`readHeader`), atomic file writes (`writeFile`). |
 | `ConfigFile.hpp` | `key = value` files with `[sections]`, typed reads with fallbacks, alphabetical output. |
 | `TileMap.hpp` | A level made of tiles, as data (see [Tilemaps](#tilemaps)). |
-| `AssetManager.hpp` | Loads files once and shares them while somebody holds them. With a reloader, `reloadChanged()` reloads in place the files that changed (see [Hot reload](#hot-reload)). |
+| `AssetManager.hpp` | Loads files once and shares them while somebody holds them. `loadAsync()` reads them on the workers (see [Loading in the background](#loading-in-the-background)); with a reloader, `reloadChanged()` reloads in place the files that changed (see [Hot reload](#hot-reload)). |
 | `Save.hpp` | `SaveSlots`: named, versioned, checksummed save files (see [Saves](#saves)). |
 | `Snapshot.hpp` | `SnapshotRegistry`: what of a `World` goes in a save, and how. |
 | `UserDirectory.hpp` | `userDirectory(UserDir::Config or Data, game)`: where the player's files live. |
@@ -423,6 +486,26 @@ after the sprites). A menu is therefore: build the entities, then a system that 
 `UiEvents` and acts (see `MenuLogic` in `example/platformer/Platformer.hpp`). Layout is one
 frame behind what you just changed.
 
+### Loading in the background
+
+Reading and decoding a picture takes time, and stalls a frame if it is done in the middle of
+the game. `client.textures().loadAsync(path)` gives a **ticket** at once and reads the file
+on a worker thread; the texture itself is made by the main thread (a texture belongs to the
+renderer's thread) at the start of the next loops:
+
+```cpp
+auto ticket = client.textures().loadAsync("boss.png");
+...
+if (auto texture = ticket->asset()) { sprite.texture = texture; }   // Ready
+else if (ticket->state() == Ticket::State::Failed) { log(ticket->error()); }
+```
+
+Asking twice for a file that is on its way shares the load, and a file that is already
+loaded gives a ticket that is ready at once. It is generic: `AssetManager<T>::enableAsync(
+pool, prepare, finish)` takes the two halves (`prepare`: file to data, on a worker; `finish`:
+data to asset, on the thread that calls `pump()`). The client does it for textures and pumps
+at the start of each loop. A ticket holds its asset: let go of the ticket once you have it.
+
 ### Hot reload
 
 While you work on a game, you do not want to restart it for each change of a picture or a
@@ -552,7 +635,8 @@ ctest --test-dir build --output-on-failure
 
 | Program | Covers |
 |---|---|
-| `kuge_tests` | core: loop, scenes, modules, serializer, config, tilemaps, assets, saves, snapshots |
+| `kuge_tests` | core: loop, scenes, modules, serializer, config, tilemaps, assets (reload, background), saves, snapshots, messages, and scenes on threads |
+| `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
 | `boundary_*` | a module cannot include what it does not link |
@@ -567,7 +651,8 @@ Things that are worth knowing:
   seam-free tile edges in the drawing).
 - Sanitizers: `cmake -S . -B build-asan -DKUGE_SANITIZE=address` (also UBSan) and
   `-DKUGE_SANITIZE=thread` (on a recent kernel, run the tests with `setarch "$(uname -m)" -R`).
-  Everything is clean under both.
+  Everything is clean under both, threads included (the thread tests are the reason TSan matters:
+  16 scenes with 10 000 ticks each, a ring of scenes passing a message, a hundred starts and stops).
 
 ## Project layout
 
