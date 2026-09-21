@@ -62,3 +62,24 @@ void kuge::Scene::shutdown(void)
     }
     m_systems.clear();
 }
+
+kw::World& kuge::SceneSetup::world(void) noexcept
+{
+    return m_scene.world();
+}
+
+kuge::SceneContext& kuge::SceneSetup::ctx(void) noexcept
+{
+    return m_scene.ctx();
+}
+
+kw::SystemHandle kuge::SceneSetup::addSystem(
+    kw::Schedule schedule,
+    kw::StageId stage,
+    std::unique_ptr<kw::ISystem> system,
+    std::size_t delay,
+    std::size_t interval
+)
+{
+    return m_scene.addSystem(schedule, stage, std::move(system), delay, interval);
+}

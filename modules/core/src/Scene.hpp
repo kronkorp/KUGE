@@ -12,6 +12,38 @@ namespace kuge
 
     class Engine;
     class SceneManager;
+    class Scene;
+
+    ////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief  What a function that installs something in a scene may use: its
+     *         World, its context, and adding systems (see Scene::setup())
+     *
+     *     void installPhysics(kuge::SceneSetup scene, PhysicsConfig config = {});
+     */
+    ////////////////////////////////////////////////////////////////////////////
+    class SceneSetup
+    {
+        public:
+            kw::World&    world(void) noexcept;
+            SceneContext& ctx(void) noexcept;
+
+            //! Same as Scene::addSystem()
+            kw::SystemHandle addSystem(
+                kw::Schedule                 schedule,
+                kw::StageId                  stage,
+                std::unique_ptr<kw::ISystem> system,
+                std::size_t                  delay    = 1,
+                std::size_t                  interval = 1
+            );
+
+        private:
+            friend class Scene;
+
+            explicit SceneSetup(Scene& scene) noexcept : m_scene(scene) {}
+
+            Scene& m_scene;
+    };
 
     ////////////////////////////////////////////////////////////////////////////
     /**
@@ -63,9 +95,13 @@ namespace kuge
 
             bool removeSystem(const kw::SystemHandle& handle);
 
+            //! Lets a function install systems and resources in this scene
+            SceneSetup setup(void) noexcept { return SceneSetup(*this); }
+
         private:
             friend class Engine;
             friend class SceneManager;
+            friend class SceneSetup;
 
             void attach(const SceneContext& context);
             void fixedTick(const Time& time);
