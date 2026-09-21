@@ -35,6 +35,11 @@ kuge_add_test(kuge_physics_tests kuge_physics_tests)
 
 add_subdirectory(boundaries)
 
+add_executable(kuge_server_tests server/server_test.cpp)
+target_link_libraries(kuge_server_tests PRIVATE kuge-server kronklab-static)
+target_compile_options(kuge_server_tests PRIVATE -Wall -Wextra)
+kuge_add_test(kuge_server_tests kuge_server_tests)
+
 add_executable(kuge_net_tests
     net/endpoint_test.cpp
     net/loopback_test.cpp
