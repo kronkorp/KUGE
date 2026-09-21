@@ -2,6 +2,7 @@
 #include "Engine.hpp"
 #include "Ref.hpp"
 #include "animation/Animation.hpp"
+#include "audio/DummyAudio.hpp"
 #include "input/ActionState.hpp"
 #include "render/Components.hpp"
 #include <stdexcept>
@@ -13,6 +14,9 @@ namespace
         if (!backend.window || !backend.input || !backend.renderer) {
             throw std::invalid_argument("ClientModule: the backend needs a window, inputs and a renderer");
         }
+        if (!backend.audio) {
+            backend.audio = std::make_unique<kuge::DummyAudio>();   // no sound: the game just does not make any
+        }
         return backend;
     }
 }
@@ -22,7 +26,15 @@ kuge::ClientModule::ClientModule(Backend backend, ClientConfig config)
       m_config(config),
       m_textures([this](const std::filesystem::path& path) {
           return Texture::fromFile(*m_backend.renderer, path);
-      })
+      }),
+      m_mixer(*m_backend.audio),
+      m_sounds([this](const std::filesystem::path& path) {
+          return std::make_shared<Sound>(*m_backend.audio, m_backend.audio->loadSound(path));
+      }),
+      m_musics([this](const std::filesystem::path& path) {
+          return std::make_shared<Music>(*m_backend.audio, m_backend.audio->loadMusic(path));
+      }),
+      m_text(*m_backend.renderer)
 {
     const std::uint8_t pixel[4] = {255, 255, 255, 255};
 
@@ -42,6 +54,10 @@ void kuge::ClientModule::inject(kw::World& world)
     world.addResource<Ref<IRenderer2D>>(*m_backend.renderer);
     world.addResource<Ref<InputMap>>(m_input);
     world.addResource<Ref<AssetManager<Texture>>>(m_textures);
+    world.addResource<Ref<Audio>>(m_mixer);
+    world.addResource<Ref<AssetManager<Sound>>>(m_sounds);
+    world.addResource<Ref<AssetManager<Music>>>(m_musics);
+    world.addResource<Ref<TextRenderer>>(m_text);
     world.addResource<WhitePixel>(WhitePixel{m_white});
     world.addResource<ActionState>();
     world.addResource<Camera2D>();
@@ -58,6 +74,7 @@ void kuge::ClientModule::beginFrame(Engine& engine)
         }
         m_input.handle(event);
     }
+    m_text.beginFrame();
     m_backend.renderer->begin(m_config.clearColor);
 }
 
@@ -68,6 +85,7 @@ void kuge::ClientModule::endFrame(Engine&)
         m_screenshot = m_backend.renderer->readPixels();
     }
     m_backend.renderer->present();
+    m_mixer.update();
 }
 
 std::optional<kuge::Image> kuge::ClientModule::takeScreenshot(void)
@@ -76,4 +94,20 @@ std::optional<kuge::Image> kuge::ClientModule::takeScreenshot(void)
 
     m_screenshot.reset();
     return taken;
+}
+
+std::shared_ptr<kuge::IFont> kuge::ClientModule::loadFont(const std::filesystem::path& file, int pointSize)
+{
+    const auto key = std::make_pair(file.lexically_normal().string(), pointSize);
+
+    if (!m_backend.fonts) {
+        throw FontError("this backend has no fonts");
+    }
+    if (auto known = m_fonts[key].lock()) {
+        return known;
+    }
+    std::shared_ptr<IFont> font = m_backend.fonts->load(file, pointSize);
+
+    m_fonts[key] = font;
+    return font;
 }

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "audio/IAudio.hpp"
 #include "backend/IInputSource.hpp"
 #include "backend/IRenderer2D.hpp"
 #include "backend/IWindow.hpp"
+#include "ui/Font.hpp"
 #include <memory>
 #include <stdexcept>
 
@@ -31,6 +33,8 @@ namespace kuge
         std::unique_ptr<IWindow>      window;
         std::unique_ptr<IInputSource> input;
         std::unique_ptr<IRenderer2D>  renderer;
+        std::unique_ptr<IAudio>       audio;   //!< Optional: without it, the game is silent
+        std::unique_ptr<IFontLoader>  fonts;   //!< Optional: without it, no text can be shown
     };
 
 }

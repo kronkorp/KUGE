@@ -66,6 +66,8 @@ endif()
 
 if(KUGE_BUILD_CLIENT)
     find_package(SDL2 REQUIRED)
+    find_package(SDL2_mixer REQUIRED)
+    find_package(SDL2_ttf REQUIRED)
 
     # Header-only image loader. Pinned, and only fetched for the client.
     FetchContent_Declare(

@@ -1,6 +1,8 @@
 #pragma once
 
+#include "audio/DummyAudio.hpp"
 #include "backend/Backend.hpp"
+#include "backend/dummy/DummyFont.hpp"
 #include <map>
 #include <string>
 #include <vector>
@@ -102,6 +104,8 @@ namespace kuge
         DummyWindow*   window;
         DummyInput*    input;
         DummyRenderer* renderer;
+        DummyAudio*    audio;
+        DummyFontLoader* fonts;
     };
 
     DummyBackend makeDummyBackend(Vec2 size = {640.0f, 480.0f});

@@ -23,6 +23,8 @@ struct TestScene : kuge::ClientScene
     }
 
     using kuge::Scene::addSystem;
+    using kuge::Scene::ctx;
+    using kuge::Scene::setup;
 
     std::function<void(TestScene&)> m_setup;
 };

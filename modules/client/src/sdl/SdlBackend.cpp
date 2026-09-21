@@ -1,4 +1,5 @@
 #include "backend/SdlBackend.hpp"
+#include "Logger.hpp"
 #include "sdl/SdlKeys.hpp"
 #include <SDL.h>
 #include <algorithm>
@@ -401,5 +402,11 @@ kuge::Backend kuge::makeSdlBackend(const WindowConfig& config)
     backend.window = std::make_unique<SdlWindow>(context);
     backend.input = std::make_unique<SdlInput>(context);
     backend.renderer = std::make_unique<SdlRenderer>(context);
+    backend.fonts = makeSdlFontLoader();
+    try {
+        backend.audio = makeSdlAudio();
+    } catch (const AudioError& error) {
+        Logger::logger().warn("no sound: {}", error.what());
+    }
     return backend;
 }

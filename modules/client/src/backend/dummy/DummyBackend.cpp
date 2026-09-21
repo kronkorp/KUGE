@@ -57,10 +57,14 @@ kuge::DummyBackend kuge::makeDummyBackend(Vec2 size)
     auto window = std::make_unique<DummyWindow>(size);
     auto input = std::make_unique<DummyInput>();
     auto renderer = std::make_unique<DummyRenderer>(size);
-    DummyBackend result{{}, window.get(), input.get(), renderer.get()};
+    auto audio = std::make_unique<DummyAudio>();
+    auto fonts = std::make_unique<DummyFontLoader>();
+    DummyBackend result{{}, window.get(), input.get(), renderer.get(), audio.get(), fonts.get()};
 
     result.backend.window = std::move(window);
     result.backend.input = std::move(input);
     result.backend.renderer = std::move(renderer);
+    result.backend.audio = std::move(audio);
+    result.backend.fonts = std::move(fonts);
     return result;
 }
