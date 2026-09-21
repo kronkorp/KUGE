@@ -35,6 +35,17 @@ kuge_add_test(kuge_physics_tests kuge_physics_tests)
 
 add_subdirectory(boundaries)
 
+add_executable(kuge_net_tests
+    net/endpoint_test.cpp
+    net/loopback_test.cpp
+    net/reliable_test.cpp
+    net/unreliable_network_test.cpp
+    net/wire_test.cpp
+)
+target_link_libraries(kuge_net_tests PRIVATE kuge-net kronklab-static)
+target_compile_options(kuge_net_tests PRIVATE -Wall -Wextra)
+kuge_add_test(kuge_net_tests kuge_net_tests)
+
 add_executable(kuge_logger_tests logger/logger_test.cpp)
 target_link_libraries(kuge_logger_tests PRIVATE kuge-logger kronklab-static)
 target_compile_options(kuge_logger_tests PRIVATE -Wall -Wextra)
