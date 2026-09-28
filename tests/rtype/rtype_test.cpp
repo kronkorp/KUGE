@@ -240,6 +240,24 @@ Test(rtype_rules, a_ship_dies)
     AssertEq(static_cast<int>(outcome(arena.world, true)), static_cast<int>(Outcome::Lost), "all ships are dead: the players lose");
 }
 
+Test(rtype_rules, a_ship_is_found_by_its_owner)
+{
+    // The room finds a pilot's ship by its owner, never by a number it kept: the World gives the number of a
+    // dead ship to the next entity it makes, and a kept number would then name somebody else's ship
+    shortGames();
+    settings().waveSize = 0;
+    Arena arena;
+    const kw::Entity first = arena.ship({100.0f, 100.0f}, 1);
+
+    Assert(shipOf(arena.world, 1) == first, "a pilot's ship is found by its owner");
+    arena.world.remove(first);                                      // Ana's ship dies...
+    const kw::Entity second = arena.ship({100.0f, 200.0f}, 2);      // ...and Ben joins
+
+    Assert(second == first, "(the World gave the dead ship's number to the new one: what this test is about)");
+    Assert(!shipOf(arena.world, 1), "Ana has no ship any more: her inputs steer nothing, her leaving removes nothing");
+    Assert(shipOf(arena.world, 2) == second, "and Ben's ship is his");
+}
+
 Test(rtype_rules, the_wave_and_the_end)
 {
     shortGames();

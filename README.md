@@ -984,7 +984,8 @@ ctest --test-dir build --output-on-failure
 | Program | Covers |
 |---|---|
 | `kuge_tests` | core: loop, scenes, modules, serializer, config, tilemaps, assets (reload, background), saves, snapshots, messages, and scenes on threads |
-| `kuge_net_tests` | net: messages on the wire, the reliable channel alone, the loopback, endpoints (handshake, timeouts, refusals, junk), a lossy network, real TCP and UDP sockets, scenes on threads that talk |
+| `kuge_net_tests` | net: messages on the wire, the reliable channel alone, the loopback, endpoints (handshake, timeouts, refusals, junk), a lossy network, real TCP and UDP sockets, scenes on threads that talk, endpoints ended by their own handlers |
+| `kuge_net_fault_tests` | net: UDP when a socket's send buffer is full (`send`/`sendto` are wrapped at link time to say "try again"): nothing is glued, nothing is lost |
 | `kuge_server_tests` | server: joining, rooms filling and multiplying, tokens (wrong, used, expired), silent peers, leaving, the lobby lost, a cut cable, the end of a game and playing again at once, 24 clients, pooled rooms, stopping with players, real sockets, a room that cannot open |
 | `kuge_replication_tests` | replication: spawns, changes and removals over a network that loses and reorders, big snapshots, interpolation (smooth, still then moving, rotation), prediction (same inputs same positions, immediate answer, walls, 100 ms latency with loss, a wall the client cannot see, snaps, replay of a whole run), the inputs on the server, and the whole stack through a room with two players |
 | `kuge_rtype_tests` | R-Type: the rules, a host (server and client in one process), a dedicated server over sockets with four pilots, the server stopping with players |

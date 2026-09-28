@@ -41,6 +41,16 @@ namespace rtype
         return sorted<Gun>(world);
     }
 
+    std::optional<kw::Entity> shipOf(kw::World& world, std::uint32_t player)
+    {
+        for (kw::Entity ship : ships(world)) {
+            if (world.get<Owned>(ship).player == player) {
+                return ship;
+            }
+        }
+        return std::nullopt;
+    }
+
     void fire(kw::World& world, kw::Entity ship)
     {
         auto& gun = world.get<Gun>(ship);

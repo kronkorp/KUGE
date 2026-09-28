@@ -1,6 +1,7 @@
 extern "C" {
     #include "kronklab/kronklab.h"
 }
+#include "Net.hpp"
 #include "net_fixture.hpp"
 #include <algorithm>
 #include <set>
@@ -408,4 +409,68 @@ Test(endpoint, two_names_one_id)
     try { server->on<B>([](ConnectionId, const B&) {}); } catch (const std::logic_error&) { threw = true; }
     Assert(threw, "a collision is an error, not a wrong dispatch");
     server->on<A>([](ConnectionId, const A&) {});
+}
+
+// -- An endpoint ended by its own handlers ----------------------------------------------------------
+// Handlers may end their endpoint: MatchmakingClient removes a room's endpoint from its Net when the room
+// is lost. The endpoint must not touch itself once a handler has destroyed it.
+
+Test(endpoint, a_handler_destroys_its_endpoint)
+{
+    Sim sim;
+    auto server = sim.server();
+    auto client = sim.client();
+    bool told = false;
+
+    sim.until([&] { return client->connected(); }, 2.0, *server, *client);
+    client->onDisconnected([&](ConnectionId, DisconnectReason) {
+        told = true;
+        client.reset();
+    });
+    client->disconnect(CLIENT_CONNECTION);      // outside a poll: the handler runs in there
+    Assert(told && !client, "the handler ran, and destroyed the endpoint");
+    sim.run(0.1, 0.01, *server);
+    Assert(!server->connected(), "the server was told");
+}
+
+Test(endpoint, net_remove_in_a_handler)
+{
+    Sim sim;
+    auto server = sim.server();
+    kuge::net::Net net;
+    Endpoint& client = net.connect("room", sim.network, sim.config());
+    bool told = false;
+
+    sim.until([&] { return client.connected(); }, 2.0, *server, net);
+    client.onDisconnected([&](ConnectionId, DisconnectReason) {
+        told = true;
+        net.remove(client);                     // what MatchmakingClient does
+    });
+    client.disconnect(CLIENT_CONNECTION);
+    Assert(told && net.count() == 0, "the handler ran, and the Net let go of the endpoint");
+}
+
+Test(endpoint, destroyed_by_a_message)
+{
+    Sim sim;
+    auto server = sim.server();
+    auto client = sim.client();
+    int heard = 0;
+
+    sim.until([&] { return client->connected(); }, 2.0, *server, *client);
+    client->on<Number>([&](ConnectionId, const Number&) {
+        ++heard;
+        client.reset();                         // "the game is over": the connection is dropped
+    });
+    const ConnectionId id = server->connections().front();
+
+    server->send(id, Number{1});
+    server->send(id, Number{2});
+    for (int i = 0; i < 50 && client; ++i) {
+        sim.now += 0.01;
+        server->poll();
+        client->poll();                         // both messages arrive in the same poll
+    }
+    Assert(!client, "the endpoint is gone");
+    AssertEq(heard, 1, "and nothing of it ran after the handler that destroyed it");
 }

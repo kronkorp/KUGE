@@ -93,6 +93,7 @@ The rules themselves:
 void fire(kw::World& world, kw::Entity ship);      // a shot, if the gun is ready
 void stepRules(kw::World& world, double dt);       // one tick: bullets fly, enemies come and move, things are hit
 Outcome outcome(kw::World& world, bool anyShipEver);   // Playing, Won or Lost
+std::optional<kw::Entity> shipOf(kw::World& world, std::uint32_t player);   // a player's ship, if it is alive
 ```
 
 `stepRules` does, in this order:

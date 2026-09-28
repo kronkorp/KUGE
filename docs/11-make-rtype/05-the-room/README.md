@@ -26,7 +26,6 @@ class RTypeRoom : public kuge::server::RoomScene
         kuge::replication::ReplicationRegistry                m_registry;
         std::unique_ptr<kuge::replication::ReplicationServer> m_replication;
         std::unique_ptr<kuge::replication::InputServer<Steer>> m_inputs;
-        std::map<kuge::net::ConnectionId, kw::Entity>         m_ships;     // each player's ship
         bool                                                  m_anyShip = false;
 };
 ```
@@ -84,14 +83,15 @@ The **order matters**: replication is last so a snapshot always describes a fini
 void RTypeRoom::applyInputs(kw::World& world)
 {
     for (const auto& applied : m_inputs->collect()) {         // one input per player, in order
-        const auto found = m_ships.find(applied.connection);
+        const Player* who = player(applied.connection);
+        const auto ship = who ? shipOf(world, who->networkId) : std::nullopt;
 
-        if (found == m_ships.end() || !world.has<Gun>(found->second)) {
+        if (!ship) {
             continue;                                          // a player whose ship is dead
         }
-        steerShip(world, found->second, applied.input);
+        steerShip(world, *ship, applied.input);
         if (applied.input.fire && !applied.repeated) {
-            fire(world, found->second);
+            fire(world, *ship);
         }
         m_replication->setInputAck(applied.connection, applied.sequence);
     }
@@ -99,7 +99,12 @@ void RTypeRoom::applyInputs(kw::World& world)
 ```
 
 `collect()` (see [10](../../10-replication-and-prediction/README.md)) gives exactly one input per player per tick,
-in order, and repeats the last one if the next has not arrived. Two details:
+in order, and repeats the last one if the next has not arrived. Three details:
+
+- **The ship is found by its owner** (`shipOf`, in the rules), at each tick. The room does not keep a map from
+  player to entity: when a ship dies, the World gives its number to the next entity it makes, and a kept number
+  would then name somebody else's ship. A player who joins later could get it, and the dead player's inputs would
+  steer it.
 
 - **`!applied.repeated`** on firing: if the input is only a *repeat* because the real one is late, do not fire
   again. Holding the key would otherwise shoot extra bullets when the network hiccups. (Movement is fine to repeat.)
@@ -121,7 +126,6 @@ void RTypeRoom::onPlayerJoined(const Player& player)
     m_replication->track(ship, SHIP, player.networkId);        // "this is a SHIP, and it belongs to this player"
     m_replication->addClient(player.connection);               // start sending this player snapshots
     m_inputs->addClient(player.connection);                    // and listening to its inputs
-    m_ships[player.connection] = ship;
     m_anyShip = true;
 }
 ```
@@ -132,8 +136,8 @@ is what makes the entity exist on the clients.
 
 The colour slot comes from the network id, so the four ships get four colours.
 
-`onPlayerLeft` removes the ship (the clients see it disappear at the next snapshot) and stops the replication and
-input for that connection.
+`onPlayerLeft` removes the player's ship if it is still alive (found with `shipOf`, like the inputs), which the
+clients see at the next snapshot, and stops the replication and input for that connection.
 
 ## The end of a game
 

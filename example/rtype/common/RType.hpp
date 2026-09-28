@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -162,5 +163,9 @@ namespace rtype
 
     //! The ships of the World, by increasing entity
     std::vector<kw::Entity> ships(kw::World& world);
+
+    //! The ship of a player (by network id), if it is alive. Found by its owner each time, never kept: the World
+    //! gives the number of a dead ship to the next entity it makes, so a kept number could name another ship.
+    std::optional<kw::Entity> shipOf(kw::World& world, std::uint32_t player);
 
 }

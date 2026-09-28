@@ -45,19 +45,13 @@ namespace rtype
         m_replication->track(ship, SHIP, player.networkId);
         m_replication->addClient(player.connection);
         m_inputs->addClient(player.connection);
-        m_ships[player.connection] = ship;
         m_anyShip = true;
     }
 
     void RTypeRoom::onPlayerLeft(const Player& player, kuge::net::DisconnectReason)
     {
-        const auto found = m_ships.find(player.connection);
-
-        if (found != m_ships.end()) {
-            if (world().has<Gun>(found->second)) {
-                world().remove(found->second);
-            }
-            m_ships.erase(found);
+        if (const auto ship = shipOf(world(), player.networkId)) {
+            world().remove(*ship);
         }
         m_replication->removeClient(player.connection);
         m_inputs->removeClient(player.connection);
@@ -66,14 +60,15 @@ namespace rtype
     void RTypeRoom::applyInputs(kw::World& world)
     {
         for (const auto& applied : m_inputs->collect()) {
-            const auto found = m_ships.find(applied.connection);
+            const Player* who = player(applied.connection);
+            const auto ship = who ? shipOf(world, who->networkId) : std::nullopt;
 
-            if (found == m_ships.end() || !world.has<Gun>(found->second)) {
-                continue;
+            if (!ship) {
+                continue;   // a player whose ship is dead
             }
-            steerShip(world, found->second, applied.input);
+            steerShip(world, *ship, applied.input);
             if (applied.input.fire && !applied.repeated) {
-                fire(world, found->second);
+                fire(world, *ship);
             }
             m_replication->setInputAck(applied.connection, applied.sequence);
         }

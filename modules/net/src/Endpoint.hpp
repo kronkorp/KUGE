@@ -77,7 +77,8 @@ namespace kuge::net
      *
      * **Thread**: an endpoint belongs to one thread, the one that calls poll().
      * Handlers run inside poll() (and inside disconnect()), after the endpoint has
-     * done its own work, so they may send, broadcast and disconnect freely.
+     * done its own work, so they may send, broadcast and disconnect freely. They may
+     * even destroy the endpoint (or remove it from its Net): nothing of it runs after.
      */
     ////////////////////////////////////////////////////////////////////////////
     class Endpoint
@@ -180,8 +181,9 @@ namespace kuge::net
 
             struct Handler
             {
-                std::string                                    name;
-                std::function<void(ConnectionId, ByteReader&)> run;
+                std::string                                                     name;
+                // (shared: the one that runs is a copy, which lives on if the handler replaces itself)
+                std::shared_ptr<const std::function<void(ConnectionId, ByteReader&)>> run;
             };
 
             double now(void) const { return m_clock(); }
@@ -214,6 +216,7 @@ namespace kuge::net
             bool                                        m_clientClosed = false;
             EndpointStats                               m_stats;
             std::uint64_t                               m_closedResends = 0, m_closedDuplicates = 0;   // of connections that are gone
+            std::shared_ptr<bool>                       m_alive = std::make_shared<bool>(true);         // false once destroyed (by a handler, maybe)
     };
 
 }

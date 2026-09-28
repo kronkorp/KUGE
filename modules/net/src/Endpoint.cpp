@@ -57,6 +57,7 @@ namespace kuge::net
     {
         const double time = now();
 
+        *m_alive = false;
         // Whoever is connected is told: they need not wait for a timeout
         for (auto& [id, connection] : m_connections) {
             if (connection.state == State::Connected) {
@@ -72,7 +73,7 @@ namespace kuge::net
         if (found != m_handlers.end() && found->second.name != name) {
             throw std::logic_error(std::string("net: the messages '") + name + "' and '" + found->second.name + "' have the same id: rename one");
         }
-        m_handlers[id] = Handler{name, std::move(run)};
+        m_handlers[id] = Handler{name, std::make_shared<const std::function<void(ConnectionId, ByteReader&)>>(std::move(run))};
     }
 
     // -- Sending ---------------------------------------------------------------------------------
@@ -159,7 +160,8 @@ namespace kuge::net
         const ConnectionId id = connection.id;
 
         connection.state = State::Connected;
-        m_deferred.push_back([this, id] { if (m_onConnected) { m_onConnected(id); } });
+        // (A copy runs: the handler may destroy this endpoint, and itself with it)
+        m_deferred.push_back([this, id] { if (const ConnectedHandler handler = m_onConnected) { handler(id); } });
     }
 
     void Endpoint::close(ConnectionId id, DisconnectReason reason, bool tellPeer, bool closeTransport)
@@ -185,7 +187,7 @@ namespace kuge::net
         }
         // A server does not report a connection that never got through the handshake
         if (wasConnected || m_role == Role::Client) {
-            m_deferred.push_back([this, id, reason] { if (m_onDisconnected) { m_onDisconnected(id, reason); } });
+            m_deferred.push_back([this, id, reason] { if (const DisconnectedHandler handler = m_onDisconnected) { handler(id, reason); } });
         }
     }
 
@@ -255,6 +257,8 @@ namespace kuge::net
 
     void Endpoint::handleMessage(ConnectionId from, std::span<const std::uint8_t> message)
     {
+        const std::shared_ptr<bool> alive = m_alive;
+
         try {
             ByteReader in(message);
             const std::uint32_t id = in.read<std::uint32_t>();
@@ -265,9 +269,13 @@ namespace kuge::net
                 ++m_stats.unknownMessages;
                 return;
             }
-            found->second.run(from, in);
+            const auto run = found->second.run;   // (a copy: the handler may destroy this endpoint, or replace itself)
+
+            (*run)(from, in);
         } catch (const SerializerError& error) {
-            ++m_stats.malformed;
+            if (*alive) {
+                ++m_stats.malformed;
+            }
             Logger::logger().warn("net: a malformed message from connection {} was dropped: {}", from, error.what());
         }
     }
@@ -463,15 +471,20 @@ namespace kuge::net
         runDeferred();
     }
 
-    // The handlers run when the endpoint is in order: they may do anything to it
+    // The handlers run when the endpoint is in order: they may do anything to it, destroy it included
     void Endpoint::runDeferred(void)
     {
+        const std::shared_ptr<bool> alive = m_alive;
+
         while (!m_deferred.empty()) {
             std::vector<std::function<void(void)>> run;
 
             run.swap(m_deferred);
             for (auto& job : run) {
                 job();
+                if (!*alive) {
+                    return;   // a handler destroyed this endpoint: nothing of it may be touched, and what is left is dropped
+                }
             }
         }
     }
