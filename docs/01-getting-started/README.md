@@ -10,10 +10,13 @@
 
 ```sh
 git clone --recurse-submodules <url> kuge && cd kuge
-cmake -S . -B build
+cmake -S . -B build -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+Without the two options, only the modules are built. Some tests run the examples, so the whole
+suite needs both.
 
 `vendor/` holds submodules (kronkworld, the ECS; kronkpool, the thread pool; kronknet, the sockets;
 kronk3d, for later). kronkflow (the scheduler), kronklab (the test library) and stb (image loading)
@@ -23,8 +26,8 @@ are fetched at a fixed commit.
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build the client module. Turn it off for a server: no SDL needed. |
 | `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so`, every module in one shared library. |
-| `KUGE_BUILD_EXAMPLE` | `ON` | Build the examples. |
-| `KUGE_BUILD_TESTS` | `ON` | Build the tests. |
+| `BUILD_EXAMPLES` | `OFF` | Build the examples. |
+| `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. See [testing](../12-testing-and-debugging/README.md). |
 
 ## Run the examples

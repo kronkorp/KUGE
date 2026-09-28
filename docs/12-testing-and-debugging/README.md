@@ -3,6 +3,8 @@
 ## Running the tests
 
 ```sh
+cmake -S . -B build -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON   # the smoke tests and R-Type's run the examples
+cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
@@ -48,10 +50,10 @@ Three things to know:
 Threaded and networked code is where the worst bugs hide: races, use after free, leaks. Two sanitizers find them:
 
 ```sh
-cmake -S . -B build-asan -DKUGE_SANITIZE=address     # AddressSanitizer + UndefinedBehaviorSanitizer
+cmake -S . -B build-asan -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DKUGE_SANITIZE=address   # ASan + UBSan
 cmake --build build-asan -j && ctest --test-dir build-asan
 
-cmake -S . -B build-tsan -DKUGE_SANITIZE=thread      # ThreadSanitizer
+cmake -S . -B build-tsan -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DKUGE_SANITIZE=thread    # ThreadSanitizer
 cmake --build build-tsan -j
 setarch "$(uname -m)" -R build-tsan/tests/kuge_net_tests    # on a recent kernel, disable address randomization
 ```

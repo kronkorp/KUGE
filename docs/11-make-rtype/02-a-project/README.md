@@ -59,6 +59,7 @@ endif()
 
 ## Check it as you go
 
+The game is an example, so it is only built with `-DBUILD_EXAMPLES=ON` (and its tests with `-DBUILD_TESTS=ON`).
 Build only the pieces you have. After step 4 you can build `rtype-common` alone; after step 5 the server:
 
 ```sh
@@ -68,7 +69,7 @@ cmake --build build --target kuge_rtype_server
 A very useful habit: build a **server-only** configuration now and then, to be sure nothing client-side slipped in:
 
 ```sh
-cmake -S . -B build-server -DKUGE_BUILD_CLIENT=OFF
+cmake -S . -B build-server -DKUGE_BUILD_CLIENT=OFF -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON
 cmake --build build-server -j
 ```
 

@@ -1807,7 +1807,7 @@ options.network = &network;
 ## Step 7: Build and play
 
 ```sh
-cmake -S . -B build
+cmake -S . -B build -DBUILD_EXAMPLES=ON
 cmake --build build -j --target starfall_server starfall_client starfall_host
 
 ./build/example/starfall/starfall_server 4242                                  # a dedicated server
@@ -1820,7 +1820,8 @@ cmake --build build -j --target starfall_server starfall_client starfall_host
 - **Behind a NAT**, set `ServerConfig::roomAddress` to the public address. It is what the lobby tells clients to use
   for rooms; left empty, clients use the address they reached the lobby with.
 - **A server-only build**, on a machine with no SDL:
-  `cmake -S . -B build-server -DKUGE_BUILD_CLIENT=OFF`, then `cmake --build build-server --target starfall_server`.
+  `cmake -S . -B build-server -DKUGE_BUILD_CLIENT=OFF -DBUILD_EXAMPLES=ON`, then
+  `cmake --build build-server --target starfall_server`.
 - **No screen** (CI, a container): run with `SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy`.
 
 ## Step 8: Tests

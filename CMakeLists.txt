@@ -18,8 +18,8 @@ endif()
 
 option(KUGE_BUILD_SHARED  "Also build kuge.so, an aggregate of every module" ON)
 option(KUGE_BUILD_CLIENT  "Build the client module (window, inputs, 2D rendering: needs SDL2)" ON)
-option(KUGE_BUILD_EXAMPLE "Build the example/ executable" ON)
-option(KUGE_BUILD_TESTS   "Build the tests (run them with ctest)" ON)
+option(BUILD_EXAMPLES     "Build the example/ executables" OFF)
+option(BUILD_TESTS        "Build the tests (run them with ctest)" OFF)
 set(KUGE_SANITIZE "" CACHE STRING "Build with a sanitizer: address (+ undefined) or thread")
 set_property(CACHE KUGE_SANITIZE PROPERTY STRINGS "" address thread)
 
@@ -83,7 +83,17 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/kronkorp/kronkflow
     GIT_TAG        1e0ab7372d15d8b89aace08798769707bff47e65
 )
+# Only the modules are built by default: kronkflow reads BUILD_TESTS too, and
+# kronkutils (which it fetches) includes CTest, whose BUILD_TESTING is ON. Both
+# are hidden from them, whatever KUGE's own BUILD_TESTS is.
+set(BUILD_TESTS OFF)
+set(BUILD_TESTING OFF)
 FetchContent_MakeAvailable(kronkflow)
+unset(BUILD_TESTS)
+unset(BUILD_TESTING)
+# What the modules link (kronkflow, kronkutils, kronkpool) is still built; the
+# rest (their shared libraries, kronklab) only when something needs it.
+set_property(DIRECTORY "${kronkflow_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL ON)
 
 include(cmake/KugeModule.cmake)
 
@@ -126,11 +136,11 @@ endif()
 # ---------------------------------------------------------------------------
 # Example and tests
 # ---------------------------------------------------------------------------
-if(KUGE_BUILD_EXAMPLE)
+if(BUILD_EXAMPLES)
     add_subdirectory(example)
 endif()
 
-if(KUGE_BUILD_TESTS)
+if(BUILD_TESTS)
     enable_testing()
     FetchContent_MakeAvailable(kronklab)
     add_subdirectory(tests)

@@ -57,6 +57,14 @@ need them). A machine with no sound card still runs a game: it is just silent.
 git clone --recurse-submodules <url> kuge && cd kuge
 cmake -S . -B build
 cmake --build build -j
+```
+
+That builds the modules only. For the examples and the tests (some tests run the examples,
+so the whole suite needs both):
+
+```sh
+cmake -S . -B build -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON
+cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
@@ -64,8 +72,8 @@ ctest --test-dir build --output-on-failure
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build `kuge-client` (needs SDL2, SDL2_mixer, SDL2_ttf). Turn it off for a server. |
 | `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so`, every module in one shared library. |
-| `KUGE_BUILD_EXAMPLE` | `ON` | Build the examples. |
-| `KUGE_BUILD_TESTS` | `ON` | Build the tests. |
+| `BUILD_EXAMPLES` | `OFF` | Build the examples. |
+| `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. |
 
 Dependencies are pinned: `vendor/` holds the submodules (kronkworld, kronkpool, kronknet,
@@ -84,6 +92,8 @@ target_link_libraries(my_game PRIVATE kuge-client kuge-physics)   # brings kuge-
 A dedicated server would link `kuge-core` and `kuge-physics` only.
 
 ### Examples
+
+Built with `-DBUILD_EXAMPLES=ON`.
 
 | Program | What it shows |
 |---|---|
@@ -978,6 +988,8 @@ atomically (a temporary file, then a rename), so a crash never leaves half a fil
 ## Tests
 
 ```sh
+cmake -S . -B build -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON   # the smoke tests and R-Type's run the examples
+cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
@@ -1003,7 +1015,7 @@ Things that are worth knowing:
 - Tests that protect against a specific mistake were checked by **breaking the protection on
   purpose** and seeing the test fail (sub-stepping and the contact skin in the physics, the
   seam-free tile edges in the drawing).
-- Sanitizers: `cmake -S . -B build-asan -DKUGE_SANITIZE=address` (also UBSan) and
+- Sanitizers: `cmake -S . -B build-asan -DBUILD_TESTS=ON -DKUGE_SANITIZE=address` (also UBSan) and
   `-DKUGE_SANITIZE=thread` (on a recent kernel, run the tests with `setarch "$(uname -m)" -R`).
   Everything is clean under both, threads included (the thread tests are the reason TSan matters:
   16 scenes with 10 000 ticks each, a ring of scenes passing a message, a hundred starts and stops).

@@ -35,7 +35,7 @@ endif()
 Then, for the lab of step 2:
 
 ```sh
-cmake -S . -B build                          # once: it finds the new files
+cmake -S . -B build -DBUILD_EXAMPLES=ON      # once: it finds the new files
 cmake --build build --target lab02_loop
 ./build/example/lab02_loop
 ```
