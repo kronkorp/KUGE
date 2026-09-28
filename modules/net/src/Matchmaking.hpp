@@ -137,7 +137,7 @@ namespace kuge::net
             MatchmakingClient(const MatchmakingClient&)            = delete;
             MatchmakingClient& operator=(const MatchmakingClient&) = delete;
 
-            //! The lobby of a server (Tcp or Udp)
+            //! The lobby of a server (Tcp or Udp). Can be called again once the lobby was lost (state Failed) to try again.
             void connectLobby(Protocol protocol, const std::string& host, std::uint16_t port, EndpointConfig config = {});
 
             //! The lobby of a server of the same process, by name

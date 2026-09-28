@@ -56,9 +56,13 @@ namespace kuge::net
         });
         lobby.onDisconnected([this](ConnectionId, DisconnectReason) {
             const bool inRoom = m_state == State::ConnectingRoom || m_state == State::InRoom;
+            Endpoint* gone = m_lobby;
 
             m_lobby = nullptr;
             dropRoom();
+            if (gone) {
+                m_net.remove(*gone);   // (so that connectLobby() can be called again: to try once more)
+            }
             if (inRoom && m_onRoomClosed) {
                 m_onRoomClosed(RoomEnd::Error);   // the game holds the room's endpoint: it must hear that it is gone
             }

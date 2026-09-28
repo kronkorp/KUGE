@@ -7,7 +7,9 @@ extern "C" {
 #include "SocketTransport.hpp"
 #include "backend/dummy/DummyBackend.hpp"
 #include <chrono>
+#include <algorithm>
 #include <cmath>
+#include <map>
 #include <random>
 #include <thread>
 
@@ -119,7 +121,7 @@ namespace
         std::unique_ptr<kuge::server::GameServer> server;
         std::thread                             thread;
 
-        explicit Server(bool sockets, std::uint16_t lobbyPort = 0, std::uint16_t roomPort = 0, std::size_t maxPlayers = 4)
+        explicit Server(bool sockets, std::uint16_t lobbyPort = 0, std::uint16_t roomPort = 0, std::size_t maxPlayers = 4, kuge::net::LoopbackNetwork* shared = nullptr)
         {
             kuge::server::ServerConfig config;
 
@@ -130,7 +132,7 @@ namespace
                 config.roomPortCount = 8;
             } else {
                 config.transport = kuge::server::Transport::Loopback;
-                config.loopback = &network;
+                config.loopback = shared ? shared : &network;
             }
             server = std::make_unique<kuge::server::GameServer>(config);
             server->addRoomType<RTypeRoom>("rtype", kuge::server::RoomTypeConfig{.maxPlayers = maxPlayers, .idleTimeout = 30.0});
@@ -332,6 +334,186 @@ Test(rtype_host, a_game_ends)
     Assert(waitFor({&ana, &ben}, [&] { return ana.report->games == 2 && ben.report->games == 2; }, 20.0), "and they are in a new game");
     AssertEq(ana.report->joined, true, "joined");
     Assert(waitFor({&ana, &ben}, [&] { return host.server->engine().spawned() == 1; }, 10.0), "the first room is gone: one runs");
+}
+
+Test(rtype_host, clients_before_the_server)
+{
+    // Clients started first (or all at once with the server) find nobody: they try again until it is there
+    shortGames();
+    settings().waveSize = 1000;
+    kuge::net::LoopbackNetwork network;
+    ClientOptions options;
+
+    options.sockets = false;
+    options.network = &network;
+    options.name = "Ana";
+    Pilot ana(options);
+    options.name = "Ben";
+    Pilot ben(options);
+
+    fly({&ana, &ben}, 1.5);
+    AssertEq(ana.report->joined, false, "nobody to join yet");
+    Server host(false, 0, 0, 4, &network);
+
+    Assert(waitFor({&ana, &ben}, [&] { return ana.report->ships == 2 && ben.report->ships == 2; }, 20.0), "the server comes up: both join the same game (ana %zu, ben %zu)", ana.report->ships, ben.report->ships);
+}
+
+// -- Several rooms at the same time ------------------------------------------------------------------
+namespace
+{
+    // Pilots, made and kept together
+    struct Squad
+    {
+        std::vector<std::unique_ptr<Pilot>> pilots;
+
+        Squad(Server& server, std::size_t count, std::uint16_t lobbyPort = 0)
+        {
+            for (std::size_t i = 0; i < count; ++i) {
+                pilots.push_back(std::make_unique<Pilot>(server.options(("P" + std::to_string(i)).c_str(), lobbyPort)));
+            }
+        }
+
+        std::vector<Pilot*> all(void)
+        {
+            std::vector<Pilot*> list;
+
+            for (auto& pilot : pilots) { list.push_back(pilot.get()); }
+            return list;
+        }
+
+        // Who is in which room
+        std::map<std::uint32_t, std::vector<Pilot*>> byRoom(void)
+        {
+            std::map<std::uint32_t, std::vector<Pilot*>> rooms;
+
+            for (auto& pilot : pilots) { rooms[pilot->report->roomId].push_back(pilot.get()); }
+            return rooms;
+        }
+
+        bool allIn(void)
+        {
+            return std::all_of(pilots.begin(), pilots.end(), [](const auto& p) { return p->report->joined && p->report->ships >= 1; });
+        }
+    };
+}
+
+Test(rtype_rooms, games_do_not_mix)
+{
+    // Five pilots, two to a room: three games at once. Each pilot sees its own room only.
+    shortGames();
+    settings().waveSize = 1000;
+    Server host(false, 0, 0, 2);
+    Squad squad(host, 5);
+
+    Assert(waitFor(squad.all(), [&] { return squad.allIn() && host.server->stats().rooms == 3; }), "five pilots, three rooms");
+    Assert(waitFor(squad.all(), [&] {
+        const auto rooms = squad.byRoom();
+
+        return std::all_of(rooms.begin(), rooms.end(), [](const auto& room) {
+            return std::all_of(room.second.begin(), room.second.end(), [&room](Pilot* p) { return p->report->ships == room.second.size(); });
+        });
+    }), "each pilot sees as many ships as there are pilots in its room, and no other");
+    const auto rooms = squad.byRoom();
+    std::vector<std::size_t> sizes;
+
+    for (const auto& room : rooms) { sizes.push_back(room.second.size()); }
+    std::sort(sizes.begin(), sizes.end());
+    Assert(sizes == std::vector<std::size_t>({1, 2, 2}), "rooms of 2, 2 and 1");
+    AssertEq(rooms.size(), 3, "three room numbers");
+
+    // Only the pilots of the first room fire: nothing they do shows in the other rooms
+    const std::uint32_t firing = rooms.begin()->first;
+
+    for (Pilot* pilot : rooms.at(firing)) { pilot->press(kuge::Key::Space, true); }
+    fly(squad.all(), 2.5);
+    for (const auto& [room, pilots] : rooms) {
+        for (Pilot* pilot : pilots) {
+            if (room == firing) {
+                Assert(pilot->report->mostBullets > 0, "the shooters see their bullets");
+            } else {
+                AssertEq(pilot->report->mostBullets, 0, "room %u: nobody there fired: no bullet from another room shows", room);
+            }
+            Assert(pilot->report->mostEnemies > 0, "every room has its own enemies");
+        }
+    }
+}
+
+Test(rtype_rooms, one_room_leaves)
+{
+    shortGames();
+    settings().waveSize = 1000;
+    Server host(false, 0, 0, 2);
+    Squad squad(host, 4);
+
+    Assert(waitFor(squad.all(), [&] { return squad.allIn() && host.server->stats().rooms == 2; }), "four pilots, two rooms");
+    auto rooms = squad.byRoom();
+    const std::uint32_t leaving = rooms.begin()->first;
+    const std::uint32_t staying = rooms.rbegin()->first;
+
+    Assert(leaving != staying, "two different rooms");
+    for (Pilot* pilot : rooms.at(staying)) { pilot->press(kuge::Key::Space, true); }
+    // The pilots of the other room quit
+    for (auto& pilot : squad.pilots) {
+        if (pilot->report->roomId == leaving) {
+            pilot->engine.scenes().clear();
+        }
+    }
+    std::vector<Pilot*> remaining = rooms.at(staying);
+
+    fly(remaining, 2.0);
+    for (Pilot* pilot : remaining) {
+        AssertEq(pilot->report->ships, 2, "the game that goes on is not troubled: two ships");
+        Assert(pilot->report->mostBullets > 0 && pilot->report->prediction.snaps == 0, "it keeps running");
+    }
+    Assert(waitFor(remaining, [&] { return host.server->stats().players == 2; }), "the lobby counts the two that are left");
+}
+
+Test(rtype_rooms, games_end_apart)
+{
+    // Two rooms play short games and end one after the other: each pilot is told about its own room, and asks for the next
+    shortGames();
+    Server host(false, 0, 0, 2);
+    Squad squad(host, 4);
+
+    Assert(waitFor(squad.all(), [&] { return squad.allIn() && host.server->stats().rooms == 2; }), "two rooms");
+    for (auto& pilot : squad.pilots) { pilot->press(kuge::Key::Space, true); }
+    Assert(waitFor(squad.all(), [&] {
+        return std::all_of(squad.pilots.begin(), squad.pilots.end(), [](const auto& p) { return p->report->gamesEnded >= 1; });
+    }, 40.0), "every pilot hears that its game is over");
+    Assert(waitFor(squad.all(), [&] {
+        return std::all_of(squad.pilots.begin(), squad.pilots.end(), [](const auto& p) { return p->report->games >= 2 && p->report->ships >= 1; });
+    }, 25.0), "and is in a second game");
+    const auto rooms = squad.byRoom();
+
+    for (const auto& [room, pilots] : rooms) {
+        Assert(pilots.size() <= 2, "room %u holds at most two", room);
+    }
+    Assert(waitFor(squad.all(), [&] { return host.server->engine().spawned() == 2; }, 10.0), "two rooms run (the first two are gone)");
+}
+
+Test(rtype_rooms, over_real_sockets)
+{
+    // Six pilots on a dedicated server, three to a room: two rooms, each on a port of its own
+    shortGames();
+    settings().waveSize = 1000;
+    const std::uint16_t port = freePorts();
+    Server dedicated(true, port, static_cast<std::uint16_t>(port + 1), 3);
+    Squad squad(dedicated, 6, port);
+
+    Assert(waitFor(squad.all(), [&] { return squad.allIn() && dedicated.server->stats().rooms == 2; }), "six pilots, two rooms, over tcp and udp");
+    Assert(waitFor(squad.all(), [&] {
+        const auto rooms = squad.byRoom();
+
+        return rooms.size() == 2 && std::all_of(rooms.begin(), rooms.end(), [](const auto& room) {
+            return room.second.size() == 3 && std::all_of(room.second.begin(), room.second.end(), [](Pilot* p) { return p->report->ships == 3; });
+        });
+    }), "three and three, each seeing its three ships");
+    for (auto& pilot : squad.pilots) { pilot->press(kuge::Key::Space, true); }
+    fly(squad.all(), 2.5);
+    for (auto& pilot : squad.pilots) {
+        Assert(pilot->report->mostBullets > 0 && pilot->report->mostEnemies > 0, "bullets and enemies in every room");
+        AssertEq(pilot->report->replication.malformed, 0, "nothing malformed");
+    }
 }
 
 Test(rtype_host, pilots_come_and_go)

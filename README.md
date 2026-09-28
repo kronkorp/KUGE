@@ -20,6 +20,12 @@ hosts the match are all built from the same blocks.
 internals. A server links `kuge-core` (and `kuge-physics`) without SDL, a window or any
 drawing code: the build system makes it impossible to include what you did not link.
 
+## Documentation
+
+The [`docs/`](docs/README.md) folder explains the engine module by module, then builds a whole game with it: a small
+R-Type, as a dedicated server, a client and a host, from an empty folder to tests
+([start here](docs/11-make-rtype/README.md)). This README is the reference.
+
 ## Status
 
 | Part | State |

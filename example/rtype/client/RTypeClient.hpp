@@ -7,6 +7,7 @@
 #include "ClientModule.hpp"
 #include "ClientScene.hpp"
 #include "Input.hpp"
+#include "Logger.hpp"
 #include "Matchmaking.hpp"
 #include "Net.hpp"
 #include "Prediction.hpp"
@@ -60,6 +61,7 @@ namespace rtype
         bool            connected = false;          //!< Reached the lobby
         bool            joined = false;             //!< Was welcomed in a room, at least once
         std::uint32_t   networkId = 0;
+        std::uint32_t   roomId = 0;                 //!< Of the room it is in (or was in)
         std::size_t     ships = 0, bullets = 0, enemies = 0;                 //!< Entities that exist now
         std::size_t     mostShips = 0, mostBullets = 0, mostEnemies = 0;    //!< At the most
         std::uint64_t   games = 0;                  //!< Welcomes
@@ -94,6 +96,7 @@ namespace rtype
             struct Star { float speed; };
 
             void makeStars(void);
+            void connect(void);
             void spawned(kw::Entity entity, const kuge::replication::SpawnInfo& info);
             void joined(kuge::net::Endpoint& room, const kuge::net::Welcome& welcome);
             void tick(kw::World& world);
@@ -106,6 +109,7 @@ namespace rtype
             std::unique_ptr<kuge::replication::ReplicationClient> m_replication;
             std::unique_ptr<kuge::replication::Prediction<Steer>> m_prediction;
             std::uint32_t                                         m_networkId = 0;
+            std::uint32_t                                         m_waited = 0;   //!< Ticks since the lobby was lost
     };
 
     // -- Implementation ------------------------------------------------------------------------------------
@@ -179,6 +183,7 @@ namespace rtype
         m_prediction = std::make_unique<kuge::replication::Prediction<Steer>>(config, world(), m_registry, *m_replication, room);
         m_report->joined = true;
         m_report->networkId = welcome.networkId;
+        m_report->roomId = welcome.roomId;
         ++m_report->games;
     }
 
@@ -197,14 +202,19 @@ namespace rtype
                 m_matchmaking->join("rtype", m_options.name);
             }
         });
+        connect();
+        addSystem(kw::Schedule::Fixed, kuge::stage::Simulation, std::make_unique<Work>([this](kw::World& w) { tick(w); }));
+        addSystem(kw::Schedule::Frame, kuge::stage::Late, std::make_unique<Work>([this](kw::World& w) { frame(w); }));
+    }
+
+    inline void RTypeScene::connect(void)
+    {
         if (m_options.sockets) {
             m_matchmaking->connectLobby(kuge::net::Protocol::Tcp, m_options.host, m_options.port);
         } else {
             m_matchmaking->connectLobby(m_options.lobby, m_options.network ? *m_options.network : kuge::net::LoopbackNetwork::global());
         }
         m_matchmaking->join("rtype", m_options.name);
-        addSystem(kw::Schedule::Fixed, kuge::stage::Simulation, std::make_unique<Work>([this](kw::World& w) { tick(w); }));
-        addSystem(kw::Schedule::Frame, kuge::stage::Late, std::make_unique<Work>([this](kw::World& w) { frame(w); }));
     }
 
     // Each fixed tick: what the keys say goes to the prediction (and so to the server)
@@ -218,6 +228,16 @@ namespace rtype
         steer.fire = actions.isDown(Action::Fire);
         if (m_prediction) {
             m_prediction->tick(steer);
+        }
+        // No server (yet, or any more): try again every second, so that the clients can be started before the server
+        if (m_matchmaking->state() == kuge::net::MatchmakingClient::State::Failed) {
+            if (++m_waited >= 60) {
+                m_waited = 0;
+                Logger::logger().info("rtype: no server at {}:{}, trying again", m_options.host, m_options.port);
+                connect();
+            }
+        } else {
+            m_waited = 0;
         }
     }
 
