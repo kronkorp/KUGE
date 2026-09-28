@@ -163,10 +163,10 @@ Test(animation, a_loop_goes_round)
     for (int tick = 0; tick < 10; ++tick) {
         fx.frame(1.0 / 60.0);
         if (tick % 2 == 0) {   // in the middle of a frame: no rounding to worry about
-            Assert(sprite.source == cell(expected[tick]), "after %d ticks, cell %d: got x=%f y=%f", tick + 1, expected[tick], sprite.source.x, sprite.source.y);
+            Assert(sprite.frame == expected[tick], "after %d ticks, cell %d: got %d", tick + 1, expected[tick], sprite.frame);
         }
     }
-    Assert(sprite.texture != nullptr, "the sprite got the picture of the sheet");
+    Assert(sprite.sheet == fx.scene->world().get<kuge::Animator>(e).sheet, "the sprite got the sheet");
 }
 
 Test(animation, a_clip_that_ends_hands_over)
@@ -179,14 +179,14 @@ Test(animation, a_clip_that_ends_hands_over)
     auto& animator = fx.scene->world().get<kuge::Animator>(e);
 
     fx.frame(1.0 / 60.0);
-    Assert(sprite.source == cell(4), "the first frame");
+    Assert(sprite.frame == 4, "the first frame");
     fx.frame(1.0 / 60.0);
     fx.frame(1.0 / 60.0);
-    Assert(sprite.source == cell(5) && animator.current() == "hit", "the second");
+    Assert(sprite.frame == 5 && animator.current() == "hit", "the second");
     fx.frame(1.0 / 60.0);
     fx.frame(1.0 / 60.0);
     Assert(animator.current() == "idle", "then it goes to the next clip");
-    Assert(sprite.source == cell(0), "on its first frame");
+    Assert(sprite.frame == 0, "on its first frame");
 }
 
 Test(animation, a_clip_can_stay_at_the_end)
@@ -199,11 +199,11 @@ Test(animation, a_clip_can_stay_at_the_end)
     for (int i = 0; i < 40; ++i) {
         fx.frame(1.0 / 60.0);
     }
-    Assert(sprite.source == cell(10), "it holds its last frame");
+    Assert(sprite.frame == 10, "it holds its last frame");
     Assert(animator.finished && animator.current() == "die", "and knows it ended");
     fx.scene->world().get<kuge::Animator>(e).play("die");
     fx.frame(1.0 / 60.0);
-    Assert(sprite.source == cell(8) && !animator.finished, "asked again, it plays from the start");
+    Assert(sprite.frame == 8 && !animator.finished, "asked again, it plays from the start");
 }
 
 Test(animation, speed_and_pause)
@@ -217,20 +217,20 @@ Test(animation, speed_and_pause)
     for (int i = 0; i < 10; ++i) {
         fx.frame(1.0 / 60.0);
     }
-    Assert(sprite.source == cell(0), "speed 0: frozen");
+    Assert(sprite.frame == 0 && sprite.sheet != nullptr, "speed 0: frozen on the first frame");
     animator.speed = 1.0f;
     animator.playing = false;
     for (int i = 0; i < 10; ++i) {
         fx.frame(1.0 / 60.0);
     }
-    Assert(sprite.source == cell(0), "not playing: frozen too");
+    Assert(sprite.frame == 0, "not playing: frozen too");
     animator.playing = true;
     animator.speed = 2.0f;
     for (int i = 0; i < 5; ++i) {
         fx.frame(1.0 / 60.0);
     }
     // 5 ticks at twice the speed: 10 ticks of a clip that runs at 30 fps = 5 frames, in the middle of frame 5
-    Assert(sprite.source == cell(5), "twice as fast: got x=%f y=%f", sprite.source.x, sprite.source.y);
+    Assert(sprite.frame == 5, "twice as fast: got %d", sprite.frame);
 }
 
 Test(animation, cues_fire_once)
@@ -325,4 +325,45 @@ Test(animation, the_frame_is_drawn)
     Assert(calls[0].kind == kuge::DummyRenderer::Call::Kind::Texture, "drawn with its texture");
     Assert(calls[0].texture.source == cell(6), "showing the cell of the frame");
     Assert(calls[0].destination.w == 8.0f && calls[0].destination.h == 8.0f, "at the size of a cell");
+}
+
+Test(animation, loop_plays_every_cell)
+{
+    kw::Entity e = 0;
+    Fixture fx([&e](TestScene& scene) {
+        e = scene.world().create();
+        scene.world().add<kuge::Transform2D>(e, kuge::Transform2D{});
+        scene.world().add<kuge::Sprite>(e, kuge::Sprite{});
+        scene.world().add<kuge::Animator>(e, kuge::Animator::loop(makeSheet(scene.world()), 30.0f));
+    });
+    auto& sprite = fx.scene->world().get<kuge::Sprite>(e);
+    std::vector<int> seen;
+
+    for (int tick = 1; tick <= 25; ++tick) {
+        fx.frame(1.0 / 60.0);
+        if (tick % 2 == 1) {   // in the middle of a frame
+            seen.push_back(sprite.frame);
+        }
+    }
+    Assert(seen == std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0}), "the 12 cells in order, then again");
+    AssertStrEq(std::string(fx.scene->world().get<kuge::Animator>(e).current()).c_str(), "loop", "one clip, 'loop'");
+}
+
+Test(animation, loop_needs_cells)
+{
+    auto dummy = kuge::makeDummyBackend();
+    auto sheet = std::make_shared<kuge::Spritesheet>();
+    std::vector<std::uint8_t> pixels(16 * 8 * 4, 255);
+    int refused = 0;
+
+    try { kuge::Animator::loop(nullptr, 10.0f); } catch (const kuge::AnimationError&) { ++refused; }
+    try { kuge::Animator::loop(sheet, 10.0f); } catch (const kuge::AnimationError&) { ++refused; }
+    AssertEq(refused, 2, "no sheet, or a sheet with no picture yet: no cells to play");
+    sheet->texture = kuge::Texture::fromPixels(*dummy.renderer, 16, 8, pixels);
+    sheet->frameWidth = 8;
+    sheet->frameHeight = 8;
+    try { kuge::Animator::loop(sheet, 0.0f); } catch (const kuge::AnimationError&) { ++refused; }
+    AssertEq(refused, 3, "fps 0");
+    AssertEq(kuge::Animator::loop(sheet, 10.0f).clips->clips[0].frames.size(), 2, "2 cells, 2 frames");
+    sheet->texture.reset();
 }

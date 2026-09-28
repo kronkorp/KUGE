@@ -3,6 +3,7 @@
 #include "Math2D.hpp"
 #include "Transform2D.hpp"
 #include "render/Color.hpp"
+#include "render/Spritesheet.hpp"
 #include "render/Texture.hpp"
 #include <memory>
 
@@ -15,7 +16,10 @@ namespace kuge
         //! Without a texture, a plain rectangle of the color of the tint
         std::shared_ptr<Texture> texture;
         Rect   source{};                 //!< Part of the texture, in pixels. Width 0: all of it.
-        Vec2   size{};                   //!< In the world. (0, 0): the size of the picture.
+        //! With a sheet, the sprite is its cell number frame: texture and source are not used
+        std::shared_ptr<const Spritesheet> sheet;
+        int    frame = 0;                //!< A cell of the sheet (out of range: the first one)
+        Vec2   size{};                   //!< In the world. (0, 0): the size of the picture (of a cell, with a sheet).
         Vec2   pivot{0.5f, 0.5f};        //!< The point of the sprite at the position, and what it turns around
         Color  tint{};
         int    layer = 0;                //!< Higher layers are over the lower ones

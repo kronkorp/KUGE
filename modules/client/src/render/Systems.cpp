@@ -47,10 +47,12 @@ bool kuge::SpriteRender::handle(kw::World& world)
         if (world.has<PreviousTransform2D>(entity)) {
             transform = lerp(world.get<PreviousTransform2D>(entity).value, transform, alpha);
         }
+        // A sheet gives both the picture and the part of it
+        const std::shared_ptr<Texture>& texture = sprite.sheet ? sprite.sheet->texture : sprite.texture;
+        const Rect source = sprite.sheet ? sprite.sheet->frame(sprite.frame) : sprite.source;
         Vec2 size = sprite.size;
         if (size.x == 0.0f && size.y == 0.0f) {
-            size = sprite.source.w > 0.0f ? Vec2{sprite.source.w, sprite.source.h}
-                : (sprite.texture ? sprite.texture->size() : Vec2{});
+            size = source.w > 0.0f ? Vec2{source.w, source.h} : (texture ? texture->size() : Vec2{});
         }
         size = Vec2{size.x * transform.scale.x, size.y * transform.scale.y} * camera.zoom;
         const Vec2 at = camera.worldToScreen(transform.position, screen);
@@ -68,10 +70,10 @@ bool kuge::SpriteRender::handle(kw::World& world)
         item.layer = sprite.layer;
         item.z = sprite.z;
         item.entity = entity;
-        item.plain = sprite.texture == nullptr;
-        item.texture = item.plain ? white->id() : sprite.texture->id();
+        item.plain = texture == nullptr;
+        item.texture = item.plain ? white->id() : texture->id();
         item.draw.texture = item.texture;
-        item.draw.source = sprite.source;
+        item.draw.source = source;
         item.draw.destination = destination;
         item.draw.rotation = transform.rotation;
         item.draw.pivot = sprite.pivot;

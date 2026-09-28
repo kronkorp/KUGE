@@ -399,7 +399,24 @@ scene), not in globals.
 ### Spritesheets and animations
 
 A `Spritesheet` is a picture cut in equal cells (frames of an animation, tiles of a tileset),
-numbered from 0, row after row. Animations are described in a text file, one clip per line:
+numbered from 0, row after row. A `Sprite` with a `sheet` shows its cell number `frame`: the
+texture and the part of it come from the sheet, and the size is that of a cell.
+
+```cpp
+auto sheet = std::make_shared<kuge::Spritesheet>();
+sheet->texture = client.textures().load("coin.png");
+sheet->frameWidth = 16;
+sheet->frameHeight = 16;
+
+kuge::Sprite sprite;
+sprite.sheet = sheet;
+sprite.frame = 3;                                   // out of range: the first cell
+world.add<kuge::Sprite>(e, sprite);
+
+world.add<kuge::Animator>(e, kuge::Animator::loop(sheet, 12.0f));   // every cell in turn, 12 a second
+```
+
+For more than one loop, animations are described in a text file, one clip per line:
 
 ```
 # clip <name> fps=<n> frames=<list> [loop=false] [next=<clip>] [cue.<frame>=<name>]
@@ -417,7 +434,7 @@ world.get<kuge::Animator>(e).play("run");      // nothing happens if it already 
 ```
 
 `AnimateSprites` moves the animators forward by one tick (in the Fixed schedule, so the
-animation is part of the simulation) and gives the `Sprite` the picture of the frame that is
+animation is part of the simulation) and gives the `Sprite` the sheet and the frame that is
 due. A clip that does not loop and has a `next` goes there when it ends: clips form a small
 state machine. `cue` names are given through the `AnimationEvents` resource, once each, in
 the order of the entities, even if a tick jumps over several frames:
