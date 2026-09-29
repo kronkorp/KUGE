@@ -65,6 +65,21 @@ void Logger::error(std::string_view format)
     this->log(LoggerLevel::ERROR, format);
 }
 
+void Logger::log(LoggerLevel level, std::string_view text)
+{
+    if (level < this->m_currentLevel || !this->enable()) return;
+    this->write(level, std::string(text));
+}
+
+void Logger::write(LoggerLevel level, const std::string& text)
+{
+    std::lock_guard lock(this->m_mutex);
+
+    for (auto& handler : this->m_handlers) {
+        handler->log(level, text);
+    }
+}
+
 void Logger::setLevel(LoggerLevel level)
 {
     this->m_currentLevel = level;
