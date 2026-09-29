@@ -95,6 +95,9 @@ sprite.tint = kuge::Color{255, 255, 255, 255};
 world().add<kuge::Sprite>(entity, sprite);
 ```
 
+For a cell of a spritesheet, give the sprite the sheet instead: `sprite.sheet = sheet; sprite.frame = 3;`. The
+texture and the part of it then come from the sheet.
+
 **A sprite with no texture is a plain rectangle of the colour of its tint.** R-Type is drawn with nothing
 else: no art files at all. It is a good way to start.
 
@@ -142,6 +145,7 @@ with the keyboard or gamepad (nearest neighbour), mouse hover and click, and dra
   with a `Spritesheet` (a picture cut in equal cells).
 - An **`Animator`** plays clips of a spritesheet (`.anim` text files: frames, fps, loop, cues that fire events at
   a given frame). `AnimateSprites` runs in the Fixed schedule so animations are as reproducible as the rest.
+  `Animator::loop(sheet, fps)` plays every cell of a sheet in turn, without a file.
 
 ## Testing a client without a screen
 

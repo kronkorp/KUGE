@@ -230,6 +230,54 @@ Test(sprites, textured_sprites)
     texture.reset();
 }
 
+Test(sprites, a_sheet_gives_the_cell)
+{
+    std::shared_ptr<kuge::Spritesheet> sheet;
+    Fixture fx([&sheet](TestScene& scene) {
+        auto& world = scene.world();
+        auto& renderer = *world.getResource<kuge::Ref<kuge::IRenderer2D>>();
+        std::vector<std::uint8_t> pixels(32 * 16 * 4, 200);
+        kuge::Sprite cell, outOfRange, both, noPicture;
+
+        sheet = std::make_shared<kuge::Spritesheet>();
+        sheet->texture = kuge::Texture::fromPixels(renderer, 32, 16, pixels);   // 4 x 2 cells of 8 x 8
+        sheet->frameWidth = 8;
+        sheet->frameHeight = 8;
+        cell.sheet = sheet;
+        cell.frame = 5;
+        spawn(world, {0.0f, 0.0f}, cell);
+        outOfRange.sheet = sheet;
+        outOfRange.frame = 99;
+        spawn(world, {0.0f, 100.0f}, outOfRange);
+        both.texture = kuge::Texture::fromPixels(renderer, 4, 4, std::span(pixels).first(4 * 4 * 4));
+        both.source = {1.0f, 1.0f, 2.0f, 2.0f};
+        both.sheet = sheet;
+        both.frame = 2;
+        spawn(world, {0.0f, 200.0f}, both);
+        noPicture.sheet = std::make_shared<kuge::Spritesheet>();   // cells of 16 x 16, not loaded yet
+        spawn(world, {0.0f, -100.0f}, noPicture);
+    });
+    const auto& calls = fx.frame();
+    std::vector<Call> pictures;
+    std::vector<Call> fills;
+
+    for (const Call& call : calls) {
+        (call.kind == Call::Kind::Texture ? pictures : fills).push_back(call);
+    }
+    AssertEq(pictures.size(), 3, "three sprites drawn from the sheet, got %zu", pictures.size());
+    for (const Call& call : pictures) {
+        Assert(call.texture.texture == sheet->texture->id(), "with the picture of the sheet");
+    }
+    Assert(sameRect(pictures[0].texture.source, {8.0f, 8.0f, 8.0f, 8.0f}), "cell 5: second row, second column");
+    Assert(sameRect(pictures[0].destination, {316.0f, 236.0f, 8.0f, 8.0f}), "at the size of a cell");
+    Assert(sameRect(pictures[1].texture.source, {0.0f, 0.0f, 8.0f, 8.0f}), "out of range: the first cell");
+    Assert(sameRect(pictures[2].texture.source, {16.0f, 0.0f, 8.0f, 8.0f}), "the sheet wins over a texture and a source");
+    AssertEq(fills.size(), 1, "a sheet without its picture...");
+    Assert(sameRect(fills[0].destination, {312.0f, 132.0f, 16.0f, 16.0f}), "...is a plain rectangle the size of a cell");
+    // A texture must not outlive the renderer, which goes with the fixture
+    sheet.reset();
+}
+
 Test(sprites, turned_rects_use_white_pixel)
 {
     Fixture fx([](TestScene& scene) {

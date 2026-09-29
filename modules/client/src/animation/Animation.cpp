@@ -8,6 +8,7 @@
 #include <format>
 #include <fstream>
 #include <map>
+#include <numeric>
 #include <sstream>
 
 namespace
@@ -195,6 +196,26 @@ kuge::Animator kuge::Animator::of(
     return animator;
 }
 
+kuge::Animator kuge::Animator::loop(std::shared_ptr<const Spritesheet> sheet, float fps)
+{
+    const int count = sheet ? sheet->frameCount() : 0;
+    auto set = std::make_shared<AnimationSet>();
+    AnimationClip clip;
+
+    if (count <= 0) {
+        throw AnimationError("the sheet has no cells (no picture yet?)");
+    }
+    if (!(fps > 0.0f)) {
+        throw AnimationError(std::format("fps wants a number above 0, not {}", fps));
+    }
+    clip.name = "loop";
+    clip.fps = fps;
+    clip.frames.resize(static_cast<std::size_t>(count));
+    std::iota(clip.frames.begin(), clip.frames.end(), 0);
+    set->clips.push_back(std::move(clip));
+    return of(std::move(sheet), std::move(set), "loop");
+}
+
 bool kuge::Animator::play(int index, bool restart)
 {
     if (!clips || index < 0 || index >= static_cast<int>(clips->clips.size())) {
@@ -279,8 +300,8 @@ namespace
         absolute = static_cast<long>(std::floor(animator.time * clip->fps));
         const long index = clip->loop ? absolute % count : std::min(absolute, count - 1);
 
-        sprite.texture = animator.sheet->texture;
-        sprite.source = animator.sheet->frame(clip->frames[static_cast<std::size_t>(index)]);
+        sprite.sheet = animator.sheet;
+        sprite.frame = clip->frames[static_cast<std::size_t>(index)];
     }
 }
 

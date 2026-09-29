@@ -75,10 +75,12 @@ namespace kuge
      * @brief  Plays the clips of a set on the Sprite of an entity (a component)
      *
      * The systems do the rest: AnimateSprites moves time forward at each tick and
-     * gives the Sprite the picture of the frame that is due.
+     * gives the Sprite the sheet and the frame that is due.
      *
      *     world.add<kuge::Animator>(e, kuge::Animator::of(sheet, clips, "idle"));
      *     world.get<kuge::Animator>(e).play("run");   // does nothing if it is already running
+     *
+     *     world.add<kuge::Animator>(e, kuge::Animator::loop(sheet, 12.0f));   // every cell, no clips file
      */
     ////////////////////////////////////////////////////////////////////////////
     struct Animator
@@ -94,6 +96,11 @@ namespace kuge
 
         static Animator of(std::shared_ptr<const Spritesheet> sheet, std::shared_ptr<const AnimationSet> clips,
             std::string_view first = {});
+
+        //! Plays every cell of the sheet in order, in a loop: one clip, "loop".
+        //! The cells are counted now, so the sheet needs its picture already.
+        //! @throw AnimationError if the sheet has no cells, or fps is not above 0
+        static Animator loop(std::shared_ptr<const Spritesheet> sheet, float fps);
 
         //! Starts a clip. Nothing changes if it is the one that plays already,
         //! unless restart is true.
