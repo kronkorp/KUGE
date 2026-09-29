@@ -52,6 +52,28 @@ Test(logger, one_thread)
     AssertStrEq(saidBy(lines[1]).c_str(), "careful", "the next one");
 }
 
+// Text without arguments is not a format: a message that comes from somewhere else can hold braces
+Test(logger, text_is_not_a_format)
+{
+    Logger logger;
+    auto out = std::make_shared<std::ostringstream>();
+    const std::string fromElsewhere = "cannot read {file}: {0} and {{ }}";
+
+    logger.registerHandler(out);
+    logger.setLevel(LoggerLevel::DEBUG);
+    logger.error(fromElsewhere);
+    logger.warn("half a brace {");
+    logger.info("{}");
+    logger.ok("braces {{}} with an argument: {}", 7);
+    const auto lines = linesOf(out->str());
+
+    AssertEq(lines.size(), 4, "four lines, and nothing thrown");
+    AssertStrEq(saidBy(lines[0]).c_str(), fromElsewhere.c_str(), "a message is written as it is");
+    AssertStrEq(saidBy(lines[1]).c_str(), "half a brace {", "half a brace too");
+    AssertStrEq(saidBy(lines[2]).c_str(), "{}", "a lone {} is not an error");
+    AssertStrEq(saidBy(lines[3]).c_str(), "braces {} with an argument: 7", "with arguments, it is a format");
+}
+
 Test(logger, level_and_enable)
 {
     Logger logger;

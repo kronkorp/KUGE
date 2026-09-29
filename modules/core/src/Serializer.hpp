@@ -180,7 +180,8 @@ namespace kuge
 
     //! Writes the file whole or not at all: the data goes to a temporary file
     //! next to it, which then replaces it. A crash in the middle of a save
-    //! cannot leave half a file.
+    //! cannot leave half a file, and neither can a power cut: the data is
+    //! synced to the disk before the replacement, and the folder after it.
     //! @throw SerializerError
     void writeFile(const std::filesystem::path& path, std::span<const std::uint8_t> data);
 

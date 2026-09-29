@@ -4,8 +4,10 @@ extern "C" {
 #include "Engine.hpp"
 #include "Stage.hpp"
 #include "kronkworld/Kronkworld.hpp"
+#include <atomic>
 #include <chrono>
 #include <csignal>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <thread>
@@ -242,4 +244,80 @@ Test(engine, sigint_ends_run)
     Assert(counts.left, "and the scene was left");
     sigaction(SIGINT, nullptr, &after);
     Assert(before.sa_handler == after.sa_handler, "the previous handler is back");
+}
+
+// Two engines in one process (a server and a client in the same program), each in its own thread
+namespace
+{
+    using Clock = std::chrono::steady_clock;
+
+    struct Runner
+    {
+        Counts             counts;
+        kuge::Engine       engine{{.tickRate = 240}};
+        std::atomic<bool>  over{false};
+        std::thread        thread;
+
+        Runner(Loop::Then then, std::uint64_t at)
+        {
+            engine.scenes().change<Counting>(std::ref(counts), then, at);
+            thread = std::thread([this] { engine.run(); over = true; });
+        }
+
+        ~Runner()
+        {
+            engine.stop();
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
+    };
+
+    bool waitFor(const std::function<bool(void)>& done, double seconds)
+    {
+        const auto end = Clock::now() + std::chrono::duration<double>(seconds);
+
+        while (!done()) {
+            if (Clock::now() > end) {
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return true;
+    }
+}
+
+// The one that ends first must not take the handlers of the other: whatever the order,
+// when both are over the process has the handlers it had before
+Test(engine, two_engines_restore_handlers)
+{
+    struct sigaction beforeInt = {}, beforeTerm = {}, after = {};
+
+    sigaction(SIGINT, nullptr, &beforeInt);
+    sigaction(SIGTERM, nullptr, &beforeTerm);
+    {
+        Runner first(Loop::Then::Stop, 30);
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        Runner second(Loop::Then::Stop, 200);
+
+        Assert(waitFor([&] { return first.over.load(); }, 5.0), "the first one ends first");
+        Assert(!second.over.load(), "while the second one still runs");
+        Assert(waitFor([&] { return second.over.load(); }, 5.0), "then the second");
+    }
+    sigaction(SIGINT, nullptr, &after);
+    Assert(beforeInt.sa_handler == after.sa_handler, "SIGINT has the handler it had before");
+    sigaction(SIGTERM, nullptr, &after);
+    Assert(beforeTerm.sa_handler == after.sa_handler, "and so does SIGTERM");
+}
+
+// One signal ends every engine that runs, not only one of them
+Test(engine, one_signal_ends_both_engines)
+{
+    Runner first(Loop::Then::Nothing, 0);
+    Runner second(Loop::Then::Nothing, 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    Assert(!first.over.load() && !second.over.load(), "both run");
+    std::raise(SIGINT);
+    Assert(waitFor([&] { return first.over.load() && second.over.load(); }, 3.0), "both are over after one signal");
 }

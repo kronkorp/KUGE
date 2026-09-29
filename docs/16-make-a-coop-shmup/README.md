@@ -1687,8 +1687,8 @@ The life of a client:
    and updates the HUD.
 5. `roomClosed()` drops the replication and the prediction at once: both hold the room's endpoint, which is going
    away. The last picture stays on screen, and the client asks for a new game a second later. `joined()` then clears
-   the old game's entities, because nobody else will. (The repository's R-Type client does not do this, so after its
-   first game the entities of the previous one stay on screen, frozen. Step 8 has a test that catches exactly that.)
+   the old game's entities, because nobody else will. (The repository's R-Type client does the same in its own
+   `joined()`. Step 8 has a test that catches a client that forgets it.)
 
 Details that matter:
 

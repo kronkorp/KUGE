@@ -2,48 +2,76 @@
 #include "Logger.hpp"
 #include "LoggerLevel.hpp"
 #include "TickDriver.hpp"
+#include <atomic>
 #include <chrono>
 #include <csignal>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 
 namespace
 {
-    volatile std::sig_atomic_t g_signalled = 0;
+    // The number of SIGINT / SIGTERM received by the process. An engine does not reset it: it
+    // remembers the value it saw when it began, so a signal ends every engine that runs (a server
+    // and a client in one process), and an old one does not end an engine that starts later.
+    std::atomic<unsigned> g_signals{0};
+    static_assert(std::atomic<unsigned>::is_always_lock_free, "the handler needs an atomic that does not lock");
 
     extern "C" void onSignal(int)
     {
-        g_signalled = 1;
+        g_signals.fetch_add(1, std::memory_order_relaxed);
     }
 
+    // The handlers belong to the process, not to an engine: the first engine to run installs
+    // them and the last one to end gives the previous ones back, whatever the order in which
+    // they end. (Each saving and restoring for itself would leave the handlers of the engine
+    // that ended first installed for good.)
+    std::mutex       g_handlersMutex;
+    int              g_handlersUsers = 0;
+    struct sigaction g_oldInt  = {};
+    struct sigaction g_oldTerm = {};
+
     // SIGINT and SIGTERM end run() instead of killing the process, so that the
-    // scenes are left properly. The previous handlers come back afterwards.
+    // scenes are left properly.
     class SignalGuard
     {
         public:
             SignalGuard(void)
             {
-                struct sigaction action = {};
+                std::lock_guard lock(g_handlersMutex);
 
-                action.sa_handler = &onSignal;
-                sigemptyset(&action.sa_mask);
-                g_signalled = 0;
-                sigaction(SIGINT, &action, &m_oldInt);
-                sigaction(SIGTERM, &action, &m_oldTerm);
+                if (g_handlersUsers++ == 0) {
+                    struct sigaction action = {};
+
+                    action.sa_handler = &onSignal;
+                    sigemptyset(&action.sa_mask);
+                    sigaction(SIGINT, &action, &g_oldInt);
+                    sigaction(SIGTERM, &action, &g_oldTerm);
+                }
+                m_seen = g_signals.load(std::memory_order_relaxed);
             }
 
             ~SignalGuard(void)
             {
-                sigaction(SIGINT, &m_oldInt, nullptr);
-                sigaction(SIGTERM, &m_oldTerm, nullptr);
+                std::lock_guard lock(g_handlersMutex);
+
+                if (--g_handlersUsers == 0) {
+                    sigaction(SIGINT, &g_oldInt, nullptr);
+                    sigaction(SIGTERM, &g_oldTerm, nullptr);
+                }
             }
 
             SignalGuard(const SignalGuard&)            = delete;
             SignalGuard& operator=(const SignalGuard&) = delete;
 
+            //! Was a signal received since this guard was made?
+            bool raised(void) const noexcept
+            {
+                return g_signals.load(std::memory_order_relaxed) != m_seen;
+            }
+
         private:
-            struct sigaction m_oldInt  = {};
-            struct sigaction m_oldTerm = {};
+            unsigned m_seen = 0;
     };
 }
 
@@ -147,6 +175,11 @@ kuge::SceneHandle kuge::Engine::spawnScene(RunPolicy policy, std::unique_ptr<Sce
     reap();
     std::lock_guard lock(m_spawnMutex);
 
+    // Checked again under the lock: stopSpawned() sets the flag and takes what runs in one go,
+    // so what is added after it would be left behind, running after run() has returned
+    if (m_stopSpawned) {
+        return handle;
+    }
     switch (policy) {
         case RunPolicy::Main:
             m_sideAdded.push_back(std::move(loop));
@@ -230,13 +263,14 @@ void kuge::Engine::stopSpawned(void)
     std::vector<std::unique_ptr<SceneLoop>> side;
     std::unique_ptr<TickDriver> driver;
 
-    m_stopSpawned = true;
-    m_wake.request();
     {
         // Taken out under the lock, and joined without it: a scene that spawns
-        // in the meantime must not wait for a thread that waits for the lock
+        // in the meantime must not wait for a thread that waits for the lock.
+        // The flag is set in the same go: spawnScene() reads it under the lock,
+        // so it adds a scene before this point (and it is taken) or is refused.
         std::lock_guard lock(m_spawnMutex);
 
+        m_stopSpawned = true;
         dedicated = std::move(m_dedicated);
         m_dedicated.clear();
         side = std::move(m_side);
@@ -247,6 +281,7 @@ void kuge::Engine::stopSpawned(void)
         m_sideAdded.clear();
         driver = std::move(m_driver);
     }
+    m_wake.request();
     for (auto& runner : dedicated) {
         if (runner->thread.joinable()) {
             runner->thread.join();
@@ -329,7 +364,7 @@ int kuge::Engine::run(void)
         const double frame = std::chrono::duration<double>(now - last).count();
 
         last = now;
-        if (g_signalled) {
+        if (signals.raised()) {
             stop();
         }
         if (!step(frame)) {

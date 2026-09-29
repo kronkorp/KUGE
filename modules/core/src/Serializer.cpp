@@ -1,7 +1,10 @@
 #include "Serializer.hpp"
+#include <cerrno>
+#include <fcntl.h>
 #include <format>
 #include <fstream>
 #include <system_error>
+#include <unistd.h>
 
 void kuge::ByteWriter::put(std::uint64_t value, std::size_t size)
 {
@@ -95,27 +98,72 @@ std::uint16_t kuge::ByteReader::readHeader(std::uint32_t magic)
     return read<std::uint16_t>();
 }
 
+namespace
+{
+    // Writes all of data to fd, and asks the disk to keep it
+    bool writeAndSync(int fd, std::span<const std::uint8_t> data)
+    {
+        std::size_t done = 0;
+
+        while (done < data.size()) {
+            const ssize_t count = ::write(fd, data.data() + done, data.size() - done);
+
+            if (count < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return false;
+            }
+            done += static_cast<std::size_t>(count);
+        }
+        return ::fsync(fd) == 0;
+    }
+
+    // The replacement of a file is a change of its folder: without this, a power cut can
+    // bring the old file back. Best effort: a folder that cannot be opened (or synced, on a
+    // file system that does not allow it) does not undo a save that is already in place.
+    void syncFolder(const std::filesystem::path& file)
+    {
+        std::filesystem::path folder = file.parent_path();
+
+        if (folder.empty()) {
+            folder = ".";
+        }
+        const int fd = ::open(folder.c_str(), O_RDONLY | O_DIRECTORY);
+
+        if (fd >= 0) {
+            ::fsync(fd);
+            ::close(fd);
+        }
+    }
+}
+
 void kuge::writeFile(const std::filesystem::path& path, std::span<const std::uint8_t> data)
 {
     std::filesystem::path temporary = path;
     std::error_code error;
 
     temporary += ".tmp";
-    {
-        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+    const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
 
-        out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-        out.close();
-        if (!out) {
-            std::filesystem::remove(temporary, error);
-            throw SerializerError(std::format("cannot write '{}'", temporary.string()));
-        }
+    if (fd < 0) {
+        throw SerializerError(std::format("cannot write '{}'", temporary.string()));
+    }
+    // The data must be on the disk before the rename: otherwise a power cut can leave the
+    // new name pointing at a file that is empty or half written
+    const bool written = writeAndSync(fd, data);
+    const bool closed = ::close(fd) == 0;
+
+    if (!written || !closed) {
+        std::filesystem::remove(temporary, error);
+        throw SerializerError(std::format("cannot write '{}'", temporary.string()));
     }
     std::filesystem::rename(temporary, path, error);
     if (error) {
         std::filesystem::remove(temporary, error);
         throw SerializerError(std::format("cannot replace '{}': {}", path.string(), error.message()));
     }
+    syncFolder(path);
 }
 
 std::vector<std::uint8_t> kuge::readFile(const std::filesystem::path& path)

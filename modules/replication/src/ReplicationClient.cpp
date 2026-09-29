@@ -108,6 +108,9 @@ namespace kuge::replication
         } catch (const SerializerError& error) {
             ++m_stats.malformed;
             Logger::logger().warn("replication: a snapshot was dropped: {}", error.what());
+            if (baseTick != 0) {
+                ack(0);   // it was built on one that this client has, and does not fit: start again from nothing
+            }
             return;
         }
         applyToWorld(next, tick, inputAck);
@@ -166,6 +169,9 @@ namespace kuge::replication
             const auto tracked = m_entities.find(it->first);
 
             if (tracked != m_entities.end()) {
+                if (m_ownedGone && isOwned(it->second)) {
+                    m_ownedGone(tracked->second.entity);
+                }
                 const auto hook = m_destroy.find(it->second.type);
 
                 if (hook != m_destroy.end()) {

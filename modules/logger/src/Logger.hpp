@@ -137,13 +137,24 @@ public:
     void log(LoggerLevel level, std::string_view format, Args&&... args)
     {
         if (level < this->m_currentLevel || !this->enable()) return;
-        const std::string formatted = std::vformat(format, std::make_format_args(args...));
-
-        std::lock_guard lock(this->m_mutex);
-        for (auto& handler : this->m_handlers) {
-            handler->log(level, formatted);
-        }
+        this->write(level, std::vformat(format, std::make_format_args(args...)));
     }
+    ////////////////////////////////////////////////////////////////////////////
+
+
+    ////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief         Log a message as it is, with no arguments: it is text, not a format
+     *
+     * A message that comes from elsewhere (an exception, a file, a player) can hold
+     * braces: it must not be read as a format. This is what debug(), info(), ok(),
+     * warn() and error() do when they are given no argument (so "{{" stays "{{").
+     *
+     * @param level   The level of logging (warning, ok, info...)
+     * @param text    The message, written as it is
+     */
+    ////////////////////////////////////////////////////////////////////////////
+    void log(LoggerLevel level, std::string_view text);
     ////////////////////////////////////////////////////////////////////////////
 
 
@@ -172,6 +183,8 @@ public:
 
 private:
     static std::shared_ptr<Logger> makeDefault(void);
+
+    void write(LoggerLevel level, const std::string& text);   //!< To every handler (the level was checked)
 
     std::mutex                                   m_mutex;                             //!< Held while the handlers write: they are not thread-safe
     std::vector<std::unique_ptr<ILoggerHandler>> m_handlers;                          //!< The handlers (the streams)

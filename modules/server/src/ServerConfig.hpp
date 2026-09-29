@@ -46,7 +46,8 @@ namespace kuge::server
 
         double                  tokenTtl       = 10.0;                 //!< A client has this long to reach the room it was sent to
         double                  helloTimeout   = 5.0;                  //!< A connection that does not say hello in this time is dropped
-        double                  linger         = 0.3;                  //!< A closing room waits this long for its last messages to leave
+        double                  closeDelay     = 0.1;                  //!< A room that finishes runs this long before it tells its players (0: at once), so that the last snapshots leave first
+        double                  linger         = 0.3;                  //!< Then it waits this long for its last messages to leave
 
         net::EndpointConfig     endpoint;                              //!< Timeouts, and the clock, for the lobby and the rooms
 

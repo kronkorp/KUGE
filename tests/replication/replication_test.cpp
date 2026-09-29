@@ -541,3 +541,52 @@ Test(interpolation, a_new_entity_is_placed)
     Assert(entity.has_value(), "it exists");
     Assert(sim.clientWorld.get<kuge::Transform2D>(*entity).position == kuge::Vec2(33, 44), "at the place it was told, not at the origin");
 }
+
+// -- A snapshot that cannot be followed -------------------------------------------------------------
+// A record too big for a packet is not sent. What the server keeps as "the snapshot this client has"
+// must be what was sent, or the next diffs are built on an entity that the client never got.
+Test(replication, an_oversized_record)
+{
+    ReplicationServerConfig config;
+
+    config.maxPartBytes = 40;   // the record of a new entity (about 50 bytes) does not fit; a change of its health (27) does
+    RepSim sim({}, config);
+    const kw::Entity ship = sim.spawn(SHIP, 5, 5, 100);
+
+    sim.run(30);
+    Assert(sim.server->stats().oversized > 0, "the record of the new entity was too big");
+    AssertEq(sim.clientCount(), 0, "and the client does not have it");
+    Assert(sim.client->stats().snapshotsApplied > 5, "but it goes on with the snapshots (%llu)", static_cast<unsigned long long>(sim.client->stats().snapshotsApplied));
+
+    const auto appliedBefore = sim.client->stats().snapshotsApplied;
+
+    sim.serverWorld.get<Health>(ship).points = 40;   // a small record now: an update of an entity that the client does not have
+    sim.run(60);
+    AssertEq(sim.client->stats().malformed, 0, "the update that follows does not break the client");
+    Assert(sim.tick - sim.client->lastTick() < 10, "which is up to date: tick %u, server %u", sim.client->lastTick(), sim.tick);
+    Assert(sim.client->stats().snapshotsApplied > appliedBefore + 20, "it went on applying them (%llu, then %llu)",
+        static_cast<unsigned long long>(appliedBefore), static_cast<unsigned long long>(sim.client->stats().snapshotsApplied));
+}
+
+// A snapshot that a client cannot read, built on one that it has: it asks for everything
+Test(replication, a_bad_diff_asks_for_all)
+{
+    RepSim sim;
+
+    sim.spawn(SHIP, 10, 10);
+    sim.run(30);
+    AssertEq(sim.clientCount(), 1, "the client follows");
+    const auto fullBefore = sim.server->stats().fullSnapshots;
+    SnapshotPacket junk;
+
+    junk.schema = sim.registry.schema();
+    junk.tick = sim.client->lastTick() + 1000;
+    junk.baseTick = sim.client->lastTick();      // a diff, on a snapshot that the client has
+    junk.ops = {0xFF, 0, 0, 0, 0};                // a record of an unknown kind
+    sim.serverEndpoint->send(sim.clientId, junk, kuge::net::Channel::Unreliable);
+    sim.run(20);
+    AssertEq(sim.client->stats().malformed, 1, "it was dropped");
+    Assert(sim.server->stats().fullSnapshots > fullBefore, "and the client asked for everything again");
+    AssertEq(sim.clientCount(), 1, "and it still has its entity");
+    Assert(sim.tick - sim.client->lastTick() < 10, "up to date");
+}
