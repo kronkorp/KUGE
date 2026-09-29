@@ -597,6 +597,49 @@ Test(endpoint_tcp, disconnect_is_seen)
     Assert(reasons.size() == 1, "the server knows the client left, by the bye or the closed socket");
 }
 
+// A full server says no, and the client hears it (a closed socket is not enough: it would read "unreachable")
+namespace
+{
+    void fullServerRefuses(bool tcp)
+    {
+        auto [transport, port] = serve(tcp);
+        EndpointConfig small;
+        small.maxConnections = 1;
+        Endpoint server(std::move(transport), Role::Server, small);
+        auto make = [&] { return std::make_unique<Endpoint>(tcp ? makeTcpClient("127.0.0.1", port) : makeUdpClient("127.0.0.1", port), Role::Client); };
+        auto first = make();
+        const auto end = Clock::now() + std::chrono::seconds(10);
+
+        while (!(first->connected() && server.connected()) && Clock::now() < end) {
+            server.poll();
+            first->poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        auto second = make();
+        std::vector<DisconnectReason> reasons;
+
+        second->onDisconnected([&](ConnectionId, DisconnectReason reason) { reasons.push_back(reason); });
+        while (reasons.empty() && Clock::now() < end) {
+            server.poll();
+            first->poll();
+            second->poll();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        Assert(first->connected() && server.connections().size() == 1, "the first is still the only one (%s)", tcp ? "tcp" : "udp");
+        Assert(reasons.size() == 1 && reasons[0] == DisconnectReason::Refused, "the second is told that it was refused, not left to time out (%s)", tcp ? "tcp" : "udp");
+    }
+}
+
+Test(endpoint_tcp, a_full_server_refuses)
+{
+    fullServerRefuses(true);
+}
+
+Test(endpoint_udp, a_full_server_refuses)
+{
+    fullServerRefuses(false);
+}
+
 Test(endpoint_udp, no_server_times_out)
 {
     // Nobody answers a datagram: only the timeout tells

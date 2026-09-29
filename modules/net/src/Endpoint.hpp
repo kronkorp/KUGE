@@ -177,6 +177,7 @@ namespace kuge::net
                 bool             transportUp = false;
                 ReliableChannel  reliable;
                 std::string      peer;
+                bool             refusing = false;   //!< Server: it came when there was no room. It gets its Reject, and goes.
             };
 
             struct Handler
