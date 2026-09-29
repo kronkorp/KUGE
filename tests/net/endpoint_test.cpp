@@ -141,13 +141,65 @@ Test(endpoint, the_server_is_full)
     auto a = sim.client();
     auto b = sim.client();
     auto c = sim.client();
-    Log logC;
+    Log logC, logServer;
 
     watch(*c, logC);
+    watch(*server, logServer);
     sim.run(1.0, 0.01, *server, *a, *b, *c);
     AssertEq(server->connections().size(), 2, "two are in");
     Assert(a->connected() && b->connected() && !c->connected(), "the third is not");
-    Assert(logC.disconnected.size() == 1, "and it is told it failed");
+    Assert(logC.disconnected.size() == 1 && logC.disconnected[0].second == DisconnectReason::Refused, "and it is told that the server refused it, at once");
+    AssertEq(logServer.connected.size(), 2, "the server heard of the two only");
+    AssertEq(logServer.disconnected.size(), 0, "and of nobody leaving");
+    // A place that frees is for the next one, even if some were refused meanwhile
+    a->disconnect(a->connections().front());
+    sim.run(0.5, 0.01, *server, *a, *b, *c);
+    auto d = sim.client();
+    Log logD;
+
+    watch(*d, logD);
+    sim.run(1.0, 0.01, *server, *b, *d);
+    Assert(d->connected() && logD.disconnected.empty(), "a place that was freed is given to the next one");
+}
+
+Test(endpoint, refused_do_not_pile_up)
+{
+    // A crowd that knocks on a full server: it answers each one, and does not keep them
+    Sim sim;
+    EndpointConfig small;
+    small.maxConnections = 2;
+    auto server = sim.server("room", small);
+    auto a = sim.client();
+    auto b = sim.client();
+    std::vector<std::unique_ptr<Endpoint>> crowd;
+    std::vector<Log> logs(30);
+
+    sim.run(0.5, 0.01, *server, *a, *b);
+    for (std::size_t i = 0; i < logs.size(); ++i) {
+        crowd.push_back(sim.client());
+        watch(*crowd.back(), logs[i]);
+    }
+    for (int step = 0; step < 100; ++step) {
+        sim.run(0.01, 0.01, *server, *a, *b);
+        for (auto& client : crowd) {
+            client->poll();
+        }
+    }
+    AssertEq(server->connections().size(), 2, "the two are still the only ones");
+    std::size_t refused = 0;
+
+    for (const Log& log : logs) {
+        refused += log.disconnected.size() == 1 && log.disconnected[0].second == DisconnectReason::Refused ? 1 : 0;
+    }
+    Assert(refused >= 20, "most of the crowd was told no (%zu of %zu)", refused, logs.size());
+    a->disconnect(a->connections().front());
+    sim.run(0.2, 0.01, *server, *b);
+    auto next = sim.client();
+    Log logNext;
+
+    watch(*next, logNext);
+    sim.run(1.0, 0.01, *server, *b, *next);
+    Assert(next->connected() && logNext.disconnected.empty(), "and the crowd did not take the place that was freed");
 }
 
 Test(endpoint, keep_alive_keeps_it)

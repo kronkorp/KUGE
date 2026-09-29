@@ -18,6 +18,10 @@ namespace kuge::net
         constexpr std::size_t RELIABLE_HEADER = DATA_HEADER + 4;
         constexpr std::uint8_t CONTROL = 2;   // a Data packet with no message: an ack, or a keep-alive
 
+        // A full server answers Reject to the connections that come too many. Not more than this wait for it
+        // at a time: the others are dropped, as if the server did not answer.
+        constexpr std::size_t MAX_REFUSING = 64;
+
         double steadySeconds(void)
         {
             return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -298,7 +302,7 @@ namespace kuge::net
                     const std::uint32_t salt = in.read<std::uint32_t>();
 
                     connection.lastReceived = time;
-                    if (version != m_config.protocol) {
+                    if (connection.refusing || version != m_config.protocol) {
                         sendSimple(connection, Reject, 0, time);
                         close(id, DisconnectReason::Refused, false, true);
                         return;
@@ -383,12 +387,22 @@ namespace kuge::net
                             found->second.peer = event.peer;
                         }
                     }
-                } else if (m_connections.size() >= m_config.maxConnections) {
-                    m_transport->close(event.connection);   // no room
                 } else {
+                    // The ones that wait for their Reject do not count as taking a place
+                    const auto refusing = static_cast<std::size_t>(std::count_if(m_connections.begin(), m_connections.end(),
+                        [](const auto& entry) { return entry.second.refusing; }));
+                    const bool full = m_connections.size() - refusing >= m_config.maxConnections;
+
+                    if (full && refusing >= MAX_REFUSING) {
+                        m_transport->close(event.connection);   // no room, and a crowd already waits for its Reject: it finds out by itself
+                        return;
+                    }
                     Connection connection{event.connection, State::Handshaking, time, time, 0.0, 0.0, 0, true,
                         ReliableChannel(m_config.reliable), event.peer};
 
+                    // No room: it is not dropped in silence (the client would wait for its timeout, or think the
+                    // server is not there), it is answered Reject when its Connect arrives
+                    connection.refusing = full;
                     m_connections.emplace(event.connection, std::move(connection));
                 }
                 return;
