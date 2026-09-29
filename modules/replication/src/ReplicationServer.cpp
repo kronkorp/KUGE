@@ -99,16 +99,31 @@ namespace kuge::replication
     {
         const std::vector<Bytes> ops = diffOps(m_registry, client.baseline.get(), *view);
         std::vector<Bytes> parts(1);
+        Bytes sent;
+        bool skipped = false;
 
         for (const Bytes& op : ops) {
             if (op.size() > m_config.maxPartBytes) {
                 ++m_stats.oversized;
+                skipped = true;
                 continue;
             }
             if (!parts.back().empty() && parts.back().size() + op.size() > m_config.maxPartBytes) {
                 parts.emplace_back();
             }
             parts.back().insert(parts.back().end(), op.begin(), op.end());
+            sent.insert(sent.end(), op.begin(), op.end());
+        }
+        // What this client will have once it has applied the snapshot, and will acknowledge: the next
+        // snapshots are built on it. If a record was left out, that is not `view`: an entity that the client
+        // never got would be in the base, and the updates that follow would be for something it does not have.
+        // (Each record is complete on its own, so what remains is a state that makes sense.)
+        std::shared_ptr<const WorldState> recorded = view;
+
+        if (skipped) {
+            static const WorldState nothing;
+
+            recorded = std::make_shared<const WorldState>(applyOps(m_registry, client.baseline ? *client.baseline : nothing, sent));
         }
         for (std::size_t i = 0; i < parts.size(); ++i) {
             SnapshotPacket packet;
@@ -126,7 +141,7 @@ namespace kuge::replication
         }
         ++m_stats.snapshotsSent;
         m_stats.fullSnapshots += client.baseline ? 0 : 1;
-        client.history[tick] = view;
+        client.history[tick] = recorded;
         client.lastSent = tick;
         client.sentOnce = true;
         while (client.history.size() > m_config.maxHistory) {
