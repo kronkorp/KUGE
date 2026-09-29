@@ -273,11 +273,25 @@ void kuge::Engine::stepSideLoops(double frameSeconds)
     // (A scene of these can spawn another: it waits in m_sideAdded for the next loop)
     for (std::size_t i = 0; i < m_side.size();) {
         SceneLoop& loop = *m_side[i];
+        bool alive = false;
 
-        if (loop.step(frameSeconds, m_stop)) {
+        // As for the other spawned scenes: one that throws is logged and stopped,
+        // and does not take the main loop down with it
+        try {
+            alive = loop.step(frameSeconds, m_stop);
+        } catch (const std::exception& e) {
+            Logger::logger().error("A scene threw and is stopped: {}", e.what());
+        } catch (...) {
+            Logger::logger().error("A scene threw and is stopped");
+        }
+        if (alive) {
             ++i;
         } else {
-            loop.finish();
+            try {
+                loop.finish();
+            } catch (...) {
+                Logger::logger().error("A scene threw while being left");
+            }
             m_side.erase(m_side.begin() + static_cast<std::ptrdiff_t>(i));
         }
     }
