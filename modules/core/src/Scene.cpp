@@ -84,9 +84,15 @@ void kuge::Scene::attach(const SceneContext& context, bool mainThread)
 
 void kuge::Scene::deliverMessages(void)
 {
+    bool stopping = false;
+
     for (const Message& message : m_mailbox->drain()) {
         if (message.is<StopRequest>()) {
-            m_ctx.scenes().pop();
+            // Once is enough: a second pop would end the scene under this one
+            if (!stopping) {
+                m_ctx.scenes().pop();
+                stopping = true;
+            }
         } else {
             onMessage(message);
         }
