@@ -188,9 +188,23 @@ namespace kuge::server
         }
         m_finishing = true;
         m_endReason = reason;
-        m_finishAt = now() + m_init.server.linger;
+        m_announceAt = now() + std::max(m_init.server.closeDelay, 0.0);
+        m_finishAt = m_announceAt + m_init.server.linger;
         tellLobby(detail::RoomClosing{m_init.roomId});   // before the players hear of it: when they ask again, the lobby knows
-        broadcast(net::RoomClosed{reason});
+        if (m_init.server.closeDelay <= 0.0) {
+            announceEnd();
+        }
+    }
+
+    // "Room closed" is reliable, the snapshots are not: a client that hears it lets go of the room, so
+    // the room waited (closeDelay) for the last snapshots to leave
+    void RoomScene::announceEnd(void)
+    {
+        if (m_announced) {
+            return;
+        }
+        m_announced = true;
+        broadcast(net::RoomClosed{m_endReason});
         // Whoever is connected but not a player is sent away
         for (const auto id : m_endpoint->connections()) {
             if (!player(id)) {
@@ -213,6 +227,9 @@ namespace kuge::server
         const double time = now();
 
         if (m_finishing) {
+            if (time >= m_announceAt) {
+                announceEnd();
+            }
             if (time >= m_finishAt) {
                 completeFinish();
             }

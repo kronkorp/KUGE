@@ -81,7 +81,8 @@ int main()
 | `roomPortFirst`, `roomPortCount` | The range of UDP ports rooms use |
 | `roomAddress` | The host that clients are told to use for a room (empty: the one they used for the lobby) |
 | `maxRooms` | The most rooms at once |
-| `tokenTtl`, `helloTimeout`, `linger` | How long a token lives; how long a connection may stay silent before `Hello`; how long a closing room waits for its last messages |
+| `tokenTtl`, `helloTimeout` | How long a token lives; how long a connection may stay silent before `Hello` |
+| `closeDelay`, `linger` | How long a room that finishes runs before it tells its players (so the last snapshots leave first; 0: at once); then how long it waits for its last messages |
 | `endpoint` | `EndpointConfig` for the lobby and the rooms (timeouts, the clock) |
 
 `RoomTypeConfig`: `maxPlayers`, `idleTimeout` (a room with no player for this long closes) and `policy`
@@ -110,6 +111,12 @@ its `Hello` is **never given to your game**: your `on<T>` handlers only see play
 `finish()` (the game is over), an idle room (`idleTimeout`), or the server stopping: the players are told
 (`RoomClosed`), the last messages get a moment to leave (`linger`), and the scene is left. The clients are back
 in the lobby and can ask for another game.
+
+After `finish()` the room keeps running for `closeDelay` (0.1 s by default) before it sends `RoomClosed`. A client
+lets go of the room's replication when it hears `RoomClosed`, and the snapshots are not ordered with it: without the
+delay, what the game did in the tick it ended (a result, a last state) would leave *after* the message that makes the
+client stop listening. Whatever the game wants its players to see at the end, it changes before or when it calls
+`finish()`.
 
 ## Testing a server
 
