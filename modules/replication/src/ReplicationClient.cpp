@@ -108,6 +108,9 @@ namespace kuge::replication
         } catch (const SerializerError& error) {
             ++m_stats.malformed;
             Logger::logger().warn("replication: a snapshot was dropped: {}", error.what());
+            if (baseTick != 0) {
+                ack(0);   // it was built on one that this client has, and does not fit: start again from nothing
+            }
             return;
         }
         applyToWorld(next, tick, inputAck);
