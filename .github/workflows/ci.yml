@@ -1,0 +1,82 @@
+name: CI
+
+# Builds KUGE (modules, examples, tests) from a clean checkout and runs every test.
+# The same thing a contributor does by hand: see "Build" and "Tests" in the README.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+# A new push to a pull request makes the run of the previous one useless
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test (Linux, GCC 13)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    env:
+      # No screen and no sound card on a runner. (The tests that need SDL set these themselves;
+      # the examples that some tests run are told here.)
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+      SDL_RENDER_DRIVER: software
+
+    steps:
+      - name: Check out KUGE
+        uses: actions/checkout@v4
+
+      # The URLs in .gitmodules are SSH ones (git@github.com:...): a runner has no key. All of
+      # these repositories are public, so they are fetched over HTTPS instead.
+      # kronk3d is left out: nothing builds it yet (it is only for the future 3D module).
+      - name: Check out the submodules (over HTTPS)
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init vendor/kronknet vendor/kronkworld vendor/kronkpool
+          git submodule status
+
+      - name: Install the dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsdl2-dev libsdl2-mixer-dev libsdl2-ttf-dev fonts-dejavu-core ccache
+
+      - name: Cache the compiler's work
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ github.ref_name }}-
+            ccache-${{ runner.os }}-
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      # NOT in parallel (no -j): the socket tests use ports and fail when they run at the same time
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 300
+
+      - name: Keep the test logs when a test failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: build/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 7
