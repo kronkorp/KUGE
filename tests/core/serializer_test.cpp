@@ -2,11 +2,15 @@ extern "C" {
     #include "kronklab/kronklab.h"
 }
 #include "Serializer.hpp"
+#include <atomic>
 #include <bit>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 // NOTE: kronklab test names are limited to 31 characters.
@@ -194,4 +198,50 @@ Test(serializer, files_are_replaced_whole)
     Assert(throwsSerializerError([&] { kuge::readFile(path); }), "missing file");
     const auto nowhere = tempPath("no_such_dir") / "file.bin";
     Assert(throwsSerializerError([&] { kuge::writeFile(nowhere, first); }), "missing directory");
+}
+
+// What writeFile asks of the disk. fsync() is replaced, in this program, by a function that counts
+// the calls (and can fail), then does the real thing.
+namespace
+{
+    std::atomic<int>  g_fileSyncs{0};
+    std::atomic<int>  g_directorySyncs{0};
+    std::atomic<bool> g_failFileSync{false};
+}
+
+extern "C" int fsync(int fd)
+{
+    struct stat info;
+
+    if (fstat(fd, &info) == 0 && S_ISDIR(info.st_mode)) {
+        ++g_directorySyncs;
+    } else {
+        ++g_fileSyncs;
+        if (g_failFileSync) {
+            errno = EIO;
+            return -1;
+        }
+    }
+    return static_cast<int>(::syscall(SYS_fsync, fd));
+}
+
+Test(serializer, files_reach_the_disk)
+{
+    const auto path = tempPath("serializer_sync.bin");
+    const std::uint8_t first[] = {1, 2, 3};
+    const std::uint8_t second[] = {9};
+
+    g_fileSyncs = 0;
+    g_directorySyncs = 0;
+    kuge::writeFile(path, first);
+    Assert(g_fileSyncs > 0, "the data is synced before it replaces the old file");
+    Assert(g_directorySyncs > 0, "and the folder is synced, so that the replacement itself lasts");
+    AssertEq(kuge::readFile(path).size(), 3, "the content is there");
+
+    g_failFileSync = true;
+    Assert(throwsSerializerError([&] { kuge::writeFile(path, second); }), "a file that cannot be synced is an error");
+    g_failFileSync = false;
+    AssertEq(kuge::readFile(path).size(), 3, "and the old content is still there");
+    AssertEq(std::filesystem::exists(path.string() + ".tmp"), false, "no temporary file left");
+    std::filesystem::remove(path);
 }
