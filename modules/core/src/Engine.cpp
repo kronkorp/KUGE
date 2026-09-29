@@ -147,6 +147,11 @@ kuge::SceneHandle kuge::Engine::spawnScene(RunPolicy policy, std::unique_ptr<Sce
     reap();
     std::lock_guard lock(m_spawnMutex);
 
+    // Checked again under the lock: stopSpawned() sets the flag and takes what runs in one go,
+    // so what is added after it would be left behind, running after run() has returned
+    if (m_stopSpawned) {
+        return handle;
+    }
     switch (policy) {
         case RunPolicy::Main:
             m_sideAdded.push_back(std::move(loop));
@@ -230,13 +235,14 @@ void kuge::Engine::stopSpawned(void)
     std::vector<std::unique_ptr<SceneLoop>> side;
     std::unique_ptr<TickDriver> driver;
 
-    m_stopSpawned = true;
-    m_wake.request();
     {
         // Taken out under the lock, and joined without it: a scene that spawns
-        // in the meantime must not wait for a thread that waits for the lock
+        // in the meantime must not wait for a thread that waits for the lock.
+        // The flag is set in the same go: spawnScene() reads it under the lock,
+        // so it adds a scene before this point (and it is taken) or is refused.
         std::lock_guard lock(m_spawnMutex);
 
+        m_stopSpawned = true;
         dedicated = std::move(m_dedicated);
         m_dedicated.clear();
         side = std::move(m_side);
@@ -247,6 +253,7 @@ void kuge::Engine::stopSpawned(void)
         m_sideAdded.clear();
         driver = std::move(m_driver);
     }
+    m_wake.request();
     for (auto& runner : dedicated) {
         if (runner->thread.joinable()) {
             runner->thread.join();
