@@ -504,6 +504,29 @@ Test(spawn, stop_from_a_handle)
     Assert(waitUntil([&engine] { return engine.spawned() == 0; }), "nothing runs");
 }
 
+// Asking twice is asking once: the scene under the one that ends stays
+Test(spawn, stop_twice_pops_once)
+{
+    std::atomic<int> exitsA{0}, exitsB{0};
+    kuge::SceneHandle handleB;
+    Hooks a, b;
+
+    a.exit = [&exitsA](Actor&) { ++exitsA; };
+    b.enter = [&handleB](Actor& self) { handleB = self.ctx().self(); };
+    b.exit = [&exitsB](Actor&) { ++exitsB; };
+    kuge::Engine engine(config(60));
+
+    engine.scenes().change<Actor>(a);
+    engine.scenes().push<Actor>(b);
+    engine.step(1.0 / 60.0);
+    Assert(handleB.alive(), "the second scene runs, over the first one");
+    Assert(handleB.stop() && handleB.stop(), "asked twice");
+    Assert(engine.step(1.0 / 60.0), "the engine goes on");
+    AssertEq(exitsB.load(), 1, "the second scene was left");
+    AssertEq(exitsA.load(), 0, "and the first one is still there");
+    AssertEq(engine.scenes().size(), 1, "alone in the stack");
+}
+
 // The engine ends whatever is running, with no wait and no scene left behind
 Test(spawn, a_hundred_stops)
 {
