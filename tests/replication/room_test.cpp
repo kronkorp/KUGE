@@ -26,6 +26,7 @@ namespace
         std::map<std::uint32_t, Vec2>              positions;   //!< By network id of the player
         std::size_t                                players = 0;
         std::uint64_t                              snapshots = 0;
+        std::uint32_t                              finishTick = 0;   //!< The first snapshot that shows what the game did as it ended
     };
 
     RoomFacts& facts(void)
@@ -117,6 +118,28 @@ namespace
             std::map<net::ConnectionId, kw::Entity>                   m_entities;
     };
 
+    struct EndGame { KUGE_MESSAGE(EndGame) };
+
+    // A room whose game ends when a player says so: the state it ends in is shown by the snapshots that follow
+    class ResultRoom : public ReplicatedRoom
+    {
+        public:
+            using ReplicatedRoom::ReplicatedRoom;
+
+        protected:
+            void onRoomEnter(void) override
+            {
+                ReplicatedRoom::onRoomEnter();
+                on<EndGame>([this](const Player&, const EndGame&) {
+                    {
+                        std::lock_guard lock(facts().mutex);
+                        facts().finishTick = static_cast<std::uint32_t>(ctx().time().tick + 1);   // the next tick's snapshot
+                    }
+                    finish(net::RoomEnd::GameOver);
+                });
+            }
+    };
+
     // A client: joins, predicts its player, draws the others
     struct Player
     {
@@ -128,9 +151,18 @@ namespace
         std::unique_ptr<replication::Prediction<Steer>> prediction;
         std::uint32_t                             networkId = 0;
         Steer                                     steer;
+        bool                                      closed = false;
+        std::uint32_t                             tickWhenClosed = 0;   //!< The last snapshot it had when it heard "room closed"
 
-        Player(server::GameServer&, net::LoopbackNetwork& network, const char* name)
+        Player(server::GameServer&, net::LoopbackNetwork& network, const char* name, const char* roomType = "arena")
         {
+            // As the games do: the replication and the prediction hold the room's endpoint, so they go at once
+            matchmaking.onRoomClosed([this](net::RoomEnd) {
+                closed = true;
+                tickWhenClosed = replication ? replication->lastTick() : 0;
+                prediction.reset();
+                replication.reset();
+            });
             matchmaking.onJoined([this](net::Endpoint& room, const net::Welcome& welcome) {
                 networkId = welcome.networkId;
                 replication = std::make_unique<replication::ReplicationClient>(world, registry);
@@ -145,7 +177,7 @@ namespace
                 prediction = std::make_unique<replication::Prediction<Steer>>(config, world, registry, *replication, room);
             });
             matchmaking.connectLobby("lobby", network);
-            matchmaking.join("arena", name);
+            matchmaking.join(roomType, name);
         }
 
         // One tick of the client, as its scene would
@@ -247,6 +279,58 @@ Test(room_stack, two_players_see_each_other)
         runFor({&ana}, 1.0);
         Assert(!sees(ana, ben.networkId), "when Ben leaves, his entity is removed on Ana's client");
         AssertEq(ana.replication->entityCount(), 1, "only her own is left");
+    }
+    gameServer.stop();
+    thread.join();
+}
+
+// The game changes its world and ends in the same tick. "Room closed" is reliable and the snapshots are not
+// ordered with it, so it used to arrive first, and the clients, which let go of the room when they hear it,
+// never saw how the game ended.
+Test(room_stack, the_end_is_shown_first)
+{
+    net::LoopbackNetwork network;
+    server::ServerConfig config;
+
+    config.transport = server::Transport::Loopback;
+    config.loopback = &network;
+    config.tickRate = 60;
+    server::GameServer gameServer(config);
+
+    gameServer.addRoomType<ResultRoom>("result", server::RoomTypeConfig{.maxPlayers = 2});
+    std::thread thread([&gameServer] { gameServer.run(); });
+
+    while (!gameServer.stats().lobbyOpen) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+    {
+        Player ana(gameServer, network, "Ana", "result");
+        Player ben(gameServer, network, "Ben", "result");
+        const auto joined = Clock::now() + std::chrono::seconds(20);
+
+        while ((!ana.prediction || !ben.prediction || !ana.prediction->ready() || !ben.prediction->ready()) && Clock::now() < joined) {
+            ana.tick();
+            ben.tick();
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        Assert(ana.prediction && ben.prediction && ana.prediction->ready() && ben.prediction->ready(), "both joined and got their entity");
+        runFor({&ana, &ben}, 0.5);
+        ana.matchmaking.room()->send(net::CLIENT_CONNECTION, EndGame{});
+        const auto over = Clock::now() + std::chrono::seconds(10);
+
+        while ((!ana.closed || !ben.closed) && Clock::now() < over) {
+            ana.tick();
+            ben.tick();
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        Assert(ana.closed && ben.closed, "both were told that the room closed");
+        std::uint32_t finishTick = 0;
+
+        {
+            std::lock_guard lock(facts().mutex);
+            finishTick = facts().finishTick;
+        }
+        Assert(finishTick > 0, "the room ended the game");
+        Assert(ana.tickWhenClosed >= finishTick, "Ana had the snapshot of the end of the game (%u) when she heard it: she had %u", finishTick, ana.tickWhenClosed);
+        Assert(ben.tickWhenClosed >= finishTick, "and so did Ben: %u", ben.tickWhenClosed);
     }
     gameServer.stop();
     thread.join();

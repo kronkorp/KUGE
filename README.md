@@ -759,8 +759,10 @@ connects to the lobby, `join("deathmatch", "Ana")` asks for a room, and `onJoine
   before its `Hello` is given to the game.
 - **Network ids.** A welcomed player is a `Player` with a `networkId` (1, 2, 3... in this room, never
   reused): how the game names it. `playerId` is server-wide.
-- **The end.** `finish()` (or an idle room: `idleTimeout`, or the server stopping) tells the players,
-  gives the last messages a moment to leave (`linger`), and leaves the scene. The lobby gets the place and
+- **The end.** `finish()` (or an idle room: `idleTimeout`, or the server stopping) tells the players
+  after `closeDelay` (the room keeps running, so the last snapshots, with what the game did as it ended, leave
+  before "room closed": a client lets go of the room when it hears it), gives the last messages a moment to
+  leave (`linger`), and leaves the scene. The lobby gets the place and
   the port back, and the clients are in the lobby again: the lobby learns that the game is over *before* the
   players do, so that a client that asks for another game at once is not told "already in a room".
 - **Brutal losses.** A client whose cable is cut is found by the timeouts of the endpoints (or by the lobby
