@@ -348,3 +348,27 @@ Test(inputmap, keybinds_file)
     Assert(other.bindings(Action::Shoot) == input.bindings(Action::Shoot), "and the bindings stay");
     std::filesystem::remove(path);
 }
+
+// The file of the README: a comment has its own line, an empty value unbinds
+Test(inputmap, readme_keybinds_file)
+{
+    const auto path = tempPath("readme_keybinds.cfg");
+    kuge::InputMap input;
+
+    input.declare(Action::Shoot, "shoot");
+    input.declare(Action::Jump, "up");
+    input.declare(Action::Menu, "pause");
+    input.bind(Action::Menu, kuge::Key::Escape);
+    {
+        std::ofstream file(path);
+        file << "input.shoot = Space, Pad.A\n"
+             << "input.up    = W, Pad.DPadUp, Pad.LeftY-\n"
+             << "# empty: nothing bound to pause\n"
+             << "input.pause =\n";
+    }
+    Assert(input.loadBindings(path), "loaded");
+    Assert(input.bindings(Action::Shoot).size() == 2, "shoot has its two inputs");
+    Assert(input.bindings(Action::Jump).size() == 3, "up has its three inputs");
+    Assert(input.bindings(Action::Menu).empty(), "pause has none");
+    std::filesystem::remove(path);
+}

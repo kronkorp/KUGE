@@ -361,12 +361,14 @@ if (actions.wasPressed(Action::Shoot)) { ... }
 
 Keys are named after their place on the keyboard (`W` is where WASD games put it, on any
 layout). Rebinding in a menu: `input.startCapture()`, then `input.takeCaptured()` gives the
-next input the player pushed. The file looks like this (comments start with `#`):
+next input the player pushed. The file looks like this (a comment is a whole line that starts
+with `#`: after a value, `#` is part of the value):
 
 ```
 input.shoot = Space, Pad.A
 input.up    = W, Pad.DPadUp, Pad.LeftY-
-input.pause =                       # empty: nothing bound to it
+# empty: nothing bound to pause
+input.pause =
 ```
 
 Only the actions the file mentions are replaced: the defaults survive a file with a few lines.
