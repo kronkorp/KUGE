@@ -72,6 +72,8 @@ namespace kuge::replication
             using DestroyHook = std::function<void(kw::World&, kw::Entity)>;
             //! The server's word on the entity that belongs to this player: for Prediction
             using OwnedHook   = std::function<void(kw::Entity, const EntityRecord&, std::uint32_t tick, std::uint32_t inputAck)>;
+            //! The entity that belongs to this player is about to be removed (the server stopped sending it): for Prediction
+            using OwnedGoneHook = std::function<void(kw::Entity)>;
 
             ReplicationClient(kw::World& world, const ReplicationRegistry& registry, ReplicationClientConfig config = {});
             ~ReplicationClient(void);
@@ -96,6 +98,10 @@ namespace kuge::replication
             //! (its bullets, say) are ordinary ones, moved by the server.
             void predictType(EntityType type) { m_predictedTypes.insert(type); }
             void onOwned(OwnedHook hook) { m_owned = std::move(hook); }
+
+            //! Called, before the World loses it, when an entity that onOwned() was told about is removed. What
+            //! kept that entity must let go of it: the World gives its id to the next entity it makes.
+            void onOwnedGone(OwnedGoneHook hook) { m_ownedGone = std::move(hook); }
 
             std::optional<kw::Entity> entity(NetworkId id) const;
             std::size_t               entityCount(void) const noexcept { return m_entities.size(); }
@@ -145,6 +151,7 @@ namespace kuge::replication
             NetworkId                               m_localPlayer = 0;
             std::set<EntityType>                    m_predictedTypes;
             OwnedHook                               m_owned;
+            OwnedGoneHook                           m_ownedGone;
 
             std::map<std::uint32_t, WorldState>     m_states;        //!< Applied snapshots, by tick
             WorldState                              m_current;       //!< What the World shows (the last applied)

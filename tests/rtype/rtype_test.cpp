@@ -350,6 +350,11 @@ Test(rtype_host, a_game_ends)
     Assert(waitFor({&ana, &ben}, [&] { return ana.report->gamesEnded == 1 && ben.report->gamesEnded == 1; }, 30.0), "the wave is over: the room tells both (ana %llu, ben %llu)",
         static_cast<unsigned long long>(ana.report->gamesEnded), static_cast<unsigned long long>(ben.report->gamesEnded));
     Assert(waitFor({&ana, &ben}, [&] { return ana.report->games == 2 && ben.report->games == 2; }, 20.0), "and they are in a new game");
+    // The last picture of the first game stays on screen until the next one starts: then it must go
+    Assert(waitFor({&ana, &ben}, [&] { return ana.report->ships == 2 && ben.report->ships == 2; }, 10.0), "the new game shows its two ships (ana %zu, ben %zu)", ana.report->ships, ben.report->ships);
+    fly({&ana, &ben}, 0.5);
+    AssertEq(ana.report->ships, 2, "and only them: nothing is left of the first game on Ana's screen");
+    AssertEq(ben.report->ships, 2, "or on Ben's");
     AssertEq(ana.report->joined, true, "joined");
     Assert(waitFor({&ana, &ben}, [&] { return host.server->engine().spawned() == 1; }, 10.0), "the first room is gone: one runs");
 }

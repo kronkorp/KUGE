@@ -17,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace rtype
 {
@@ -99,6 +100,7 @@ namespace rtype
             void connect(void);
             void spawned(kw::Entity entity, const kuge::replication::SpawnInfo& info);
             void joined(kuge::net::Endpoint& room, const kuge::net::Welcome& welcome);
+            void clearLastGame(void);
             void tick(kw::World& world);
             void frame(kw::World& world);
 
@@ -163,8 +165,26 @@ namespace rtype
         world().add<kuge::Sprite>(entity, sprite);
     }
 
+    // The entities of a finished game: the new ReplicationClient does not know them, so nobody will
+    // remove them but us (they would stay on screen, frozen, for good)
+    inline void RTypeScene::clearLastGame(void)
+    {
+        std::vector<kw::Entity> old;
+        auto view = world().view<kuge::replication::Replicated>();
+
+        for (kw::Entity entity : view) {
+            old.push_back(entity);
+        }
+        for (kw::Entity entity : old) {
+            world().remove(entity);
+        }
+    }
+
     inline void RTypeScene::joined(kuge::net::Endpoint& room, const kuge::net::Welcome& welcome)
     {
+        m_prediction.reset();
+        m_replication.reset();
+        clearLastGame();
         m_networkId = welcome.networkId;
         m_replication = std::make_unique<kuge::replication::ReplicationClient>(world(), m_registry,
             kuge::replication::ReplicationClientConfig{.tickRate = welcome.tickRate});
@@ -197,7 +217,7 @@ namespace rtype
         m_matchmaking->onRoomClosed([this](kuge::net::RoomEnd) {
             ++m_report->gamesEnded;
             m_prediction.reset();
-            m_replication.reset();           // (its entities stay until the next game: the last picture of the game)
+            m_replication.reset();           // (its entities stay until the next game, see clearLastGame(): the last picture)
             if (m_options.rejoin) {
                 m_matchmaking->join("rtype", m_options.name);
             }

@@ -175,6 +175,87 @@ Test(prediction, a_jitter_buffer)
     }
 }
 
+// -- The entity that is predicted goes away -----------------------------------------------------
+namespace
+{
+    // An entity of the client's world that is not the player's: it takes the id of one that went
+    kw::Entity bystander(PredSim& sim, kw::Entity gone)
+    {
+        const kw::Entity other = sim.clientWorld.create();
+
+        sim.clientWorld.add<kuge::Transform2D>(other, kuge::Transform2D{{500.0f, 500.0f}});
+        Assert(other == gone, "(the new entity has the id of the one that went)");
+        return other;
+    }
+
+    void pushRight(PredSim& sim, int ticks)
+    {
+        for (int t = 0; t < ticks; ++t) {
+            sim.step(Steer{1, 0});
+        }
+    }
+}
+
+Test(prediction, the_server_removes_it)
+{
+    // Ids are reused: what the prediction keeps must not end up in an entity that is not the player
+    PredSim sim;
+
+    sim.rest(60);
+    Assert(sim.prediction->ready(), "the player's entity is there");
+    const kw::Entity gone = *sim.prediction->entity();
+
+    sim.server->untrack(sim.serverPlayer);
+    sim.rest(30);
+    Assert(!sim.prediction->ready(), "the server removed it: nothing is predicted any more");
+    Assert(!sim.prediction->entity().has_value(), "and no entity is given");
+    const kw::Entity other = bystander(sim, gone);
+
+    pushRight(sim, 30);
+    AssertEq(sim.clientWorld.get<kuge::Transform2D>(other).position.x, 500.0f, "the other entity is left alone (x)");
+    AssertEq(sim.clientWorld.get<kuge::Transform2D>(other).position.y, 500.0f, "and (y)");
+}
+
+Test(prediction, a_new_entity_takes_over)
+{
+    // The room gives the player a new entity (a respawn): the prediction follows that one
+    PredSim sim;
+
+    sim.rest(60);
+    sim.server->untrack(sim.serverPlayer);
+    sim.rest(30);
+    Assert(!sim.prediction->ready(), "the first entity is gone");
+    sim.serverPlayer = buildPlayer(sim.serverWorld);
+    sim.serverWorld.get<kuge::Transform2D>(sim.serverPlayer).position = {120.0f, 80.0f};
+    sim.server->track(sim.serverPlayer, PLAYER, 1);
+    sim.rest(60);
+    Assert(sim.prediction->ready(), "the new one is predicted");
+    Assert(distanceBetween(sim.clientPosition(), {120.0f, 80.0f}) < 0.5f, "from where the server put it: (%f, %f)",
+        sim.clientPosition().x, sim.clientPosition().y);
+    pushRight(sim, 60);
+    sim.rest(60);
+    Assert(sim.clientPosition().x > 120.0f + 50 * STEP, "it answers to the inputs: x = %f", sim.clientPosition().x);
+    Assert(distanceBetween(sim.clientPosition(), sim.serverPosition()) < 0.05f, "and agrees with the server");
+    AssertEq(sim.prediction->stats().corrections, 0, "with no correction");
+}
+
+Test(prediction, the_game_removes_it)
+{
+    // The game can remove replicated entities itself (when it leaves a room, for instance)
+    PredSim sim;
+
+    sim.rest(60);
+    const kw::Entity mine = *sim.prediction->entity();
+
+    sim.clientWorld.remove(mine);
+    const kw::Entity other = bystander(sim, mine);
+
+    pushRight(sim, 30);
+    AssertEq(sim.clientWorld.get<kuge::Transform2D>(other).position.x, 500.0f, "the entity that has its id is left alone (x)");
+    AssertEq(sim.clientWorld.get<kuge::Transform2D>(other).position.y, 500.0f, "and (y)");
+    Assert(!sim.prediction->ready(), "the prediction has noticed");
+}
+
 // -- The inputs on the server, alone ------------------------------------------------------------
 namespace
 {

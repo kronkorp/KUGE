@@ -97,8 +97,8 @@ Both scenes have a system in the `Input` stage that looks at the clock:
   handle is not `alive()` any more (a room that died without a word).
 
 `finish()` in a room: `RoomClosing` to the lobby **first** (so a player who asks for a new game at once is not told
-"already in a room"), `RoomClosed` to the players, a moment (`linger`) for those messages to leave, then
-`RoomEnded` and the scene pops itself.
+"already in a room"), then `closeDelay` (the room keeps running, so its last snapshots leave first), `RoomClosed` to
+the players, a moment (`linger`) for those messages to leave, then `RoomEnded` and the scene pops itself.
 
 ## The client's side: `MatchmakingClient`
 

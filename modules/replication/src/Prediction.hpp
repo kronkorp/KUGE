@@ -86,6 +86,11 @@ namespace kuge::replication
                         reconcile(entity, record, inputAck);
                     }
                 });
+                replication.onOwnedGone([this, alive = m_alive](kw::Entity entity) {
+                    if (*alive && m_ready && entity == m_visible) {
+                        lose();
+                    }
+                });
             }
 
             ~Prediction(void) { *m_alive = false; }
@@ -97,6 +102,10 @@ namespace kuge::replication
             void tick(const Input& input)
             {
                 if (!m_ready) {
+                    return;
+                }
+                if (!stillMine()) {
+                    lose();   // removed by something else than the server (the game, when it leaves a room)
                     return;
                 }
                 ++m_stats.ticks;
@@ -119,7 +128,7 @@ namespace kuge::replication
             bool                      ready(void) const noexcept { return m_ready; }
             std::uint32_t             sequence(void) const noexcept { return m_sequence; }
             const PredictionStats&    stats(void) const noexcept { return m_stats; }
-            kw::World&                privateWorld(void) noexcept { return m_private; }
+            kw::World&                privateWorld(void) noexcept { return priv(); }
             kw::Entity                privateEntity(void) const noexcept { return m_player; }
             Vec2                      offset(void) const noexcept { return m_offset; }
 
@@ -130,10 +139,34 @@ namespace kuge::replication
                 Input         input;
             };
 
+            kw::World& priv(void) noexcept { return *m_privateWorld; }
+
+            // The World gives the id of an entity that was removed to the next one it makes, and this
+            // prediction writes to `m_visible` at each tick: it must be the entity it was told about
+            bool stillMine(void) const
+            {
+                return m_world.has<Replicated>(m_visible) && m_world.get<Replicated>(m_visible).id == m_networkId;
+            }
+
+            // The entity that is drawn is gone: forget it, and everything about it. The next one that the
+            // server gives to this player starts a new prediction (the private world is made again, since
+            // build() makes all of it).
+            void lose(void)
+            {
+                m_privateWorld = std::make_unique<kw::World>();
+                m_player = {};
+                m_visible = {};
+                m_networkId = 0;
+                m_pending.clear();
+                m_offset = {};
+                m_ready = false;
+                m_stats.pending = 0;
+            }
+
             void simulate(const Input& input)
             {
-                m_config.apply(m_private, m_player, input);
-                m_config.step(m_private, m_config.dt);
+                m_config.apply(priv(), m_player, input);
+                m_config.step(priv(), m_config.dt);
             }
 
             // The predicted state of the private entity, into the one that is drawn (with what is left of the last correction)
@@ -142,15 +175,15 @@ namespace kuge::replication
                 for (const std::size_t index : m_predicted) {
                     const auto& entry = m_registry.entry(index);
 
-                    if (entry.has(m_private, m_player)) {
+                    if (entry.has(priv(), m_player)) {
                         ByteWriter out;
 
-                        entry.write(m_private, m_player, out);
+                        entry.write(priv(), m_player, out);
                         entry.apply(m_world, m_visible, out.bytes());
                     }
                 }
-                if (m_world.has<Transform2D>(m_visible) && m_private.has<Transform2D>(m_player)) {
-                    m_world.get<Transform2D>(m_visible).position = m_private.get<Transform2D>(m_player).position + m_offset;
+                if (m_world.has<Transform2D>(m_visible) && priv().template has<Transform2D>(m_player)) {
+                    m_world.get<Transform2D>(m_visible).position = priv().template get<Transform2D>(m_player).position + m_offset;
                 }
             }
 
@@ -180,18 +213,26 @@ namespace kuge::replication
             {
                 const bool first = !m_ready;
 
+                if (!first && !stillMine()) {
+                    lose();
+                    return;
+                }
                 if (first) {
+                    if (!m_world.has<Replicated>(entity)) {
+                        return;   // an entity that the game already removed: nothing to predict
+                    }
                     m_visible = entity;
-                    m_player = m_config.build(m_private);
+                    m_networkId = m_world.get<Replicated>(entity).id;
+                    m_player = m_config.build(priv());
                     m_sequence = inputAck;   // (the server counts from where this client's inputs are)
                 }
-                const Vec2 before = m_private.has<Transform2D>(m_player) ? m_private.get<Transform2D>(m_player).position : Vec2{};
+                const Vec2 before = priv().template has<Transform2D>(m_player) ? priv().template get<Transform2D>(m_player).position : Vec2{};
 
                 for (const std::size_t index : m_predicted) {
                     const auto found = record.components.find(static_cast<std::uint8_t>(index));
 
                     if (found != record.components.end()) {
-                        m_registry.entry(index).apply(m_private, m_player, found->second);
+                        m_registry.entry(index).apply(priv(), m_player, found->second);
                     }
                 }
                 while (!m_pending.empty() && m_pending.front().sequence <= inputAck) {
@@ -202,8 +243,8 @@ namespace kuge::replication
                     ++m_stats.replays;
                 }
                 ++m_stats.reconciliations;
-                if (!first && m_private.has<Transform2D>(m_player)) {
-                    const Vec2 after = m_private.get<Transform2D>(m_player).position;
+                if (!first && priv().template has<Transform2D>(m_player)) {
+                    const Vec2 after = priv().template get<Transform2D>(m_player).position;
                     const Vec2 shown = before + m_offset;     // where the player is drawn: it must not jump
                     const Vec2 gap = shown - after;
                     const Vec2 wrong = before - after;        // how wrong the last prediction was
@@ -231,7 +272,8 @@ namespace kuge::replication
             const ReplicationRegistry&     m_registry;
             net::Endpoint&                 m_room;
             std::vector<std::size_t>       m_predicted;
-            kw::World                      m_private;
+            std::unique_ptr<kw::World>     m_privateWorld = std::make_unique<kw::World>();   //!< Made again when the player's entity is lost
+            NetworkId                      m_networkId = 0;   //!< Of the entity that is drawn: how to know that it is still that one
             kw::Entity                     m_player{};
             kw::Entity                     m_visible{};
             std::deque<Pending>            m_pending;

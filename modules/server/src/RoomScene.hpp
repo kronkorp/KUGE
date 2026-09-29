@@ -117,6 +117,9 @@ namespace kuge::server
             void kick(std::uint32_t networkId, net::RoomEnd reason = net::RoomEnd::Kicked);
 
             //! Ends the game: the players are told, then the room is left. Only the first call counts.
+            //! The players are told `ServerConfig::closeDelay` later, not at once: the room goes on running, and
+            //! what the game does as it ends (a result, a last state) is in the snapshots that leave first. A client
+            //! that hears "room closed" lets go of the room, and would never have seen it.
             void finish(net::RoomEnd reason = net::RoomEnd::GameOver);
             bool finishing(void) const noexcept { return m_finishing; }
 
@@ -136,6 +139,7 @@ namespace kuge::server
             bool admit(net::ConnectionId from, std::uint64_t token);
             void reject(net::ConnectionId from, net::HelloError why);
             void housekeeping(void);
+            void announceEnd(void);
             void completeFinish(void);
             void playerGone(net::ConnectionId connection, net::DisconnectReason reason);
 
@@ -149,7 +153,9 @@ namespace kuge::server
             double                                   m_lastActive = 0.0;
             bool                                     m_finishing = false;
             bool                                     m_ended = false;
+            bool                                     m_announced = false;   //!< The players were told (RoomClosed)
             net::RoomEnd                             m_endReason = net::RoomEnd::GameOver;
+            double                                   m_announceAt = 0.0;    //!< When they are told
             double                                   m_finishAt = 0.0;
     };
 
