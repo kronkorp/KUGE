@@ -2,48 +2,76 @@
 #include "Logger.hpp"
 #include "LoggerLevel.hpp"
 #include "TickDriver.hpp"
+#include <atomic>
 #include <chrono>
 #include <csignal>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
 
 namespace
 {
-    volatile std::sig_atomic_t g_signalled = 0;
+    // The number of SIGINT / SIGTERM received by the process. An engine does not reset it: it
+    // remembers the value it saw when it began, so a signal ends every engine that runs (a server
+    // and a client in one process), and an old one does not end an engine that starts later.
+    std::atomic<unsigned> g_signals{0};
+    static_assert(std::atomic<unsigned>::is_always_lock_free, "the handler needs an atomic that does not lock");
 
     extern "C" void onSignal(int)
     {
-        g_signalled = 1;
+        g_signals.fetch_add(1, std::memory_order_relaxed);
     }
 
+    // The handlers belong to the process, not to an engine: the first engine to run installs
+    // them and the last one to end gives the previous ones back, whatever the order in which
+    // they end. (Each saving and restoring for itself would leave the handlers of the engine
+    // that ended first installed for good.)
+    std::mutex       g_handlersMutex;
+    int              g_handlersUsers = 0;
+    struct sigaction g_oldInt  = {};
+    struct sigaction g_oldTerm = {};
+
     // SIGINT and SIGTERM end run() instead of killing the process, so that the
-    // scenes are left properly. The previous handlers come back afterwards.
+    // scenes are left properly.
     class SignalGuard
     {
         public:
             SignalGuard(void)
             {
-                struct sigaction action = {};
+                std::lock_guard lock(g_handlersMutex);
 
-                action.sa_handler = &onSignal;
-                sigemptyset(&action.sa_mask);
-                g_signalled = 0;
-                sigaction(SIGINT, &action, &m_oldInt);
-                sigaction(SIGTERM, &action, &m_oldTerm);
+                if (g_handlersUsers++ == 0) {
+                    struct sigaction action = {};
+
+                    action.sa_handler = &onSignal;
+                    sigemptyset(&action.sa_mask);
+                    sigaction(SIGINT, &action, &g_oldInt);
+                    sigaction(SIGTERM, &action, &g_oldTerm);
+                }
+                m_seen = g_signals.load(std::memory_order_relaxed);
             }
 
             ~SignalGuard(void)
             {
-                sigaction(SIGINT, &m_oldInt, nullptr);
-                sigaction(SIGTERM, &m_oldTerm, nullptr);
+                std::lock_guard lock(g_handlersMutex);
+
+                if (--g_handlersUsers == 0) {
+                    sigaction(SIGINT, &g_oldInt, nullptr);
+                    sigaction(SIGTERM, &g_oldTerm, nullptr);
+                }
             }
 
             SignalGuard(const SignalGuard&)            = delete;
             SignalGuard& operator=(const SignalGuard&) = delete;
 
+            //! Was a signal received since this guard was made?
+            bool raised(void) const noexcept
+            {
+                return g_signals.load(std::memory_order_relaxed) != m_seen;
+            }
+
         private:
-            struct sigaction m_oldInt  = {};
-            struct sigaction m_oldTerm = {};
+            unsigned m_seen = 0;
     };
 }
 
@@ -329,7 +357,7 @@ int kuge::Engine::run(void)
         const double frame = std::chrono::duration<double>(now - last).count();
 
         last = now;
-        if (g_signalled) {
+        if (signals.raised()) {
             stop();
         }
         if (!step(frame)) {
