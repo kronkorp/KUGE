@@ -116,6 +116,13 @@ server runs.
 This is why the rest of the tutorial kept insisting on determinism. Sorted entity walks (steps 3 and 9), no clock
 inside a tick (step 2), and inputs applied in order (above) are what make "replay and compare" work.
 
+**When the entity goes away.** The prediction writes to the drawn entity at every tick, and the World reuses the id
+of a removed entity (step 3): a stale one would write into whoever gets that id next. So the prediction lets go in
+two cases. The replication client calls `onOwnedGone` just before it removes the player's entity (the server stopped
+sending it). And each tick the prediction checks that its entity still has the `Replicated` it was told about, with
+the same network id: that catches a game that removed it itself. In both cases the prediction forgets its private
+world (`build` makes all of it again), and starts over when the server gives the player a new entity.
+
 ## Lab
 
 The lab plays the room's side with a script: packets arrive, or get lost, or come late, and at each tick the
