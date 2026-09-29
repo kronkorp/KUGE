@@ -169,6 +169,9 @@ namespace kuge::replication
             const auto tracked = m_entities.find(it->first);
 
             if (tracked != m_entities.end()) {
+                if (m_ownedGone && isOwned(it->second)) {
+                    m_ownedGone(tracked->second.entity);
+                }
                 const auto hook = m_destroy.find(it->second.type);
 
                 if (hook != m_destroy.end()) {
