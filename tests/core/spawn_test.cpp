@@ -219,6 +219,39 @@ Test(spawn, main_policy_ends)
     Assert(engine.step(1.0 / 60.0), "the engine goes on");
 }
 
+// A spawned scene that throws is logged and stopped, on the main thread too: step() does not throw
+Test(spawn, main_policy_that_throws)
+{
+    std::atomic<int> exits{0};
+    std::atomic<int> mainTicks{0};
+    Hooks main, bad;
+
+    main.tick = [&](Actor&) { ++mainTicks; };
+    bad.tick = [](Actor& self) {
+        if (self.world().getResource<kuge::Time>().tick == 3) {
+            throw std::runtime_error("boom");
+        }
+    };
+    bad.exit = [&exits](Actor&) { ++exits; };
+    kuge::Engine engine(config(60));
+
+    engine.scenes().change<Actor>(main);
+    engine.spawn<Actor>(kuge::RunPolicy::Main, bad);
+    bool thrown = false;
+
+    for (int i = 0; i < 10; ++i) {
+        try {
+            Assert(engine.step(1.0 / 60.0), "the engine goes on");
+        } catch (...) {
+            thrown = true;
+        }
+    }
+    Assert(!thrown, "the exception does not come out of step()");
+    AssertEq(exits.load(), 1, "the scene was left, once");
+    AssertEq(engine.spawned(), 0, "and forgotten: it does not throw again");
+    AssertEq(mainTicks.load(), 10, "the main scene was not disturbed");
+}
+
 // A scene does its ticks one after the other, on the workers, and never two at once
 struct Counting
 {
