@@ -488,6 +488,46 @@ Test(spawn, a_scene_that_throws)
     Assert(c.alive(), "still there");
 }
 
+// A scene that spawns while the engine ends: what it spawns is either refused or left with
+// the others. Nothing runs once run() has returned.
+Test(spawn, spawn_while_ending)
+{
+    for (int round = 0; round < 40; ++round) {
+        std::atomic<int> enters{0}, exits{0}, childTicks{0};
+        Hooks child, spawner;
+
+        child.enter = [&enters](Actor&) { ++enters; };
+        child.tick = [&childTicks](Actor&) { ++childTicks; };
+        child.exit = [&exits](Actor&) { ++exits; };
+        spawner.tick = [child](Actor& self) {
+            for (int i = 0; i < 4; ++i) {
+                self.ctx().spawn<Actor>(i % 2 ? kuge::RunPolicy::Dedicated : kuge::RunPolicy::Pooled, child);
+            }
+        };
+        kuge::Engine engine(config(1000, 2));
+        Hooks main;
+
+        main.tick = [&engine, &spawner](Actor& self) {
+            static thread_local int ticks = 0;
+            if (++ticks == 1) {
+                for (int s = 0; s < 4; ++s) { engine.spawn<Actor>(kuge::RunPolicy::Dedicated, spawner); }
+            }
+            if (ticks == 30) {
+                ticks = 0;
+                self.ctx().engine().stop();
+            }
+        };
+        engine.scenes().change<Actor>(main);
+        AssertEq(engine.run(), 0, "round %d: run() ends", round);
+        const int after = childTicks.load();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        AssertEq(engine.spawned(), 0, "round %d: nothing runs", round);
+        AssertEq(childTicks.load(), after, "round %d: and nothing ticks after run()", round);
+        AssertEq(exits.load(), enters.load(), "round %d: what was entered was left", round);
+    }
+}
+
 Test(spawn, stop_from_a_handle)
 {
     std::atomic<int> exits{0};
