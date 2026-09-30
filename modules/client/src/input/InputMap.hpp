@@ -76,6 +76,16 @@ namespace kuge
             //! Where the mouse is, in pixels of the window
             Vec2 mousePosition(void) const noexcept { return m_mouse; }
 
+            // -- Typing: what a text field needs, which actions are not ------------------
+
+            //! What was typed since the last call (UTF-8), once. Kept apart from the actions: typing "w" in a
+            //! text field does not press the action that W is bound to, for whoever reads this instead.
+            std::string takeTyped(void);
+
+            //! The keys that edit a text (Backspace, Delete, the arrows, Home, End, Enter, Tab), pressed since the
+            //! last call, **with the repeats** of a key that is held, once. Independent of the actions.
+            std::vector<Key> takeEditKeys(void);
+
             // -- Rebinding: "press the key you want" ---------------------------------
 
             //! The next key, button or stick pushed is kept instead of acting,
@@ -128,6 +138,10 @@ namespace kuge
             std::map<int, PadState>                                   m_pads;
             Vec2                                                      m_mouse;
             float                                                     m_axisThreshold = 0.5f;
+
+            // What was typed, for a text field (bounded: nobody may be reading it)
+            std::string                                               m_typed;
+            std::vector<Key>                                          m_editKeys;
 
             // The actions: held now, and what happened since the last sampleTick()
             std::uint64_t m_down     = 0;

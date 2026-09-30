@@ -134,9 +134,17 @@ audio.playMusic(*theme, {.fadeIn = 2.0f});
 
 `client.loadFont("font.ttf", 14)` gives a font; `Ref<TextRenderer>` draws text in screen pixels. Menus, HUD
 and options are **entities in screen pixels** made of `UiNode` (a rectangle placed by an anchor or a stack),
-`UiPanel`, `UiLabel` and `UiButton`. `installUi(setup(), actions)` adds the systems: layout, focus navigation
-with the keyboard or gamepad (nearest neighbour), mouse hover and click, and drawing. The platformer's
+`UiPanel`, `UiLabel`, `UiButton` and `UiTextField`. `installUi(setup(), actions)` adds the systems: layout, focus
+navigation with the keyboard or gamepad (nearest neighbour), mouse hover and click, and drawing. The platformer's
 `MenuScene` and `PauseScene` are complete examples.
+
+**Typing.** What the player types is a `TextEvent` (UTF-8), apart from the keys: a key is a place on the keyboard,
+a letter is what the layout and the OS make of it. A `UiTextField` is a line of text that takes it: click it (or
+reach it with the focus), type, edit with Backspace, Delete, the arrows, Home and End, and read `Changed` and
+`Submitted` (Enter) in `UiEvents`. While a field has the focus the actions that move it (up, down, left, right,
+accept) are left alone, since a letter that your game bound to "up" is a letter there: **Tab** leaves the field.
+For your own input, `InputMap::takeTyped()` and `takeEditKeys()` give the text and the editing keys since the last
+call. There is no selection, clipboard or multi-line text yet. The details are in the README (User interface).
 
 ## Tilemaps and animations
 

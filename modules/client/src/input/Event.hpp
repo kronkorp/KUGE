@@ -2,6 +2,7 @@
 
 #include "Math2D.hpp"
 #include "input/Key.hpp"
+#include <string>
 #include <variant>
 
 namespace kuge
@@ -56,9 +57,16 @@ namespace kuge
     //! The user asked to close the window
     struct QuitEvent {};
 
+    //! Characters typed, as the keyboard layout and the OS make them (a key of the
+    //! keyboard, a composed accent, an emoji...). UTF-8, one or more characters.
+    //! It is text, not a key: no action reacts to it (see InputMap::takeTyped()).
+    struct TextEvent {
+        std::string text;
+    };
+
     using Event = std::variant<
         KeyEvent, MouseButtonEvent, MouseMoveEvent, MouseWheelEvent,
         GamepadButtonEvent, GamepadAxisEvent, GamepadConnectionEvent,
-        ResizeEvent, QuitEvent>;
+        ResizeEvent, QuitEvent, TextEvent>;
 
 }

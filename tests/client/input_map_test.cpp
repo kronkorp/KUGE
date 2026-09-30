@@ -118,6 +118,48 @@ Test(inputmap, unknown_keys_do_nothing)
     Assert(input.sampleTick(1).down == 0, "nothing bound to Unknown");
 }
 
+// What is typed is text: no action reacts to it, and a text field reads it apart
+Test(inputmap, typed_text)
+{
+    kuge::InputMap input;
+
+    input.bind(Action::Jump, kuge::Key::W);
+    input.handle(kuge::TextEvent{"w"});
+    input.handle(kuge::TextEvent{"\xC3\xA9"});
+    Assert(input.sampleTick(1).down == 0, "the text of a W is not the key W: no action");
+    AssertStrEq(input.takeTyped().c_str(), "w\xC3\xA9", "what was typed, in order");
+    AssertStrEq(input.takeTyped().c_str(), "", "and only once");
+    // Nobody reads it: it does not pile up
+    for (int i = 0; i < 1000; ++i) {
+        input.handle(kuge::TextEvent{"abcdefghij"});
+    }
+    Assert(input.takeTyped().size() <= 256, "what is kept is bounded");
+    AssertStrEq(input.takeTyped().c_str(), "", "");
+}
+
+Test(inputmap, editing_keys)
+{
+    kuge::InputMap input;
+
+    input.bind(Action::Jump, kuge::Key::Left);
+    input.handle(press(kuge::Key::Backspace));
+    input.handle(kuge::KeyEvent{kuge::Key::Backspace, true, true});    // the OS repeats the key held: it counts
+    input.handle(press(kuge::Key::Left));
+    input.handle(press(kuge::Key::A));                                 // a letter is not an editing key
+    input.handle(kuge::KeyEvent{kuge::Key::Delete, false});            // a release is not either
+    input.handle(press(kuge::Key::Enter));
+    const auto keys = input.takeEditKeys();
+
+    AssertEq(keys.size(), 4, "the editing keys pressed, got %zu", keys.size());
+    Assert(keys[0] == kuge::Key::Backspace && keys[1] == kuge::Key::Backspace && keys[2] == kuge::Key::Left && keys[3] == kuge::Key::Enter, "with the repeat, in order");
+    AssertEq(input.takeEditKeys().size(), 0, "and only once");
+    Assert(input.sampleTick(1).wasPressed(Action::Jump), "the actions work as before: Left is bound");
+    for (int i = 0; i < 1000; ++i) {
+        input.handle(press(kuge::Key::Backspace));
+    }
+    Assert(input.takeEditKeys().size() <= 64, "what is kept is bounded");
+}
+
 Test(inputmap, sticks_need_a_push)
 {
     kuge::InputMap input;
