@@ -55,7 +55,37 @@ namespace kuge::server
         m_state->stats.lobbyOpen = true;
         m_endpoint->onConnected([this](net::ConnectionId) { refreshStats(); });
         m_endpoint->onDisconnected([this](net::ConnectionId id, net::DisconnectReason) { handleGone(id); });
-        m_endpoint->on<net::JoinRoom>([this](net::ConnectionId from, const net::JoinRoom& request) { handleJoin(from, request); });
+        m_endpoint->on<net::JoinRoom>([this](net::ConnectionId from, const net::JoinRoom& join) {
+            Want want;
+
+            want.kind = Want::Kind::Auto;
+            want.type = join.roomType;
+            want.playerName = join.playerName;
+            want.protocol = join.protocol;
+            request(from, std::move(want));
+        });
+        m_endpoint->on<net::CreateRoom>([this](net::ConnectionId from, const net::CreateRoom& create) {
+            Want want;
+
+            want.kind = Want::Kind::Create;
+            want.type = create.roomType;
+            want.roomName = create.roomName;
+            want.playerName = create.playerName;
+            want.isPrivate = create.isPrivate;
+            want.protocol = create.protocol;
+            request(from, std::move(want));
+        });
+        m_endpoint->on<net::JoinNamedRoom>([this](net::ConnectionId from, const net::JoinNamedRoom& join) {
+            Want want;
+
+            want.kind = Want::Kind::Named;
+            want.roomId = join.roomId;
+            want.roomName = join.roomName;
+            want.playerName = join.playerName;
+            want.protocol = join.protocol;
+            request(from, std::move(want));
+        });
+        m_endpoint->on<net::ListRooms>([this](net::ConnectionId from, const net::ListRooms& list) { handleList(from, list); });
         m_endpoint->on<net::LeaveRoom>([this](net::ConnectionId from, const net::LeaveRoom&) { handleLeave(from); });
         addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<LobbyHousekeeping>(*this));
     }
@@ -91,21 +121,24 @@ namespace kuge::server
         Room* best = nullptr;
 
         for (auto& [id, room] : m_rooms) {
-            // The fullest room that still has a place: games start sooner
-            if (room.type == type && !room.closing && room.members.size() < room.maxPlayers && (!best || room.members.size() > best->members.size())) {
+            // The fullest room that still has a place: games start sooner. A private room is never filled by chance.
+            if (room.type == type && !room.isPrivate && !room.closing && room.members.size() < room.maxPlayers && (!best || room.members.size() > best->members.size())) {
                 best = &room;
             }
         }
         return best;
     }
 
-    LobbyScene::Room* LobbyScene::makeRoom(const std::string& type, const ServerState::RoomType& kind)
+    // @param name  Empty: "<type> #<id>"
+    LobbyScene::Room* LobbyScene::makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate)
     {
         const ServerConfig& config = m_state->config;
         RoomInit init;
 
         init.roomId = m_nextRoom;
         init.roomType = type;
+        init.roomName = name.empty() ? type + " #" + std::to_string(m_nextRoom) : name;
+        init.isPrivate = isPrivate;
         init.type = kind.config;
         init.server = config;
         if (config.transport == Transport::Sockets) {
@@ -132,6 +165,8 @@ namespace kuge::server
 
             room.id = m_nextRoom++;
             room.type = type;
+            room.name = init.roomName;
+            room.isPrivate = isPrivate;
             room.port = init.port;
             room.address = init.address;
             room.maxPlayers = kind.config.maxPlayers;
@@ -161,25 +196,71 @@ namespace kuge::server
         m_endpoint->send(member.connection, assigned);
     }
 
-    void LobbyScene::handleJoin(net::ConnectionId from, const net::JoinRoom& request)
+    void LobbyScene::request(net::ConnectionId from, Want want)
     {
-        if (!tryJoin(from, request, false)) {
-            m_retries.push_back(Retry{from, request, m_state->config.now() + 0.25});
+        if (!tryJoin(from, want, false)) {
+            m_retries.push_back(Retry{from, std::move(want), m_state->config.now() + 0.25});
         }
+    }
+
+    // The public rooms, by id. A private one is never told, nor is one that is ending.
+    void LobbyScene::handleList(net::ConnectionId from, const net::ListRooms& list)
+    {
+        net::RoomList reply;
+
+        for (const auto& [id, room] : m_rooms) {
+            if (room.isPrivate || room.closing || (!list.roomType.empty() && room.type != list.roomType)) {
+                continue;
+            }
+            ++reply.total;
+            if (reply.rooms.size() < net::MAX_LISTED_ROOMS) {
+                reply.rooms.push_back(net::RoomInfo{room.id, room.type, room.name, static_cast<std::uint32_t>(room.members.size()),
+                    static_cast<std::uint32_t>(room.maxPlayers)});
+            }
+        }
+        m_endpoint->send(from, reply);
+    }
+
+    // What a room does when a player is put in it: the room is told to expect the token, the client is told where to go
+    void LobbyScene::enter(net::ConnectionId from, Room& room, const std::string& playerName)
+    {
+        Member member{m_nextPlayer++, from, room.id, newToken(), playerName, m_state->config.now(), false};
+
+        room.handle.send(detail::ExpectPlayer{member.playerId, member.name, member.token});
+        room.members.insert(member.playerId);
+        m_byConnection[from] = member.playerId;
+        ++m_state->stats.joins;
+        if (room.ready) {
+            assign(member, room);
+        } else {
+            room.waiting.push_back(member.playerId);   // told when the room is listening
+        }
+        m_members[member.playerId] = std::move(member);
+        refreshStats();
     }
 
     // @param final  false: a client that seems to be in a room already may be one whose room just ended,
     //               and the lobby has not heard yet: the join is tried again for a moment before it is refused
-    bool LobbyScene::tryJoin(net::ConnectionId from, const net::JoinRoom& request, bool final)
+    bool LobbyScene::tryJoin(net::ConnectionId from, const Want& want, bool final)
     {
-        if (request.protocol != net::MATCHMAKING_VERSION) {
+        if (want.protocol != net::MATCHMAKING_VERSION) {
             refuse(from, net::JoinError::Protocol);
             return true;
         }
-        const auto kind = m_state->roomTypes.find(request.roomType);
+        const ServerState::RoomType* kind = nullptr;
+        std::string name = net::trimRoomName(want.roomName);
 
-        if (kind == m_state->roomTypes.end()) {
-            refuse(from, net::JoinError::UnknownRoomType);
+        if (want.kind != Want::Kind::Named) {
+            const auto found = m_state->roomTypes.find(want.type);
+
+            if (found == m_state->roomTypes.end()) {
+                refuse(from, net::JoinError::UnknownRoomType);
+                return true;
+            }
+            kind = &found->second;
+        }
+        if (want.kind == Want::Kind::Create && !net::validRoomName(name)) {
+            refuse(from, net::JoinError::InvalidName);
             return true;
         }
         const auto already = m_byConnection.find(from);
@@ -197,32 +278,52 @@ namespace kuge::server
                 return true;
             }
         }
-        Room* room = findRoom(request.roomType);
+        Room* room = nullptr;
 
-        if (!room && m_rooms.size() < m_state->config.maxRooms) {
-            room = makeRoom(request.roomType, kind->second);
-            if (!room) {
-                refuse(from, net::JoinError::RoomFailed);
-                return true;
+        switch (want.kind) {
+            case Want::Kind::Auto:
+                room = findRoom(want.type);
+                if (!room && m_rooms.size() < m_state->config.maxRooms) {
+                    room = makeRoom(want.type, *kind, "", false);
+                    if (!room) {
+                        refuse(from, net::JoinError::RoomFailed);
+                        return true;
+                    }
+                }
+                break;
+            case Want::Kind::Create:
+                if (m_rooms.size() >= m_state->config.maxRooms) {
+                    refuse(from, net::JoinError::Full);
+                    return true;
+                }
+                room = makeRoom(want.type, *kind, name, want.isPrivate);
+                if (!room) {
+                    refuse(from, net::JoinError::RoomFailed);
+                    return true;
+                }
+                break;
+            case Want::Kind::Named: {
+                // The id and the name must both be the room's. One answer for every way to be wrong (no such room, another
+                // name, a room that is ending), so that a private room cannot be told from one that does not exist.
+                const auto found = m_rooms.find(want.roomId);
+
+                if (found == m_rooms.end() || found->second.closing || found->second.name != name) {
+                    refuse(from, net::JoinError::UnknownRoom);
+                    return true;
+                }
+                room = &found->second;
+                if (room->members.size() >= room->maxPlayers) {
+                    refuse(from, net::JoinError::Full);
+                    return true;
+                }
+                break;
             }
         }
         if (!room) {
             refuse(from, net::JoinError::Full);
             return true;
         }
-        Member member{m_nextPlayer++, from, room->id, newToken(), request.playerName, m_state->config.now(), false};
-
-        room->handle.send(detail::ExpectPlayer{member.playerId, member.name, member.token});
-        room->members.insert(member.playerId);
-        m_byConnection[from] = member.playerId;
-        ++m_state->stats.joins;
-        if (room->ready) {
-            assign(member, *room);
-        } else {
-            room->waiting.push_back(member.playerId);   // told when the room is listening
-        }
-        m_members[member.playerId] = std::move(member);
-        refreshStats();
+        enter(from, *room, want.playerName);
         return true;
     }
 
@@ -361,7 +462,7 @@ namespace kuge::server
             if (std::find(clients.begin(), clients.end(), retry.connection) == clients.end()) {
                 continue;   // the client is gone
             }
-            if (!tryJoin(retry.connection, retry.request, time >= retry.until)) {
+            if (!tryJoin(retry.connection, retry.want, time >= retry.until)) {
                 m_retries.push_back(retry);
             }
         }

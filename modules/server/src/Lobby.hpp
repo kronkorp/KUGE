@@ -39,6 +39,8 @@ namespace kuge::server
             {
                 std::uint32_t            id;
                 std::string              type;
+                std::string              name;
+                bool                     isPrivate = false;   //!< Not in the lists, not filled by the automatic matchmaking
                 SceneHandle              handle;
                 std::uint16_t            port = 0;
                 std::string              address;
@@ -49,17 +51,34 @@ namespace kuge::server
                 std::vector<std::uint32_t> waiting;    //!< Told where the room is once it is ready
             };
 
-            void handleJoin(net::ConnectionId from, const net::JoinRoom& request);
+            //! What a client asks for when it wants a room: the lobby chooses one (Auto), makes one that the
+            //! client names (Create), or takes the one that the client names (Named)
+            struct Want
+            {
+                enum class Kind : std::uint8_t { Auto, Create, Named };
+
+                Kind          kind = Kind::Auto;
+                std::string   type;            //!< Auto and Create
+                std::uint32_t roomId = 0;      //!< Named
+                std::string   roomName;        //!< Create: the name to give. Named: the name the room must have.
+                std::string   playerName;
+                bool          isPrivate = false;
+                std::uint16_t protocol = net::MATCHMAKING_VERSION;
+            };
+
+            void request(net::ConnectionId from, Want want);
+            void handleList(net::ConnectionId from, const net::ListRooms& request);
             void handleLeave(net::ConnectionId from);
             void handleGone(net::ConnectionId from);
             Room* findRoom(const std::string& type);
-            Room* makeRoom(const std::string& type, const ServerState::RoomType& kind);
+            Room* makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate);
+            void enter(net::ConnectionId from, Room& room, const std::string& playerName);
             void assign(const Member& member, const Room& room);
             void removeMember(std::uint32_t playerId, bool tellRoom, net::RoomEnd reason);
             void endRoom(std::uint32_t roomId, net::RoomEnd reason, bool keepPort = false);
             void refuse(net::ConnectionId to, net::JoinError why);
             void housekeeping(void);
-            bool tryJoin(net::ConnectionId from, const net::JoinRoom& request, bool final);
+            bool tryJoin(net::ConnectionId from, const Want& want, bool final);
             void refreshStats(void);
 
             std::shared_ptr<ServerState>            m_state;
@@ -71,7 +90,7 @@ namespace kuge::server
             struct Retry
             {
                 net::ConnectionId  connection;
-                net::JoinRoom      request;
+                Want               want;
                 double             until;
             };
             std::vector<Retry>                      m_retries;   //!< Joins that came before the lobby knew that the last room ended

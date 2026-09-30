@@ -94,11 +94,42 @@ int main()
 
 - It finds a room of the asked kind that has a free place (**the fullest first**: games start sooner), or makes
   one, up to `maxRooms`. It refuses with a reason (`JoinError`): unknown kind, full, room could not start.
+- It can also be told which room to use (see "Naming, listing and choosing rooms" below). It never fills a private
+  room by chance.
 - It keeps the TCP connection of each client: **losing it takes the player out of the room**.
 - When a room ends, it gets the place and the port back. The lobby learns that a game is over *before* the players
   do, so a client asking for another game at once is not told "already in a room".
 - A client that never reaches its room loses its place after the token's lifetime.
 - A port that could not be bound is set aside; the next room uses another.
+
+## Naming, listing and choosing rooms
+
+`join("deathmatch", "Ana")` lets the lobby choose. To let a player choose, the client has three more calls, and the
+lobby keeps the connection all along, so a client can look, leave, and join another:
+
+```cpp
+matchmaking.onRoomList([](const kuge::net::RoomList& list) {
+    for (const auto& room : list.rooms) {          // public rooms only, by id, at most 64 (list.total: how many)
+        // room.roomId, room.name, room.roomType, room.players, room.maxPlayers
+    }
+});
+matchmaking.requestRooms("deathmatch");            // "" for every kind: the answer goes to onRoomList
+
+matchmaking.createRoom("deathmatch", "Les copains", "Ana");          // opens it, and Ana is in it
+matchmaking.createRoom("deathmatch", "Secret", "Ana", true);         // private: in no list
+matchmaking.joinRoom(12, "Secret", "Ben");                           // the id AND the name must be the room's
+```
+
+- A name is **1 to 32 bytes of UTF-8, with no control character**. The blanks at its ends are dropped. The lobby
+  refuses another name with `JoinError::InvalidName`; `validRoomName()` and `trimRoomName()` let a UI check it first.
+- **A private room** is in no list and `join()` never puts anyone in it. The only way in is its name and its id
+  (`JoinNamedRoom`). Every way to be wrong (no such room, another name, a room that is ending) gets the same
+  `JoinError::UnknownRoom`, so a private room cannot be told from one that does not exist. Be aware of how little
+  that protects: the ids are 1, 2, 3..., so **the name is the only secret**, and there is no password. A room that is
+  full is `JoinError::Full`.
+- A public room is filled by `join()` too, like any other.
+- The room sees its own name and whether it is private in `init().roomName` and `init().isPrivate`.
+- The lobby does not limit how often a client asks for the list.
 
 ## The door of a room
 

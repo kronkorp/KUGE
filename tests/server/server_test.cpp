@@ -525,3 +525,200 @@ Test(server, rooms_take_ports_turn)
         Assert(waitUntil([&] { return run.server->stats().rooms == 0; }), "and the port is free again");
     }
 }
+
+// -- Rooms that have a name, that are listed, and that can be private -----------------------------------
+Test(server, named_rooms_are_listed)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    const auto* none = ben.list();   // (asked before the lobby answered: it waits)
+
+    Assert(none != nullptr && none->rooms.empty() && none->total == 0, "no room yet");
+    ana.create("Les copains");
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens a room and is in it");
+    const auto* list = ben.list();
+
+    Assert(list != nullptr && list->rooms.size() == 1 && list->total == 1, "one room is listed");
+    const net::RoomInfo room = list->rooms[0];
+
+    AssertStrEq(room.name.c_str(), "Les copains", "with the name that Ana gave it");
+    AssertEq(room.roomId, ana.roomId, "and its id");
+    AssertStrEq(room.roomType.c_str(), "duel", "its kind");
+    AssertEq(room.players, 1, "who is in it");
+    AssertEq(room.maxPlayers, 2, "and how many fit");
+    {
+        std::lock_guard lock(roomLog().mutex);
+        Assert(roomLog().roomNames.size() == 1 && roomLog().roomNames[0].first == "Les copains" && !roomLog().roomNames[0].second, "the room itself knows its name");
+    }
+    // A public room is filled by the automatic matchmaking too
+    ben.join();
+    Assert(ben.until([&] { return ben.inRoom(); }), "Ben asks for any room");
+    AssertEq(ben.roomId, ana.roomId, "and lands in Ana's, which has a place");
+    // A room that the lobby made has a name too, so that it can be listed
+    TestClient carl("Carl");
+
+    carl.connect(harness);
+    carl.join();
+    Assert(carl.until([&] { return carl.inRoom(); }), "Carl asks for any room");
+    const auto* again = carl.list("duel");
+
+    Assert(again != nullptr && again->rooms.size() == 2, "two rooms now");
+    AssertStrEq(again->rooms[1].name.c_str(), ("duel #" + std::to_string(carl.roomId)).c_str(), "the one that the lobby made is called after its kind and its id");
+    const auto* other = carl.list("no such kind");
+
+    Assert(other != nullptr && other->rooms.empty(), "a kind that has no room has no list");
+}
+
+Test(server, join_by_name_and_id)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben"), carl("Carl");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    carl.connect(harness);
+    ana.create("Salon");
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens Salon");
+    const auto* list = ben.list();
+
+    Assert(list != nullptr && list->rooms.size() == 1, "Ben sees it");
+    ben.joinNamed(list->rooms[0].roomId, list->rooms[0].name);
+    Assert(ben.until([&] { return ben.inRoom(); }), "Ben joins it by its name and its id");
+    AssertEq(ben.roomId, ana.roomId, "in Ana's room");
+    carl.joinNamed(ana.roomId, "Salon");
+    Assert(carl.until([&] { return !carl.failures.empty(); }), "Carl is refused: the room is full");
+    AssertStrEq(carl.failures[0].c_str(), "every room is full", "with that reason");
+    Assert(carl.inLobby(), "and stays in the lobby");
+    const auto* full = carl.list();
+
+    Assert(full != nullptr && full->rooms.size() == 1 && full->rooms[0].players == 2, "a full room is listed, with its two players");
+}
+
+Test(server, private_rooms)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben"), carl("Carl");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    carl.connect(harness);
+    ana.create("Secret", true);
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens a private room");
+    {
+        std::lock_guard lock(roomLog().mutex);
+        Assert(roomLog().roomNames.size() == 1 && roomLog().roomNames[0].second, "the room knows that it is private");
+    }
+    const auto* hidden = ben.list();
+
+    Assert(hidden != nullptr && hidden->rooms.empty() && hidden->total == 0, "it is in no list");
+    ben.join();
+    Assert(ben.until([&] { return ben.inRoom(); }), "Ben asks for any room");
+    Assert(ben.roomId != ana.roomId, "and the matchmaking makes another one: it never fills a private room");
+
+    // The wrong name, the wrong id, a room that is not private: one and the same answer
+    carl.joinNamed(ana.roomId, "Wrong");
+    Assert(carl.until([&] { return carl.failures.size() == 1; }), "a wrong name is refused");
+    carl.joinNamed(ana.roomId + 100, "Secret");
+    Assert(carl.until([&] { return carl.failures.size() == 2; }), "a wrong id is refused");
+    carl.joinNamed(ben.roomId, "Secret");
+    Assert(carl.until([&] { return carl.failures.size() == 3; }), "and so is a public room under another name");
+    AssertStrEq(carl.failures[0].c_str(), "no such room", "the reason");
+    AssertStrEq(carl.failures[1].c_str(), carl.failures[0].c_str(), "is the same for a room that does not exist");
+    AssertStrEq(carl.failures[2].c_str(), carl.failures[0].c_str(), "and for one that is public");
+    carl.joinNamed(ana.roomId, "Secret");
+    Assert(carl.until([&] { return carl.inRoom(); }), "the right name and the right id get in");
+    AssertEq(carl.roomId, ana.roomId, "into Ana's room");
+    carl.matchmaking.room()->send(net::CLIENT_CONNECTION, Echo{"hi"});
+    Assert(carl.until([&] { return carl.echoes.size() == 1; }), "and the game works");
+}
+
+Test(server, room_names_are_checked)
+{
+    Harness harness;
+    TestClient ana("Ana");
+
+    ana.connect(harness);
+    std::size_t refusals = 0;
+
+    for (const std::string& bad : {std::string(), std::string("   "), std::string(33, 'x'), std::string("two\nlines"), std::string("\xFF\xFE")}) {
+        ana.create(bad);
+        ++refusals;
+        Assert(ana.until([&] { return ana.failures.size() == refusals; }), "a bad name is refused");
+        AssertStrEq(ana.failures.back().c_str(), "this is not a name for a room", "for that reason");
+    }
+    Assert(ana.inLobby(), "and the client is still in the lobby");
+    AssertEq(harness.server->stats().rooms, 0, "no room was made");
+    ana.create("x", false, "no such kind");
+    Assert(ana.until([&] { return ana.failures.size() == refusals + 1; }), "a kind that the server does not have");
+    AssertStrEq(ana.failures.back().c_str(), "the server has no such kind of room", "is refused as before");
+    ana.create("  Padded  ");
+    Assert(ana.until([&] { return ana.inRoom(); }), "the spaces around a name are dropped");
+    const auto* list = ana.list();
+
+    Assert(list != nullptr && list->rooms.size() == 1, "one room");
+    AssertStrEq(list->rooms[0].name.c_str(), "Padded", "under its trimmed name");
+}
+
+Test(server, the_lobby_is_kept)
+{
+    Harness harness;
+    TestClient ana("Ana");
+
+    ana.connect(harness);
+    ana.create("A");   // (asked before the lobby answered: it waits)
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens a room");
+    const auto id = ana.roomId;
+    const auto* inside = ana.list();
+
+    Assert(inside != nullptr && inside->rooms.size() == 1, "she can look at the list while she is in it");
+    ana.matchmaking.leave();
+    Assert(ana.inLobby(), "she leaves it: she is in the lobby");
+    Assert(waitUntil([&] { return harness.server->stats().players == 0; }), "the lobby knows");
+    ana.joinNamed(id, "A");
+    Assert(ana.until([&] { return ana.joined == 2 && ana.inRoom(); }), "and joins the same room again, by its name and id");
+    AssertEq(ana.roomId, id, "it is the same");
+}
+
+Test(server, the_list_is_capped)
+{
+    // More rooms than one answer carries: the first ones, and how many there are
+    // (The lobby takes 64 connections by default: more clients than that need a bigger limit)
+    Harness harness([](ServerConfig& c) { c.maxRooms = 100; c.workers = 2; c.endpoint.maxConnections = 128; }, RoomTypeConfig{.maxPlayers = 2, .idleTimeout = 30.0, .policy = RunPolicy::Pooled});
+    std::vector<std::unique_ptr<TestClient>> clients;
+
+    for (std::size_t i = 0; i < net::MAX_LISTED_ROOMS + 6; ++i) {
+        clients.push_back(std::make_unique<TestClient>("P" + std::to_string(i)));
+        clients.back()->connect(harness);
+        clients.back()->create("room " + std::to_string(i));
+    }
+    Assert(pumpAll(clients, [&] { return std::all_of(clients.begin(), clients.end(), [](auto& c) { return c->inRoom(); }); }), "70 rooms are open");
+    const auto* list = clients[0]->list();
+
+    Assert(list != nullptr, "the lobby answers");
+    AssertEq(list->total, net::MAX_LISTED_ROOMS + 6, "it says how many there are");
+    AssertEq(list->rooms.size(), net::MAX_LISTED_ROOMS, "and lists the first ones");
+    Assert(std::is_sorted(list->rooms.begin(), list->rooms.end(), [](const auto& a, const auto& b) { return a.roomId < b.roomId; }), "by id");
+}
+
+Test(server, named_rooms_over_sockets)
+{
+    const Ports ports = freePorts();
+    SocketServerRun run(ports);
+    TestClient ana("Ana"), ben("Ben");
+
+    ana.matchmaking.connectLobby(net::Protocol::Tcp, "127.0.0.1", ports.lobby);
+    ben.matchmaking.connectLobby(net::Protocol::Tcp, "127.0.0.1", ports.lobby);
+    ana.create("Over tcp", true);
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens a private room (lobby over tcp, room over udp)");
+    const auto* hidden = ben.list();
+
+    Assert(hidden != nullptr && hidden->rooms.empty(), "it is not listed");
+    ben.joinNamed(ana.roomId, "over tcp");
+    Assert(ben.until([&] { return !ben.failures.empty(); }), "a name that is not the room's is refused (the case counts)");
+    ben.joinNamed(ana.roomId, "Over tcp");
+    Assert(ben.until([&] { ana.poll(); return ben.inRoom(); }), "the right one gets in");
+    AssertEq(ben.roomId, ana.roomId, "into the same room");
+}
