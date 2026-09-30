@@ -51,22 +51,40 @@ client (MatchmakingClient)          lobby scene (main thread)                  r
 
 ```cpp
 // modules/server/src/Lobby.cpp, LobbyScene::tryJoin (shortened)
-... wrong protocol, unknown kind of room: refused (JoinRefused)
+... wrong protocol, unknown kind of room, a bad name for a room to create: refused (JoinRefused)
 ... already in a room: that room may be ending, and the lobby not know yet: tried again for 0.25 s
-Room* room = findRoom(request.roomType);                  // the fullest one that still has a place
-if (!room && m_rooms.size() < m_state->config.maxRooms) {
-    room = makeRoom(request.roomType, kind->second);      // a port from the range, a RoomScene, spawned
+switch (want.kind) {                                      // what the client asked for (JoinRoom, CreateRoom, JoinNamedRoom)
+    case Want::Kind::Auto:
+        room = findRoom(want.type);                       // the fullest public one that still has a place
+        if (!room && m_rooms.size() < m_state->config.maxRooms) {
+            room = makeRoom(want.type, *kind, "", false); // a port from the range, a RoomScene, spawned
+        }
+        break;
+    case Want::Kind::Create:                              // the client named it, and may have made it private
+        room = makeRoom(want.type, *kind, name, want.isPrivate);
+        break;
+    case Want::Kind::Named:                               // the id and the name must both be the room's
+        ... one refusal (UnknownRoom) for every way to be wrong, so a private room cannot be told from no room
+        break;
 }
-Member member{m_nextPlayer++, from, room->id, newToken(), request.playerName, m_state->config.now(), false};
+enter(from, *room, want.playerName);                      // the same end for the three
+```
 
-room->handle.send(detail::ExpectPlayer{member.playerId, member.name, member.token});   // a scene message
+```cpp
+// LobbyScene::enter (shortened)
+Member member{m_nextPlayer++, from, room.id, newToken(), playerName, m_state->config.now(), false};
+
+room.handle.send(detail::ExpectPlayer{member.playerId, member.name, member.token});   // a scene message
 ... the player is counted in the room, and remembered by its connection
-if (room->ready) {
-    assign(member, *room);                                // RoomAssigned: where, and the token
+if (room.ready) {
+    assign(member, room);                                 // RoomAssigned: where, and the token
 } else {
-    room->waiting.push_back(member.playerId);             // told when the room says RoomReady
+    room.waiting.push_back(member.playerId);              // told when the room says RoomReady
 }
 ```
+
+`ListRooms` is answered on the spot (`handleList`): the lobby walks `m_rooms` and tells the public rooms that are not ending
+(`RoomInfo`: id, kind, name, players, maximum), at most 64, with the total. Nothing of a private room leaves the lobby.
 
 ```cpp
 // modules/server/src/RoomScene.cpp, RoomScene::admit

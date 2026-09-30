@@ -1,6 +1,7 @@
 extern "C" {
     #include "kronklab/kronklab.h"
 }
+#include "Matchmaking.hpp"
 #include "Wire.hpp"
 
 // NOTE: kronklab test names are limited to 31 characters.
@@ -139,4 +140,73 @@ Test(wire, a_bad_bool_is_refused)
 
     try { kuge::net::decode(reader, value); } catch (const kuge::SerializerError&) { threw = true; }
     Assert(threw, "a bool is 0 or 1");
+}
+
+// -- The messages that name, list and choose rooms ----------------------------------------------------
+Test(wire, room_messages_round_trip)
+{
+    using namespace kuge::net;
+
+    RoomList list;
+
+    list.total = 3;
+    list.rooms.push_back(RoomInfo{7, "duel", "Les copains", 1, 2});
+    list.rooms.push_back(RoomInfo{9, "duel", "Caf\xC3\xA9 \xF0\x9F\x8E\xAE", 2, 2});
+    const auto bytes = written(list);
+    kuge::ByteReader reader(bytes);
+    RoomList back;
+
+    decode(reader, back);
+    AssertEq(back.total, 3, "the total");
+    AssertEq(back.rooms.size(), 2, "and the two rooms");
+    AssertEq(back.rooms[0].roomId, 7, "the id");
+    AssertStrEq(back.rooms[0].name.c_str(), "Les copains", "the name");
+    AssertStrEq(back.rooms[1].name.c_str(), "Caf\xC3\xA9 \xF0\x9F\x8E\xAE", "a name with accents and an emoji");
+    AssertEq(back.rooms[1].players, 2, "how many are in");
+
+    CreateRoom create{"duel", "Secret", "Ana", true};
+    const auto createBytes = written(create);
+    kuge::ByteReader createReader(createBytes);
+    CreateRoom createBack;
+
+    decode(createReader, createBack);
+    Assert(createBack.isPrivate && createBack.roomName == "Secret" && createBack.playerName == "Ana", "CreateRoom comes back whole");
+    AssertEq(createBack.protocol, MATCHMAKING_VERSION, "with the version of the protocol");
+
+    JoinNamedRoom join{12, "Secret", "Ben"};
+    const auto joinBytes = written(join);
+    kuge::ByteReader joinReader(joinBytes);
+    JoinNamedRoom joinBack;
+
+    decode(joinReader, joinBack);
+    Assert(joinBack.roomId == 12 && joinBack.roomName == "Secret" && joinBack.playerName == "Ben", "so does JoinNamedRoom");
+    Assert(ListRooms::kugeMessageId != RoomList::kugeMessageId && CreateRoom::kugeMessageId != JoinNamedRoom::kugeMessageId, "each has its own id");
+}
+
+Test(wire, a_room_name)
+{
+    using kuge::net::validRoomName;
+    using kuge::net::trimRoomName;
+
+    Assert(validRoomName("Les copains"), "a name");
+    Assert(validRoomName("a"), "one letter is enough");
+    Assert(validRoomName("Caf\xC3\xA9"), "accents");
+    Assert(validRoomName("\xF0\x9F\x8E\xAE"), "an emoji");
+    Assert(validRoomName(std::string(32, 'x')), "32 bytes is the limit");
+    Assert(!validRoomName(std::string(33, 'x')), "33 is too many");
+    Assert(!validRoomName(""), "a name is not empty");
+    Assert(!validRoomName(" lead"), "no space at the start");
+    Assert(!validRoomName("end "), "or at the end");
+    Assert(!validRoomName("a\nb"), "no line break");
+    Assert(!validRoomName(std::string("a\0b", 3)), "no zero");
+    Assert(!validRoomName("a\x7F" "b"), "no DEL");
+    Assert(!validRoomName("a\xC2\x85" "b"), "no control character of Latin-1 (U+0085)");
+    Assert(!validRoomName("\xFF"), "not UTF-8");
+    Assert(!validRoomName("caf\xC3"), "a character that is cut");
+    Assert(!validRoomName("\xC0\xAF"), "an overlong form");
+    Assert(!validRoomName("\xED\xA0\x80"), "a surrogate");
+    Assert(!validRoomName("\xF4\x90\x80\x80"), "past U+10FFFF");
+    AssertStrEq(trimRoomName("  hello \t").c_str(), "hello", "the ends are trimmed");
+    AssertStrEq(trimRoomName("a b").c_str(), "a b", "not the middle");
+    AssertStrEq(trimRoomName("   ").c_str(), "", "nothing left of blanks");
 }
