@@ -2,6 +2,7 @@
 #include "Logger.hpp"
 #include <algorithm>
 #include <format>
+#include <utility>
 
 namespace
 {
@@ -107,9 +108,41 @@ void kuge::InputMap::refresh(bool latchEdges)
     m_down = now;
 }
 
+namespace
+{
+    // How much typing is kept when nobody reads it (no text field): what is older is not worth keeping
+    constexpr std::size_t MAX_TYPED_BYTES = 256;
+    constexpr std::size_t MAX_EDIT_KEYS = 64;
+
+    bool editsText(kuge::Key key)
+    {
+        using kuge::Key;
+
+        return key == Key::Backspace || key == Key::Delete || key == Key::Left || key == Key::Right || key == Key::Home
+            || key == Key::End || key == Key::Enter || key == Key::KpEnter || key == Key::Tab;
+    }
+}
+
+std::string kuge::InputMap::takeTyped(void)
+{
+    return std::exchange(m_typed, {});
+}
+
+std::vector<kuge::Key> kuge::InputMap::takeEditKeys(void)
+{
+    return std::exchange(m_editKeys, {});
+}
+
 void kuge::InputMap::apply(const Event& event)
 {
-    if (const auto* key = std::get_if<KeyEvent>(&event)) {
+    if (const auto* text = std::get_if<TextEvent>(&event)) {
+        if (m_typed.size() + text->text.size() <= MAX_TYPED_BYTES) {
+            m_typed += text->text;   // (a whole event or none: a character is never cut)
+        }
+    } else if (const auto* key = std::get_if<KeyEvent>(&event)) {
+        if (key->down && editsText(key->key) && m_editKeys.size() < MAX_EDIT_KEYS) {
+            m_editKeys.push_back(key->key);   // the repeats too: holding Backspace erases
+        }
         const auto code = static_cast<std::size_t>(key->key);
 
         if (!key->repeat && inRange(code, m_keys) && key->key != Key::Unknown) {

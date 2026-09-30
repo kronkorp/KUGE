@@ -514,11 +514,44 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiPanel` | A background and a border. |
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
+| `UiTextField` | A line of text that the player types: `text`, `placeholder`, `maxLength` (in characters), `caret`, `columns` (its width if the node has no size), `enabled`; `hovered` / `focused` are filled in by the interaction. |
 
 Resources: `UiTheme` (font and colors, change it for your game), `UiActions` (which of *your*
 actions mean up/down/left/right/accept/cancel/click), `UiState` (what has the focus),
-`UiEvents` (what happened in the last tick: `Activated`, `Focused`, `Cancelled`) and
-`UiLayoutResult`.
+`UiEvents` (what happened in the last tick: `Activated`, `Focused`, `Cancelled`, and for a text field
+`Changed` and `Submitted`) and `UiLayoutResult`.
+
+**Typing.** The OS gives what is typed as a `TextEvent` (UTF-8: an accent, a composed character or an
+emoji is one event), which is not a key: no action reacts to it. `InputMap::takeTyped()` gives the text
+typed since the last call, and `takeEditKeys()` the keys that edit it (Backspace, Delete, the arrows, Home,
+End, Enter, Tab), **repeats included** (holding Backspace erases), so a game can make its own text input.
+A `UiTextField` does it for you:
+
+```cpp
+const auto name = world.create();
+world.add<kuge::UiNode>(name, kuge::UiNode{.parent = form, .hasParent = true});
+world.add<kuge::UiTextField>(name, kuge::UiTextField{.placeholder = "Name of the room", .maxLength = 32});
+// ... and in a system:
+for (const auto& event : world.getResource<kuge::UiEvents>().list) {
+    if (event.kind == kuge::UiEvent::Kind::Submitted) {          // Enter, in the field
+        const std::string& text = world.get<kuge::UiTextField>(event.entity).text;
+    }
+}
+```
+
+A field takes the focus like a button (a click, which also puts the caret where it is, or the keys that
+move the focus), and **while it has it, what is typed goes into it**: the actions that move the focus
+(up, down, left, right, accept) are left alone, because a letter that your game binds to "up" is a letter
+there. **Tab** goes to the next field or button, **Enter** says `Submitted`, **Escape** (your `cancel`
+action) says `Cancelled`, and the mouse moving over another widget does not take the focus from a field
+(a click does). Control characters are dropped, and `maxLength` counts characters, not bytes. The caret
+(`fieldCaret`, blinking every `caretBlinkTicks` ticks) is a byte of the text that is always at the start of
+a character. When the text is wider than the field, its end (where the caret is) is shown: the renderer
+has no clipping.
+
+Not there yet: selection, copy and paste, a masked field for a password, several lines, and showing the
+composition of an input method editor (what the OS *commits* arrives as a `TextEvent`; the text being
+composed, `SDL_TEXTEDITING`, is not handled, and this was not tried with one).
 
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus
 navigation with the keyboard or gamepad, mouse hover and click) and drawing (Frame, `Render`,

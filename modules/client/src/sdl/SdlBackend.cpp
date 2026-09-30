@@ -74,6 +74,7 @@ namespace
                     fail("cannot create the renderer");
                 }
                 SDL_SetRenderDrawBlendMode(renderer.get(), SDL_BLENDMODE_BLEND);
+                SDL_StartTextInput();   // the OS sends what is typed (TextEvent): some platforms only do once asked
             }
 
             ~SdlContext(void)
@@ -199,6 +200,12 @@ namespace
                     case SDL_KEYUP:
                         out.push_back(KeyEvent{keyFromScancode(event.key.keysym.scancode),
                             event.type == SDL_KEYDOWN, event.key.repeat != 0});
+                        break;
+                    case SDL_TEXTINPUT:
+                        // What was typed, in UTF-8 (the keys above are places on the keyboard, not letters)
+                        if (event.text.text[0] != '\0') {
+                            out.push_back(TextEvent{event.text.text});
+                        }
                         break;
                     case SDL_MOUSEMOTION:
                         out.push_back(MouseMoveEvent{
