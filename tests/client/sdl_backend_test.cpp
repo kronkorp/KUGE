@@ -8,6 +8,7 @@ extern "C" {
 #include "sdl/SdlKeys.hpp"
 #include <SDL.h>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <stdexcept>
 
@@ -306,6 +307,33 @@ Test(sdl, keyboard_and_mouse_events)
     events.clear();
     backend.input->poll(events);
     AssertEq(events.size(), 0, "each event is given once");
+}
+
+// What is typed comes as text, in UTF-8, apart from the keys
+Test(sdl, typed_text)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(100, 100));
+    std::vector<kuge::Event> events;
+    SDL_Event sdl = {};
+
+    backend.input->poll(events);
+    events.clear();
+    sdl.type = SDL_TEXTINPUT;
+    std::strcpy(sdl.text.text, "a");
+    push(sdl);
+    std::strcpy(sdl.text.text, "\xC3\xA9\xF0\x9F\x8E\xAE");   // an accent and an emoji, composed or pasted
+    push(sdl);
+    std::strcpy(sdl.text.text, "");                             // nothing: nothing to tell
+    push(sdl);
+    backend.input->poll(events);
+
+    AssertEq(events.size(), 2, "two events of text, got %zu", events.size());
+    const auto* first = as<kuge::TextEvent>(events[0]);
+    const auto* second = as<kuge::TextEvent>(events[1]);
+
+    Assert(first && first->text == "a", "a letter");
+    Assert(second && second->text == "\xC3\xA9\xF0\x9F\x8E\xAE", "several characters, UTF-8, whole");
 }
 
 Test(sdl, window_and_gamepad_events)

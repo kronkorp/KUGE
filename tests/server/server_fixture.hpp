@@ -29,6 +29,7 @@ struct RoomLog
     std::vector<std::pair<std::string, kuge::net::DisconnectReason>> left;
     std::vector<std::uint32_t>                             networkIds;
     std::vector<std::thread::id>                           threads;
+    std::vector<std::pair<std::string, bool>>              roomNames;   //!< What each room was told of its name, and of its privacy
     int                                                    entered = 0;
     int                                                    exited = 0;
     std::atomic<int>                                       roomsListening{0};
@@ -57,6 +58,7 @@ class TestRoom : public kuge::server::RoomScene
                 std::lock_guard lock(roomLog().mutex);
                 ++roomLog().entered;
                 roomLog().threads.push_back(std::this_thread::get_id());
+                roomLog().roomNames.emplace_back(init().roomName, init().isPrivate);
             }
             on<Echo>([this](const Player& who, const Echo& echo) { send(who.networkId, Echo{who.name + ": " + echo.text}); });
             on<FinishNow>([this](const Player&, const FinishNow&) { finish(kuge::net::RoomEnd::GameOver); });
@@ -112,6 +114,7 @@ struct Harness
         roomLog().left.clear();
         roomLog().networkIds.clear();
         roomLog().threads.clear();
+        roomLog().roomNames.clear();
         roomLog().entered = roomLog().exited = 0;
         config.transport = kuge::server::Transport::Loopback;
         config.loopback = &network;
@@ -146,10 +149,12 @@ struct TestClient
     std::vector<std::string>        echoes;
     std::vector<kuge::net::RoomEnd> closed;
     std::vector<std::string>        failures;
+    std::vector<kuge::net::RoomList> lists;   //!< What the lobby said when asked for the rooms
     int                             joined = 0;
 
     explicit TestClient(std::string playerName) : name(std::move(playerName))
     {
+        matchmaking.onRoomList([this](const kuge::net::RoomList& list) { lists.push_back(list); });
         matchmaking.onJoined([this](kuge::net::Endpoint& room, const kuge::net::Welcome& welcome) {
             ++joined;
             roomId = welcome.roomId;
@@ -168,6 +173,28 @@ struct TestClient
     void join(const char* roomType = "duel")
     {
         matchmaking.join(roomType, name);
+    }
+
+    void create(const std::string& roomName, bool isPrivate = false, const char* roomType = "duel")
+    {
+        matchmaking.createRoom(roomType, roomName, name, isPrivate);
+    }
+
+    void joinNamed(std::uint32_t id, const std::string& roomName)
+    {
+        matchmaking.joinRoom(id, roomName, name);
+    }
+
+    // Asks for the rooms and waits for the answer
+    const kuge::net::RoomList* list(const char* roomType = "")
+    {
+        const std::size_t before = lists.size();
+
+        matchmaking.requestRooms(roomType);
+        if (!until([&] { return lists.size() > before; })) {
+            return nullptr;
+        }
+        return &lists.back();
     }
 
     void poll(void) { net.poll(); }

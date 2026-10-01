@@ -514,11 +514,44 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiPanel` | A background and a border. |
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
+| `UiTextField` | A line of text that the player types: `text`, `placeholder`, `maxLength` (in characters), `caret`, `columns` (its width if the node has no size), `enabled`; `hovered` / `focused` are filled in by the interaction. |
 
 Resources: `UiTheme` (font and colors, change it for your game), `UiActions` (which of *your*
 actions mean up/down/left/right/accept/cancel/click), `UiState` (what has the focus),
-`UiEvents` (what happened in the last tick: `Activated`, `Focused`, `Cancelled`) and
-`UiLayoutResult`.
+`UiEvents` (what happened in the last tick: `Activated`, `Focused`, `Cancelled`, and for a text field
+`Changed` and `Submitted`) and `UiLayoutResult`.
+
+**Typing.** The OS gives what is typed as a `TextEvent` (UTF-8: an accent, a composed character or an
+emoji is one event), which is not a key: no action reacts to it. `InputMap::takeTyped()` gives the text
+typed since the last call, and `takeEditKeys()` the keys that edit it (Backspace, Delete, the arrows, Home,
+End, Enter, Tab), **repeats included** (holding Backspace erases), so a game can make its own text input.
+A `UiTextField` does it for you:
+
+```cpp
+const auto name = world.create();
+world.add<kuge::UiNode>(name, kuge::UiNode{.parent = form, .hasParent = true});
+world.add<kuge::UiTextField>(name, kuge::UiTextField{.placeholder = "Name of the room", .maxLength = 32});
+// ... and in a system:
+for (const auto& event : world.getResource<kuge::UiEvents>().list) {
+    if (event.kind == kuge::UiEvent::Kind::Submitted) {          // Enter, in the field
+        const std::string& text = world.get<kuge::UiTextField>(event.entity).text;
+    }
+}
+```
+
+A field takes the focus like a button (a click, which also puts the caret where it is, or the keys that
+move the focus), and **while it has it, what is typed goes into it**: the actions that move the focus
+(up, down, left, right, accept) are left alone, because a letter that your game binds to "up" is a letter
+there. **Tab** goes to the next field or button, **Enter** says `Submitted`, **Escape** (your `cancel`
+action) says `Cancelled`, and the mouse moving over another widget does not take the focus from a field
+(a click does). Control characters are dropped, and `maxLength` counts characters, not bytes. The caret
+(`fieldCaret`, blinking every `caretBlinkTicks` ticks) is a byte of the text that is always at the start of
+a character. When the text is wider than the field, its end (where the caret is) is shown: the renderer
+has no clipping.
+
+Not there yet: selection, copy and paste, a masked field for a password, several lines, and showing the
+composition of an input method editor (what the OS *commits* arrives as a `TextEvent`; the text being
+composed, `SDL_TEXTEDITING`, is not handled, and this was not tried with one).
 
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus
 navigation with the keyboard or gamepad, mouse hover and click) and drawing (Frame, `Render`,
@@ -752,6 +785,18 @@ connects to the lobby, `join("deathmatch", "Ana")` asks for a room, and `onJoine
   a scene spawned on its own thread (or on the workers: `RoomTypeConfig::policy`), on a UDP port taken
   from a range, or at a name of a loopback. It refuses with `JoinError` (unknown kind, full, room could
   not start...).
+- **Choosing a room.** `join()` lets the lobby choose. A player can also choose: `requestRooms("deathmatch")`
+  asks for the **public** rooms (answer to `onRoomList`: each has an `id`, a `name`, `players` and
+  `maxPlayers`; at most 64, `total` says how many there are), `createRoom(kind, "Les copains", "Ana")` opens a
+  room that its creator names and puts the creator in it, and `joinRoom(id, "Les copains", "Ben")` takes the
+  room that has this id **and** this name. With `createRoom(..., true)` the room is **private**: it is in no
+  list and the automatic matchmaking never fills it, so only someone who knows its name *and* its id gets in
+  (a wrong name, a wrong id and a room that does not exist all answer `UnknownRoom`, so it cannot be guessed
+  at that way: but ids go 1, 2, 3..., so the name is the only secret, and there is no password). A name is 1 to 32 bytes
+  of UTF-8 with no control character (`validRoomName()`, and `trimRoomName()` drops the blanks at its ends).
+  A room that the lobby makes for `join()` is called `"<kind> #<id>"`, and a room sees its name and whether it is
+  private in `init().roomName` and `init().isPrivate`. The client stays in the lobby all along: it can look at
+  the list, leave a room and join another.
 - **Tokens.** The lobby gives the client the address of the room and a random 64-bit token, and tells
   the room to expect it. The token opens the door **once** and expires after `tokenTtl` (10 s): a
   client that never comes loses its place. A client that connects to a room and does not say `Hello` in

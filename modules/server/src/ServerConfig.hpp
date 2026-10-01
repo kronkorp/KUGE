@@ -62,6 +62,8 @@ namespace kuge::server
     {
         std::uint32_t   roomId = 0;
         std::string     roomType;
+        std::string     roomName;            //!< What its creator called it ("<type> #<id>" for a room that the lobby made)
+        bool            isPrivate = false;   //!< In no list: only its name and its id let anyone in
         RoomTypeConfig  type;
         ServerConfig    server;
         std::uint16_t   port = 0;          //!< Sockets
