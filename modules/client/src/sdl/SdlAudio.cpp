@@ -1,4 +1,5 @@
 #include "backend/SdlBackend.hpp"
+#include "sdl/SdlPath.hpp"
 #include <SDL.h>
 #include <SDL_mixer.h>
 #include <algorithm>
@@ -60,7 +61,7 @@ namespace
 
             SoundId loadSound(const std::filesystem::path& file) override
             {
-                Mix_Chunk* chunk = Mix_LoadWAV(file.c_str());
+                Mix_Chunk* chunk = Mix_LoadWAV(sdlPath(file).c_str());
 
                 if (!chunk) {
                     throw AudioError(std::format("cannot load the sound '{}': {}", file.string(), Mix_GetError()));
@@ -88,7 +89,7 @@ namespace
 
             MusicId loadMusic(const std::filesystem::path& file) override
             {
-                Mix_Music* music = Mix_LoadMUS(file.c_str());
+                Mix_Music* music = Mix_LoadMUS(sdlPath(file).c_str());
 
                 if (!music) {
                     throw AudioError(std::format("cannot load the music '{}': {}", file.string(), Mix_GetError()));

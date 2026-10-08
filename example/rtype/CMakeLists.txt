@@ -4,16 +4,16 @@
 add_library(rtype-common STATIC common/Rules.cpp)
 target_include_directories(rtype-common PUBLIC common)
 target_link_libraries(rtype-common PUBLIC kuge-replication)
-target_compile_options(rtype-common PRIVATE -Wall -Wextra)
+target_compile_options(rtype-common PRIVATE ${KUGE_WARNINGS})
 
 add_library(rtype-room STATIC server/RTypeRoom.cpp)
 target_include_directories(rtype-room PUBLIC server)
 target_link_libraries(rtype-room PUBLIC rtype-common kuge-server)
-target_compile_options(rtype-room PRIVATE -Wall -Wextra)
+target_compile_options(rtype-room PRIVATE ${KUGE_WARNINGS})
 
 add_executable(kuge_rtype_server server/main.cpp)
 target_link_libraries(kuge_rtype_server PRIVATE rtype-room)
-target_compile_options(kuge_rtype_server PRIVATE -Wall -Wextra)
+target_compile_options(kuge_rtype_server PRIVATE ${KUGE_WARNINGS})
 
 if(TARGET kuge-client)
     add_library(rtype-client INTERFACE)
@@ -22,9 +22,9 @@ if(TARGET kuge-client)
 
     add_executable(kuge_rtype_client client/main.cpp)
     target_link_libraries(kuge_rtype_client PRIVATE rtype-client)
-    target_compile_options(kuge_rtype_client PRIVATE -Wall -Wextra)
+    target_compile_options(kuge_rtype_client PRIVATE ${KUGE_WARNINGS})
 
     add_executable(kuge_rtype_host host/main.cpp)
     target_link_libraries(kuge_rtype_host PRIVATE rtype-client rtype-room)
-    target_compile_options(kuge_rtype_host PRIVATE -Wall -Wextra)
+    target_compile_options(kuge_rtype_host PRIVATE ${KUGE_WARNINGS})
 endif()

@@ -6,8 +6,31 @@
 #include <memory>
 #include <ostream>
 #include <vector>
-#include <unistd.h>
 #include <ctime>
+#ifdef _WIN32
+    #include <io.h>
+    #include <windows.h>
+#else
+    #include <unistd.h>
+#endif
+
+namespace
+{
+    // Is this output a terminal that shows colours? Windows' console shows them once asked to
+    // (Windows 10 and later): when it cannot be asked, there are no colours.
+    bool colourTerminal(bool error)
+    {
+#ifdef _WIN32
+        const HANDLE console = ::GetStdHandle(error ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+        DWORD mode = 0;
+
+        return ::_isatty(error ? 2 : 1) && ::GetConsoleMode(console, &mode) &&
+            ::SetConsoleMode(console, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+#else
+        return ::isatty(error ? STDERR_FILENO : STDOUT_FILENO);
+#endif
+    }
+}
 
 Logger::Logger() {}
 
@@ -32,8 +55,8 @@ void Logger::registerHandler(std::shared_ptr<std::ostream> handler)
 {
     std::lock_guard lock(this->m_mutex);
 
-    if ((handler->rdbuf() == std::cout.rdbuf() && isatty(STDOUT_FILENO)) ||
-        (handler->rdbuf() == std::cerr.rdbuf() && isatty(STDERR_FILENO))) {
+    if ((handler->rdbuf() == std::cout.rdbuf() && colourTerminal(false)) ||
+        (handler->rdbuf() == std::cerr.rdbuf() && colourTerminal(true))) {
             this->m_handlers.push_back(std::make_unique<TtyLoggerHandler>(handler));
     } else {
             this->m_handlers.push_back(std::make_unique<FileLoggerHandler>(handler));

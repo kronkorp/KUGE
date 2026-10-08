@@ -3,17 +3,26 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <random>
+#include <vector>
 
 namespace
 {
     std::filesystem::path findFont(void)
     {
-        for (const char* candidate : {
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-                "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
-                "/usr/share/fonts/TTF/DejaVuSans.ttf"}) {
+        std::vector<std::filesystem::path> candidates = {
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf"};
+
+        if (const char* windows = std::getenv("WINDIR")) {
+            for (const char* font : {"segoeui.ttf", "arial.ttf", "tahoma.ttf"}) {
+                candidates.push_back(std::filesystem::path(windows) / "Fonts" / font);
+            }
+        }
+        for (const auto& candidate : candidates) {
             if (std::filesystem::exists(candidate)) {
                 return candidate;
             }
@@ -73,7 +82,7 @@ int main(int argc, char** argv)
     }
     try {
         // Where things go: the folders of the player, or a temporary one for a scripted run
-        const std::filesystem::path scratch = std::filesystem::temp_directory_path() / std::format("kuge-platformer-{}", static_cast<long>(::getpid()));
+        const std::filesystem::path scratch = std::filesystem::temp_directory_path() / std::format("kuge-platformer-{}", std::random_device{}());
         const bool scripted = frames > 0;
         const auto data = scripted ? scratch : kuge::userDirectory(kuge::UserDir::Data, "kuge-platformer");
         const auto config = scripted ? scratch : kuge::userDirectory(kuge::UserDir::Config, "kuge-platformer");

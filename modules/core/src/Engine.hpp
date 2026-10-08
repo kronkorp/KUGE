@@ -119,8 +119,9 @@ namespace kuge
             const Time&    time(void) const noexcept;
             const Config&  config(void) const noexcept;
 
-            //! Runs until stop() is called, SIGINT / SIGTERM is received, or
-            //! there is no scene left. Every scene is left before it returns.
+            //! Runs until stop() is called, SIGINT / SIGTERM is received (Ctrl+C or
+            //! Ctrl+Break on Windows), or there is no scene left. Every scene is left
+            //! before it returns.
             //! @return  0
             int run(void);
 
