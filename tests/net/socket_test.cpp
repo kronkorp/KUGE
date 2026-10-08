@@ -273,6 +273,20 @@ Test(tcp, nobody_listens)
     Assert(pollUntil(*other.transport, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Disconnected) == 1; }), "the client learns it cannot connect");
 }
 
+Test(tcp, over_ipv6)
+{
+    auto [server, port] = serve(true);
+    auto client = makeTcpClient("::1", port);
+    Watch watch;
+
+    Assert(pollUntil(*server, *client, watch, [&] { return count(watch.serverEvents, TransportEvent::Kind::Connected) == 1 && count(watch.clientEvents, TransportEvent::Kind::Connected) == 1; }), "connected");
+    Assert(watch.serverEvents[0].peer.starts_with("[::1]:"), "an IPv6 peer is named with brackets (got %s)", watch.serverEvents[0].peer.c_str());
+    const ConnectionId id = watch.serverEvents[0].connection;
+
+    Assert(client->send(CLIENT_CONNECTION, patterned(100, 1)) && server->send(id, patterned(200, 2)), "both send");
+    Assert(pollUntil(*server, *client, watch, [&] { return count(watch.serverEvents, TransportEvent::Kind::Packet) == 1 && count(watch.clientEvents, TransportEvent::Kind::Packet) == 1; }), "both arrive");
+}
+
 Test(tcp, a_bad_address)
 {
     auto client = makeTcpClient("not an address", 4000);
@@ -413,6 +427,20 @@ Test(udp, packets_both_ways)
     Assert(server->send(id, patterned(300, 2)), "the server answers");
     Assert(pollUntil(*server, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Packet) == 1; }), "the client gets it");
     Assert(watch.serverEvents.back().packet == patterned(100, 1) && watch.clientEvents.back().packet == patterned(300, 2), "each datagram whole");
+}
+
+Test(udp, over_ipv6)
+{
+    auto [server, port] = serve(false);
+    auto client = makeUdpClient("::1", port);
+    Watch watch;
+
+    Assert(pollUntil(*server, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Connected) == 1; }), "the client socket is made");
+    Assert(client->send(CLIENT_CONNECTION, patterned(100, 1)), "the client sends");
+    Assert(pollUntil(*server, *client, watch, [&] { return count(watch.serverEvents, TransportEvent::Kind::Packet) == 1; }), "the server gets it");
+    Assert(watch.serverEvents[0].peer.starts_with("[::1]:"), "an IPv6 peer is named with brackets (got %s)", watch.serverEvents[0].peer.c_str());
+    Assert(server->send(watch.serverEvents[0].connection, patterned(300, 2)), "the server answers");
+    Assert(pollUntil(*server, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Packet) == 1; }), "the client gets it");
 }
 
 Test(udp, a_burst_in_one_poll)

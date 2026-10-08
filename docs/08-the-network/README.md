@@ -96,7 +96,7 @@ and add or remove endpoints. Bad data (junk packets, cut messages, unknown types
 | UDP | `makeUdpServer(port)`, `makeUdpClient(host, port)` | A packet is a datagram. |
 | Loopback | `LoopbackNetwork::listen(name)`, `connect(name)` | In memory, by name, **thread-safe**. |
 
-TCP and UDP go through kronknet, IPv4 only ("localhost" or a dotted address). A server that cannot bind throws;
+TCP and UDP go through kronknet, over IPv4 or IPv6 ("localhost", "127.0.0.1", "::1": an address, not a host name). A server listens on both. A server that cannot bind throws;
 a client that cannot reach its server does not throw: its endpoint reports a disconnection.
 
 **The loopback is the most useful of the three.** It lets a client and a server in the same process, on

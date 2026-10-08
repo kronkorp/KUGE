@@ -99,7 +99,13 @@ include(cmake/KugeModule.cmake)
 
 # Vendored libraries, compiled from the submodules. kronk3d is only needed by
 # the 3D module.
-kuge_vendor(kronknet)
+#
+# kronknet is built by its own CMake: only it knows which of its sources are
+# for which platform. Its tests are hidden from it, like kronkflow's.
+set(BUILD_TESTS OFF)
+add_subdirectory(vendor/kronknet EXCLUDE_FROM_ALL)
+unset(BUILD_TESTS)
+set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kronknet-static)
 kuge_vendor(kronkworld DEPENDS kronkflow)
 
 # ---------------------------------------------------------------------------
@@ -126,7 +132,10 @@ if(KUGE_BUILD_SHARED)
     )
     get_property(KUGE_MODULE_TARGETS GLOBAL PROPERTY KUGE_MODULES)
     get_property(KUGE_VENDOR_TARGETS GLOBAL PROPERTY KUGE_VENDORS)
-    foreach(target ${KUGE_VENDOR_TARGETS} ${KUGE_MODULE_TARGETS})
+    foreach(target ${KUGE_VENDOR_TARGETS})
+        target_sources(kuge PRIVATE $<TARGET_OBJECTS:${target}>)
+    endforeach()
+    foreach(target ${KUGE_MODULE_TARGETS})
         target_sources(kuge PRIVATE $<TARGET_OBJECTS:${target}-obj>)
     endforeach()
     # The objects are already in: the libraries only bring what they depend on

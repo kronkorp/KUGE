@@ -5,7 +5,7 @@
 # Builds vendor/<name>'s sources into the static library kuge-<name> (from the
 # object library kuge-<name>-obj, which kuge.so reuses). Its public headers are
 # visible to whoever links it, its private headers (src/) only to its own
-# sources.
+# sources. kuge.so takes the objects of every target listed in KUGE_VENDORS.
 function(kuge_vendor name)
     cmake_parse_arguments(V "" "" "DEPENDS" ${ARGN})
     set(dir "${PROJECT_SOURCE_DIR}/vendor/${name}")
@@ -21,7 +21,7 @@ function(kuge_vendor name)
     target_include_directories(kuge-${name}-obj PRIVATE "${dir}/src")
     target_compile_options(kuge-${name}-obj PRIVATE -Wall -Wextra)
 
-    set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kuge-${name})
+    set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kuge-${name}-obj)
 endfunction()
 
 # kuge_module(<name> [DEPENDS <targets>...])

@@ -34,7 +34,7 @@ Each module's `CMakeLists.txt` is one line, `kuge_module(<name> DEPENDS ...)`:
 | `kuge-logger` | nothing |
 | `kuge-core` | `kuge-logger`, `kuge-kronkworld`, `kronkpool` |
 | `kuge-physics` | `kuge-core` |
-| `kuge-net` | `kuge-core`, `kuge-kronknet` |
+| `kuge-net` | `kuge-core`, `kronknet` (built by its own CMake) |
 | `kuge-server` | `kuge-core`, `kuge-net` |
 | `kuge-replication` | `kuge-core`, `kuge-net`, `kuge-physics` |
 | `kuge-client` | `kuge-core`, SDL2, SDL2_mixer, SDL2_ttf |
