@@ -1,6 +1,7 @@
 #include "LoggerLevel.hpp"
 #include <ctime>
 #include <iomanip>
+#include <sstream>
 
 const char *ColorToLevel(LoggerLevel level)
 {
@@ -32,7 +33,11 @@ std::string timeToStr(void)
     std::tm localTime = {};
     std::stringstream ss;
 
+#ifdef _WIN32
+    localtime_s(&localTime, &time);   // (localtime_r, with its arguments the other way round)
+#else
     localtime_r(&time, &localTime);   // not localtime(): its buffer is shared by every thread
+#endif
     ss << std::put_time(&localTime, "%Y-%m-%d %H:%M:%S");
     return ss.str();
 }

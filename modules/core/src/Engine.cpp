@@ -8,19 +8,36 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#ifdef _WIN32
+    #include <windows.h>
+#endif
 
 namespace
 {
-    // The number of SIGINT / SIGTERM received by the process. An engine does not reset it: it
-    // remembers the value it saw when it began, so a signal ends every engine that runs (a server
-    // and a client in one process), and an old one does not end an engine that starts later.
+    // The number of SIGINT / SIGTERM (on Windows: Ctrl+C / Ctrl+Break) received by the process. An
+    // engine does not reset it: it remembers the value it saw when it began, so a signal ends every
+    // engine that runs (a server and a client in one process), and an old one does not end an
+    // engine that starts later.
     std::atomic<unsigned> g_signals{0};
     static_assert(std::atomic<unsigned>::is_always_lock_free, "the handler needs an atomic that does not lock");
 
+#ifdef _WIN32
+    // Windows has no SIGTERM to send, and Ctrl+C reaches a console program through a handler of
+    // its own, called on a thread of its own. Returning TRUE keeps the process alive.
+    BOOL WINAPI onConsoleEvent(DWORD event)
+    {
+        if (event != CTRL_C_EVENT && event != CTRL_BREAK_EVENT) {
+            return FALSE;
+        }
+        g_signals.fetch_add(1, std::memory_order_relaxed);
+        return TRUE;
+    }
+#else
     extern "C" void onSignal(int)
     {
         g_signals.fetch_add(1, std::memory_order_relaxed);
     }
+#endif
 
     // The handlers belong to the process, not to an engine: the first engine to run installs
     // them and the last one to end gives the previous ones back, whatever the order in which
@@ -28,8 +45,10 @@ namespace
     // that ended first installed for good.)
     std::mutex       g_handlersMutex;
     int              g_handlersUsers = 0;
+#ifndef _WIN32
     struct sigaction g_oldInt  = {};
     struct sigaction g_oldTerm = {};
+#endif
 
     // SIGINT and SIGTERM end run() instead of killing the process, so that the
     // scenes are left properly.
@@ -41,12 +60,17 @@ namespace
                 std::lock_guard lock(g_handlersMutex);
 
                 if (g_handlersUsers++ == 0) {
+#ifdef _WIN32
+                    // (Windows keeps a list of handlers: this one is added in front, then removed)
+                    SetConsoleCtrlHandler(&onConsoleEvent, TRUE);
+#else
                     struct sigaction action = {};
 
                     action.sa_handler = &onSignal;
                     sigemptyset(&action.sa_mask);
                     sigaction(SIGINT, &action, &g_oldInt);
                     sigaction(SIGTERM, &action, &g_oldTerm);
+#endif
                 }
                 m_seen = g_signals.load(std::memory_order_relaxed);
             }
@@ -56,8 +80,12 @@ namespace
                 std::lock_guard lock(g_handlersMutex);
 
                 if (--g_handlersUsers == 0) {
+#ifdef _WIN32
+                    SetConsoleCtrlHandler(&onConsoleEvent, FALSE);
+#else
                     sigaction(SIGINT, &g_oldInt, nullptr);
                     sigaction(SIGTERM, &g_oldTerm, nullptr);
+#endif
                 }
             }
 

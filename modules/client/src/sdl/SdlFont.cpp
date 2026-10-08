@@ -1,4 +1,5 @@
 #include "backend/SdlBackend.hpp"
+#include "sdl/SdlPath.hpp"
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <algorithm>
@@ -116,7 +117,7 @@ namespace
                     library = std::make_shared<TtfLibrary>();
                     m_library = library;
                 }
-                TTF_Font* font = TTF_OpenFont(file.c_str(), pointSize);
+                TTF_Font* font = TTF_OpenFont(sdlPath(file).c_str(), pointSize);
 
                 if (!font) {
                     throw FontError(std::format("cannot load the font '{}': {}", file.string(), TTF_GetError()));
