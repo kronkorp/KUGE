@@ -3,9 +3,17 @@
 ## What you need
 
 - A C++20 compiler (GCC 13 is what it is developed with; on Windows, MSVC from Visual Studio 2022
-  17.5 or later) and CMake 3.24 or later.
-- For the client module: SDL2, SDL2_mixer and SDL2_ttf. The core, the physics, the network, the
-  server and the replication need none of them, so a server builds on a machine with no SDL at all.
+  17.5 or later), CMake 3.24 or later, and git.
+- No library to install by hand: the client module's (SDL2, SDL2_mixer, SDL2_ttf, stb) come from vcpkg,
+  which the first `cmake` clones into `.vcpkg/` and which builds them once. The core, the physics,
+  the network, the server and the replication need none of them: with `-DKUGE_BUILD_CLIENT=OFF`,
+  a server builds with no SDL at all.
+- On Linux, the headers SDL is built against (display and sound). On Debian or Ubuntu:
+
+  ```sh
+  sudo apt install libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxss-dev \
+      libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpulse-dev
+  ```
 
 ## Build
 
@@ -19,11 +27,10 @@ ctest --test-dir build --output-on-failure
 Without the two options, only the modules are built. Some tests run the examples, so the whole
 suite needs both.
 
-On Windows, SDL comes from vcpkg, and the build names its configuration:
+On Windows, the build names its configuration:
 
 ```powershell
-vcpkg install sdl2 sdl2-mixer sdl2-ttf --triplet x64-windows
-cmake -S . -B build -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake -S . -B build -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
@@ -32,8 +39,10 @@ There, `ctest` runs the boundaries and the games played for real, not the unit t
 library, kronklab, runs each test in a `fork()`). The README's "On Windows" says what else differs.
 
 `vendor/` holds submodules (kronkworld, the ECS; kronkpool, the thread pool; kronknet, the sockets;
-kronk3d, for later). kronkflow (the scheduler), kronklab (the test library) and stb (image loading)
-are fetched at a fixed commit.
+kronk3d, for later). kronkflow (the scheduler) and kronklab (the test library) are fetched at a
+fixed commit. SDL2, SDL2_mixer, SDL2_ttf and stb (image loading) come from vcpkg: `vcpkg.json` lists
+them and its `builtin-baseline` fixes their versions. When no toolchain is given and `VCPKG_ROOT`
+is not set, `cmake/Vcpkg.cmake` clones vcpkg at that baseline into `.vcpkg/`.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -42,6 +51,7 @@ are fetched at a fixed commit.
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. See [testing](../12-testing-and-debugging/README.md). |
+| `KUGE_VCPKG_DIR` | `.vcpkg` | Where vcpkg is cloned, when no toolchain is given and `VCPKG_ROOT` is not set. |
 
 ## Run the examples
 

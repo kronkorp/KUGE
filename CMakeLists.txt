@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
+# Before project(): it picks vcpkg, which installs SDL2 & co. (see cmake/Vcpkg.cmake)
+include(cmake/Vcpkg.cmake)
 project(kuge LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -78,18 +80,41 @@ else()
         "Commit the guard in kronkpool and bump the submodule.")
 endif()
 
+# The client's libraries, from vcpkg (vcpkg.json). Its triplets build them shared on Windows and
+# static on Linux, and the targets are not named the same: KUGE_SDL_TARGETS holds whichever exist.
+# SDL2 comes last: the static SDL2_mixer and SDL2_ttf use it, and their targets do not say so.
 if(KUGE_BUILD_CLIENT)
-    find_package(SDL2 REQUIRED)
-    find_package(SDL2_mixer REQUIRED)
-    find_package(SDL2_ttf REQUIRED)
+    # (A game that fetches KUGE must give its own build the vcpkg toolchain, and list them in its
+    # own vcpkg.json: without vcpkg, stb is nowhere to be found)
+    if(NOT VCPKG_TOOLCHAIN)
+        message(FATAL_ERROR
+            "The client module's libraries (SDL2, SDL2_mixer, SDL2_ttf, stb) come from vcpkg, and this "
+            "build has no vcpkg toolchain. Built on its own, KUGE finds one (cmake/Vcpkg.cmake). "
+            "A game that fetches KUGE: pass -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake "
+            "and list sdl2, sdl2-mixer, sdl2-ttf and stb in the game's vcpkg.json (see KUGE's). "
+            "A server: -DKUGE_BUILD_CLIENT=OFF needs none of them.")
+    endif()
+    # SDL2_mixer's config turns CMAKE_FIND_PACKAGE_PREFER_CONFIG on for whoever finds it, when it is
+    # not set. zlib's config would then win over CMake's FindZLIB, and it has no ZLIB::ZLIB, which
+    # freetype (SDL2_ttf's) links to. Set, it is left alone.
+    if(NOT DEFINED CMAKE_FIND_PACKAGE_PREFER_CONFIG)
+        set(CMAKE_FIND_PACKAGE_PREFER_CONFIG OFF)
+    endif()
+    find_package(SDL2 CONFIG REQUIRED)
+    find_package(SDL2_mixer CONFIG REQUIRED)
+    find_package(SDL2_ttf CONFIG REQUIRED)
+    find_package(Stb REQUIRED)   # header-only image loader: Stb_INCLUDE_DIR
 
-    # Header-only image loader. Pinned, and only fetched for the client.
-    FetchContent_Declare(
-        stb
-        GIT_REPOSITORY https://github.com/nothings/stb.git
-        GIT_TAG        2c980bb59875b0d32144a71867fbdebb2f77cd20
-    )
-    FetchContent_MakeAvailable(stb)
+    set(KUGE_SDL_TARGETS "")
+    foreach(target SDL2_mixer::SDL2_mixer SDL2_ttf::SDL2_ttf SDL2::SDL2)
+        if(TARGET ${target})
+            list(APPEND KUGE_SDL_TARGETS ${target})
+        elseif(TARGET ${target}-static)
+            list(APPEND KUGE_SDL_TARGETS ${target}-static)
+        else()
+            message(FATAL_ERROR "SDL was found, but neither ${target} nor ${target}-static is a target")
+        endif()
+    endforeach()
 endif()
 
 FetchContent_Declare(

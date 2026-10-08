@@ -5,6 +5,10 @@
 .cache/
 build/
 
+# vcpkg, when cmake/Vcpkg.cmake clones it
+.vcpkg/
+vcpkg_installed/
+
 # Logs
 *.log
 
