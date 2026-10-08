@@ -710,9 +710,9 @@ server.poll();                 // once per tick: reads, sends what is due, calls
 | UDP | `makeUdpServer(port)`, `makeUdpClient(host, port)` | A packet is a datagram. |
 | Loopback | `LoopbackNetwork::listen(name)`, `connect(name)` | In memory, by name, **thread-safe**: a client and a server in the same process, on different threads (a player who hosts the match). |
 
-TCP and UDP go through kronknet, IPv4 only ("localhost" or a dotted address). A server that cannot
-bind throws; a client that cannot reach its server does not throw, its endpoint reports a
-disconnection.
+TCP and UDP go through kronknet, over IPv4 or IPv6 ("localhost", "127.0.0.1", "::1": an address, not a
+host name). A server listens on both. A server that cannot bind throws; a client that cannot reach its
+server does not throw, its endpoint reports a disconnection.
 
 `LoopbackNetwork` can misbehave on purpose: `Conditions{.loss, .duplicate, .latency, .jitter, .seed}`
 lose, repeat, delay and reorder packets (the same seed loses the same ones), and its clock can be

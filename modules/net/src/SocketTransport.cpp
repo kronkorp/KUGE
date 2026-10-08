@@ -22,6 +22,15 @@ namespace kuge::net
 
         constexpr std::size_t FRAME_HEADER = 4;
         constexpr int         MAX_READS_PER_POLL = 512;   //!< Datagrams or chunks taken from a socket in one poll
+
+        // "127.0.0.1:4242", or "[::1]:4242": an IPv6 address has colons of its own
+        std::string peerName(const knConnection* conn)
+        {
+            const std::string ip = knConnection_getIp(conn);
+            const std::string port = std::to_string(knConnection_getPort(conn));
+
+            return ip.find(':') == std::string::npos ? ip + ":" + port : "[" + ip + "]:" + port;
+        }
     }
 
     // -- StreamFramer -------------------------------------------------------------------------
@@ -216,8 +225,7 @@ namespace kuge::net
                     peer->id = ++m_lastId;
                     peer->conn = conn;
                     knConnection_setUserPtr(conn, peer.get());
-                    m_events.push_back(TransportEvent{TransportEvent::Kind::Connected, peer->id, {},
-                        std::string(knConnection_getIp(conn)) + ":" + std::to_string(knConnection_getPort(conn))});
+                    m_events.push_back(TransportEvent{TransportEvent::Kind::Connected, peer->id, {}, peerName(conn)});
                     m_peers[peer->id] = std::move(peer);
                 }
 
