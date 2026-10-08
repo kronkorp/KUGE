@@ -2,7 +2,8 @@
 
 ## What you need
 
-- A C++20 compiler (GCC 13 is what it is developed with) and CMake 3.24 or later.
+- A C++20 compiler (GCC 13 is what it is developed with; on Windows, MSVC from Visual Studio 2022
+  17.5 or later) and CMake 3.24 or later.
 - For the client module: SDL2, SDL2_mixer and SDL2_ttf. The core, the physics, the network, the
   server and the replication need none of them, so a server builds on a machine with no SDL at all.
 
@@ -18,6 +19,18 @@ ctest --test-dir build --output-on-failure
 Without the two options, only the modules are built. Some tests run the examples, so the whole
 suite needs both.
 
+On Windows, SDL comes from vcpkg, and the build names its configuration:
+
+```powershell
+vcpkg install sdl2 sdl2-mixer sdl2-ttf --triplet x64-windows
+cmake -S . -B build -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+There, `ctest` runs the boundaries and the games played for real, not the unit tests (their test
+library, kronklab, runs each test in a `fork()`). The README's "On Windows" says what else differs.
+
 `vendor/` holds submodules (kronkworld, the ECS; kronkpool, the thread pool; kronknet, the sockets;
 kronk3d, for later). kronkflow (the scheduler), kronklab (the test library) and stb (image loading)
 are fetched at a fixed commit.
@@ -25,7 +38,7 @@ are fetched at a fixed commit.
 | Option | Default | What it does |
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build the client module. Turn it off for a server: no SDL needed. |
-| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so`, every module in one shared library. |
+| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. See [testing](../12-testing-and-debugging/README.md). |

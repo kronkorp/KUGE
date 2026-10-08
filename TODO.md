@@ -3,6 +3,13 @@
 Known bugs, most serious first. Found in the code review of 2026-09-28. The ones that were fixed are under "Done",
 each with its pull request.
 
+## Windows
+
+- [ ] **The unit tests do not run on Windows.** kronklab runs each test in a `fork()` and finds the tests with the
+  ELF linker's `__start_`/`__stop_` symbols: neither exists there. Porting it (a child process per test, and MSVC's
+  sections) would also need the tests' own POSIX parts (`unistd.h`, raw sockets, `--wrap` at link time) made
+  portable. Until then, Windows runs the boundaries and the three games played for real (`*_smoke`).
+
 ## Done
 
 - [x] `vendor/kronknet` is bumped to its `main` (`4c42839`): kronknet #41 and #42 are in, and so are Windows and
