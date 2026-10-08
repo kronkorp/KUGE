@@ -29,25 +29,38 @@ jobs:
       SDL_VIDEODRIVER: dummy
       SDL_AUDIODRIVER: dummy
       SDL_RENDER_DRIVER: software
+      # vcpkg keeps what it built here, and the cache below keeps it between runs
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-cache
 
     steps:
       - name: Check out KUGE
         uses: actions/checkout@v4
 
-      # The URLs in .gitmodules are SSH ones (git@github.com:...): a runner has no key. All of
-      # these repositories are public, so they are fetched over HTTPS instead.
-      # kronk3d is left out: nothing builds it yet (it is only for the future 3D module).
-      - name: Check out the submodules (over HTTPS)
+      # kronk3d is left out: nothing builds it yet (it is only for the future 3D module)
+      - name: Check out the submodules
         run: |
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
           git submodule update --init vendor/kronknet vendor/kronkworld vendor/kronkpool
           git submodule status
 
-      - name: Install the dependencies
+      # SDL2 & co. come from vcpkg (vcpkg.json), which builds them. What it builds them against is
+      # the system's: the headers of X11, Wayland and PulseAudio. The font is for the tests.
+      - name: Install the system's headers
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libsdl2-dev libsdl2-mixer-dev libsdl2-ttf-dev fonts-dejavu-core ccache
+            libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxss-dev \
+            libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpulse-dev \
+            fonts-dejavu-core ccache
+
+      # What vcpkg builds depends on vcpkg.json only (its baseline pins every version)
+      - name: Restore what vcpkg built
+        id: vcpkg-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            vcpkg-cache
+            .vcpkg/downloads
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
       - name: Cache the compiler's work
         uses: actions/cache@v4
@@ -58,12 +71,26 @@ jobs:
             ccache-${{ runner.os }}-${{ github.ref_name }}-
             ccache-${{ runner.os }}-
 
+      # vcpkg is cloned and installs vcpkg.json here, as on a contributor's machine (no VCPKG_ROOT)
       - name: Configure
+        env:
+          VCPKG_ROOT: ""
         run: |
+          mkdir -p vcpkg-cache
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      # Kept even if KUGE fails to build or test: building SDL takes longer than the rest
+      - name: Save what vcpkg built
+        if: ${{ !cancelled() && steps.vcpkg-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vcpkg-cache
+            .vcpkg/downloads
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
       - name: Build
         run: cmake --build build -j "$(nproc)"
@@ -104,50 +131,43 @@ jobs:
       - name: Check out KUGE
         uses: actions/checkout@v4
 
-      - name: Check out the submodules (over HTTPS)
+      - name: Check out the submodules
         shell: bash
         run: |
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
           git submodule update --init vendor/kronknet vendor/kronkworld vendor/kronkpool
           git submodule status
 
-      # What vcpkg builds depends on its version: a runner with a new vcpkg makes a new cache
-      - name: Find the version of vcpkg
-        id: vcpkg
-        shell: bash
-        run: echo "commit=$(git -C "$VCPKG_INSTALLATION_ROOT" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
+      # What vcpkg builds depends on vcpkg.json only (its baseline pins every version)
       - name: Restore what vcpkg built
-        id: restore
+        id: vcpkg-restore
         uses: actions/cache/restore@v4
         with:
-          path: vcpkg-cache
-          key: vcpkg-${{ runner.os }}-sdl2-${{ steps.vcpkg.outputs.commit }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-sdl2-
-
-      # The runner has vcpkg (VCPKG_INSTALLATION_ROOT): SDL2, SDL2_mixer and SDL2_ttf come from it
-      - name: Install the dependencies
-        run: |
-          New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
-          vcpkg install sdl2 sdl2-mixer sdl2-ttf --triplet x64-windows
-
-      # Kept even if KUGE fails to build or test: building SDL takes longer than the rest
-      - name: Save what vcpkg built
-        if: steps.restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: vcpkg-cache
-          key: vcpkg-${{ runner.os }}-sdl2-${{ steps.vcpkg.outputs.commit }}
+          path: |
+            vcpkg-cache
+            .vcpkg/downloads
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
       # (Ninja needs the compiler in the environment, as a Developer PowerShell has it)
       - uses: ilammy/msvc-dev-cmd@v1
 
+      # vcpkg is cloned and installs vcpkg.json here, as on a contributor's machine. (Not the
+      # runner's vcpkg, nor Visual Studio's, which the Developer PowerShell puts in VCPKG_ROOT.)
       - name: Configure
-        run: >
-          cmake -S . -B build ${{ matrix.generator == 'Ninja' && '-G Ninja' || '' }}
-          -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON
-          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        env:
+          VCPKG_ROOT: ""
+        run: |
+          New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
+          cmake -S . -B build ${{ matrix.generator == 'Ninja' && '-G Ninja' || '' }} -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON
+
+      # Kept even if KUGE fails to build or test: building SDL takes longer than the rest
+      - name: Save what vcpkg built
+        if: ${{ !cancelled() && steps.vcpkg-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            vcpkg-cache
+            .vcpkg/downloads
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
