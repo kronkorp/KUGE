@@ -6,7 +6,7 @@ each with its pull request.
 ## Done
 
 - [x] `vendor/kronknet` is bumped to its `main` (`4c42839`): kronknet #41 and #42 are in, and so are Windows and
-  IPv6 (#PR).
+  IPv6 (#33).
 - [x] A spawned `RunPolicy::Main` scene that throws is logged and stopped, and no longer brings down `Engine::step()`
   (#3). (The engine's own main scenes still let an exception out of `step()`: that is tested and on purpose.)
 - [x] The README's keybinds example had a `# comment` after a value, which `ConfigFile` documents as part of the
