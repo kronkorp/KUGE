@@ -16,6 +16,18 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
     message(FATAL_ERROR "In-source builds are not allowed. Create a build directory (e.g. 'build/').")
 endif()
 
+# The warnings of KUGE's own code
+if(MSVC)
+    set(KUGE_WARNINGS /W4)
+    # The sources are UTF-8 (whatever the code page of the machine), the biggest ones have more
+    # sections than an object file holds by default, and the C runtime's "use the _s version"
+    # warnings are not for portable code
+    add_compile_options(/utf-8 $<$<COMPILE_LANGUAGE:CXX>:/bigobj>)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+else()
+    set(KUGE_WARNINGS -Wall -Wextra)
+endif()
+
 option(KUGE_BUILD_SHARED  "Also build kuge.so, an aggregate of every module" ON)
 option(KUGE_BUILD_CLIENT  "Build the client module (window, inputs, 2D rendering: needs SDL2)" ON)
 option(BUILD_EXAMPLES     "Build the example/ executables" OFF)
@@ -24,7 +36,9 @@ set(KUGE_SANITIZE "" CACHE STRING "Build with a sanitizer: address (+ undefined)
 set_property(CACHE KUGE_SANITIZE PROPERTY STRINGS "" address thread)
 
 # Set before anything is fetched, so that the dependencies are instrumented too
-if(KUGE_SANITIZE STREQUAL "address")
+if(KUGE_SANITIZE AND MSVC)
+    message(FATAL_ERROR "KUGE_SANITIZE is for GCC and Clang (the flags below are theirs)")
+elseif(KUGE_SANITIZE STREQUAL "address")
     set(KUGE_SANITIZE_FLAGS -fsanitize=address,undefined -fno-omit-frame-pointer)
 elseif(KUGE_SANITIZE STREQUAL "thread")
     set(KUGE_SANITIZE_FLAGS -fsanitize=thread)
@@ -81,7 +95,7 @@ endif()
 FetchContent_Declare(
     kronkflow
     GIT_REPOSITORY https://github.com/kronkorp/kronkflow
-    GIT_TAG        1e0ab7372d15d8b89aace08798769707bff47e65
+    GIT_TAG        b4ae0a6e578bd0684633a4a753a62032cfb512c7
 )
 # Only the modules are built by default: kronkflow reads BUILD_TESTS too, and
 # kronkutils (which it fetches) includes CTest, whose BUILD_TESTING is ON. Both
@@ -128,8 +142,13 @@ if(KUGE_BUILD_SHARED)
     set_target_properties(kuge PROPERTIES
         PREFIX ""
         OUTPUT_NAME kuge
-        SUFFIX ".so"
     )
+    if(WIN32)
+        # kuge.dll: nothing in the code is marked for export, so everything is
+        set_target_properties(kuge PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    else()
+        set_target_properties(kuge PROPERTIES SUFFIX ".so")
+    endif()
     get_property(KUGE_MODULE_TARGETS GLOBAL PROPERTY KUGE_MODULES)
     get_property(KUGE_VENDOR_TARGETS GLOBAL PROPERTY KUGE_VENDORS)
     foreach(target ${KUGE_VENDOR_TARGETS})
@@ -151,6 +170,10 @@ endif()
 
 if(BUILD_TESTS)
     enable_testing()
-    FetchContent_MakeAvailable(kronklab)
+    # kronklab runs each test in a fork(), which Windows does not have: there, only the tests
+    # that need no kronklab are built (see tests/CMakeLists.txt)
+    if(NOT WIN32)
+        FetchContent_MakeAvailable(kronklab)
+    endif()
     add_subdirectory(tests)
 endif()
