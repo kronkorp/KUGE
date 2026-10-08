@@ -66,7 +66,8 @@ const auto settings = kuge::userDirectory(kuge::UserDir::Config, "mygame");   //
 const auto saves    = kuge::userDirectory(kuge::UserDir::Data,   "mygame");   // ~/.local/share/mygame
 ```
 
-(`$XDG_CONFIG_HOME` and `$XDG_DATA_HOME` are honoured; the folder is created.)
+(`$XDG_CONFIG_HOME` and `$XDG_DATA_HOME` are honoured; the folder is created. On Windows, both are
+`%APPDATA%\mygame`.)
 
 ## Save slots
 

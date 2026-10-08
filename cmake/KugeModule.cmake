@@ -5,7 +5,7 @@
 # Builds vendor/<name>'s sources into the static library kuge-<name> (from the
 # object library kuge-<name>-obj, which kuge.so reuses). Its public headers are
 # visible to whoever links it, its private headers (src/) only to its own
-# sources.
+# sources. kuge.so takes the objects of every target listed in KUGE_VENDORS.
 function(kuge_vendor name)
     cmake_parse_arguments(V "" "" "DEPENDS" ${ARGN})
     set(dir "${PROJECT_SOURCE_DIR}/vendor/${name}")
@@ -19,9 +19,9 @@ function(kuge_vendor name)
         target_link_libraries(${target} PUBLIC ${V_DEPENDS})
     endforeach()
     target_include_directories(kuge-${name}-obj PRIVATE "${dir}/src")
-    target_compile_options(kuge-${name}-obj PRIVATE -Wall -Wextra)
+    target_compile_options(kuge-${name}-obj PRIVATE ${KUGE_WARNINGS})
 
-    set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kuge-${name})
+    set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kuge-${name}-obj)
 endfunction()
 
 # kuge_module(<name> [DEPENDS <targets>...])
@@ -46,8 +46,18 @@ function(kuge_module name)
     foreach(target kuge-${name}-obj kuge-${name})
         target_include_directories(${target} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
         target_link_libraries(${target} PUBLIC ${M_DEPENDS})
+        if(MSVC)
+            # The headers use __VA_OPT__ (KUGE_MESSAGE): MSVC only has it with its conforming
+            # preprocessor. Public: a game's own headers use them too.
+            target_compile_options(${target} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>)
+        endif()
     endforeach()
-    target_compile_options(kuge-${name}-obj PRIVATE -Wall -Wextra)
+    target_compile_options(kuge-${name}-obj PRIVATE ${KUGE_WARNINGS})
+    if(WIN32)
+        # <windows.h>, which some sources include, would define min, max and ERROR (as in
+        # LoggerLevel::ERROR)
+        target_compile_definitions(kuge-${name}-obj PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN NOGDI)
+    endif()
 
     set_property(GLOBAL APPEND PROPERTY KUGE_MODULES kuge-${name})
 endfunction()

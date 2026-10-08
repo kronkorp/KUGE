@@ -3,17 +3,17 @@
 Known bugs, most serious first. Found in the code review of 2026-09-28. The ones that were fixed are under "Done",
 each with its pull request.
 
-## kronknet (`vendor/kronknet`)
+## Windows
 
-- [ ] **Bump the `vendor/kronknet` submodule once the two kronknet fixes are on `main`.**
-  - [kronknet #41](https://github.com/kronkorp/kronknet/pull/41) (a TCP client is no longer kicked when its socket is
-    full) is merged into kronknet's `dev`, not yet `main`. `dev` is three commits behind `main`.
-  - [kronknet #42](https://github.com/kronkorp/kronknet/pull/42) (a UDP send no longer re-arms epoll) is open against
-    `main`, because the code it fixes only exists there.
-  - KUGE pins `3aa3ad3` (kronknet `main`). When both are in `main`, commit the new pointer here.
+- [ ] **The unit tests do not run on Windows.** kronklab runs each test in a `fork()` and finds the tests with the
+  ELF linker's `__start_`/`__stop_` symbols: neither exists there. Porting it (a child process per test, and MSVC's
+  sections) would also need the tests' own POSIX parts (`unistd.h`, raw sockets, `--wrap` at link time) made
+  portable. Until then, Windows runs the boundaries and the three games played for real (`*_smoke`).
 
 ## Done
 
+- [x] `vendor/kronknet` is bumped to its `main` (`4c42839`): kronknet #41 and #42 are in, and so are Windows and
+  IPv6 (#33).
 - [x] A spawned `RunPolicy::Main` scene that throws is logged and stopped, and no longer brings down `Engine::step()`
   (#3). (The engine's own main scenes still let an exception out of `step()`: that is tested and on purpose.)
 - [x] The README's keybinds example had a `# comment` after a value, which `ConfigFile` documents as part of the

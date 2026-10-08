@@ -1,10 +1,15 @@
 #include "Serializer.hpp"
+#include <algorithm>
 #include <cerrno>
-#include <fcntl.h>
 #include <format>
 #include <fstream>
 #include <system_error>
-#include <unistd.h>
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <fcntl.h>
+    #include <unistd.h>
+#endif
 
 void kuge::ByteWriter::put(std::uint64_t value, std::size_t size)
 {
@@ -100,6 +105,34 @@ std::uint16_t kuge::ByteReader::readHeader(std::uint32_t magic)
 
 namespace
 {
+#ifdef _WIN32
+    // Writes all of data to a new file, and asks the disk to keep it
+    bool writeSynced(const std::filesystem::path& file, std::span<const std::uint8_t> data)
+    {
+        const HANDLE handle = ::CreateFileW(file.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        std::size_t done = 0;
+        bool written = handle != INVALID_HANDLE_VALUE;
+
+        while (written && done < data.size()) {
+            const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(data.size() - done, 1u << 30));
+            DWORD count = 0;
+
+            written = ::WriteFile(handle, data.data() + done, chunk, &count, nullptr) != 0 && count > 0;
+            done += count;
+        }
+        written = written && ::FlushFileBuffers(handle) != 0;
+        return handle != INVALID_HANDLE_VALUE && ::CloseHandle(handle) != 0 && written;
+    }
+
+    // Puts the new file in the place of the old one. MOVEFILE_WRITE_THROUGH only returns once
+    // the move is on the disk: a power cut cannot bring the old file back.
+    void replaceSynced(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& error)
+    {
+        if (!::MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            error = std::error_code(static_cast<int>(::GetLastError()), std::system_category());
+        }
+    }
+#else
     // Writes all of data to fd, and asks the disk to keep it
     bool writeAndSync(int fd, std::span<const std::uint8_t> data)
     {
@@ -136,6 +169,28 @@ namespace
             ::close(fd);
         }
     }
+
+    bool writeSynced(const std::filesystem::path& file, std::span<const std::uint8_t> data)
+    {
+        const int fd = ::open(file.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+
+        if (fd < 0) {
+            return false;
+        }
+        const bool written = writeAndSync(fd, data);
+        const bool closed = ::close(fd) == 0;
+
+        return written && closed;
+    }
+
+    void replaceSynced(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& error)
+    {
+        std::filesystem::rename(from, to, error);
+        if (!error) {
+            syncFolder(to);
+        }
+    }
+#endif
 }
 
 void kuge::writeFile(const std::filesystem::path& path, std::span<const std::uint8_t> data)
@@ -144,26 +199,19 @@ void kuge::writeFile(const std::filesystem::path& path, std::span<const std::uin
     std::error_code error;
 
     temporary += ".tmp";
-    const int fd = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
-
-    if (fd < 0) {
-        throw SerializerError(std::format("cannot write '{}'", temporary.string()));
-    }
     // The data must be on the disk before the rename: otherwise a power cut can leave the
     // new name pointing at a file that is empty or half written
-    const bool written = writeAndSync(fd, data);
-    const bool closed = ::close(fd) == 0;
-
-    if (!written || !closed) {
+    if (!writeSynced(temporary, data)) {
         std::filesystem::remove(temporary, error);
         throw SerializerError(std::format("cannot write '{}'", temporary.string()));
     }
-    std::filesystem::rename(temporary, path, error);
+    replaceSynced(temporary, path, error);
     if (error) {
+        const std::string why = error.message();
+
         std::filesystem::remove(temporary, error);
-        throw SerializerError(std::format("cannot replace '{}': {}", path.string(), error.message()));
+        throw SerializerError(std::format("cannot replace '{}': {}", path.string(), why));
     }
-    syncFolder(path);
 }
 
 std::vector<std::uint8_t> kuge::readFile(const std::filesystem::path& path)

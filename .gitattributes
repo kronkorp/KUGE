@@ -1,0 +1,2 @@
+# The shell scripts run on Windows too (Git Bash): with CRLF, sh cannot read them
+*.sh text eol=lf

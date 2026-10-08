@@ -1,7 +1,7 @@
 name: CI
 
-# Builds KUGE (modules, examples, tests) from a clean checkout and runs every test.
-# The same thing a contributor does by hand: see "Build" and "Tests" in the README.
+# Builds KUGE (modules, examples, tests) from a clean checkout and runs every test, on Linux and on
+# Windows. The same thing a contributor does by hand: see "Build" and "Tests" in the README.
 
 on:
   push:
@@ -78,5 +78,92 @@ jobs:
         with:
           name: test-logs
           path: build/Testing/Temporary/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Both generators: Visual Studio's (what its IDE uses: CMake's default, the newest one on the
+  # runner) and Ninja (VS Code, CLion...). Ninja also refuses two rules that make the same file,
+  # which Visual Studio's does not see.
+  windows:
+    name: Build and test (Windows, MSVC, ${{ matrix.generator }})
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        generator: [Visual Studio, Ninja]
+
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+      SDL_RENDER_DRIVER: software
+      # vcpkg keeps what it built here, and the cache below keeps it between runs
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+
+    steps:
+      - name: Check out KUGE
+        uses: actions/checkout@v4
+
+      - name: Check out the submodules (over HTTPS)
+        shell: bash
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init vendor/kronknet vendor/kronkworld vendor/kronkpool
+          git submodule status
+
+      # What vcpkg builds depends on its version: a runner with a new vcpkg makes a new cache
+      - name: Find the version of vcpkg
+        id: vcpkg
+        shell: bash
+        run: echo "commit=$(git -C "$VCPKG_INSTALLATION_ROOT" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore what vcpkg built
+        id: restore
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ runner.os }}-sdl2-${{ steps.vcpkg.outputs.commit }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-sdl2-
+
+      # The runner has vcpkg (VCPKG_INSTALLATION_ROOT): SDL2, SDL2_mixer and SDL2_ttf come from it
+      - name: Install the dependencies
+        run: |
+          New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
+          vcpkg install sdl2 sdl2-mixer sdl2-ttf --triplet x64-windows
+
+      # Kept even if KUGE fails to build or test: building SDL takes longer than the rest
+      - name: Save what vcpkg built
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ runner.os }}-sdl2-${{ steps.vcpkg.outputs.commit }}
+
+      # (Ninja needs the compiler in the environment, as a Developer PowerShell has it)
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        run: >
+          cmake -S . -B build ${{ matrix.generator == 'Ninja' && '-G Ninja' || '' }}
+          -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # The unit tests need kronklab, which runs on POSIX only: what runs here is the boundaries
+      # and the games, played for real (R-Type over the network, with the sh of Git for Windows)
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure --timeout 300
+
+      - name: Keep the test logs when a test failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-windows-${{ strategy.job-index }}
+          path: |
+            build/Testing/Temporary/
+            build/tests/rtype/
           if-no-files-found: ignore
           retention-days: 7

@@ -3,7 +3,6 @@
 #include "LoggerLevel.hpp"
 #include "handler/base/IHandler.hpp"
 #include <atomic>
-#include <endian.h>
 #include <fstream>
 #include <memory>
 #include <mutex>

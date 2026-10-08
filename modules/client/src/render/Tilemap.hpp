@@ -1,6 +1,7 @@
 #pragma once
 
-#include "TileMap.hpp"
+// (<> and not "": on a file system that ignores case, as Windows', "TileMap.hpp" would be this file)
+#include <TileMap.hpp>
 #include "render/Components.hpp"
 #include "render/Spritesheet.hpp"
 #include <memory>

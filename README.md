@@ -43,13 +43,15 @@ R-Type, as a dedicated server, a client and a host, from an empty folder to test
 | Server: lobby, rooms, sessions and tokens, matchmaking client | done |
 | Replication (snapshots, interpolation) and client-side prediction | done |
 | One game, three ways (R-Type: server, client, host), with no window on the server | done |
+| Linux (GCC) and Windows (MSVC) | done |
 | 3D (kronk3d) | planned |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
 
 ## Build
 
-Requirements: a C++20 compiler (GCC 13 is what it is developed with), CMake 3.24 or later,
+Requirements: a C++20 compiler (GCC 13 is what it is developed with; on Windows, MSVC: see
+[On Windows](#on-windows)), CMake 3.24 or later,
 and, for the client module, SDL2, SDL2_mixer and SDL2_ttf (the core and the physics do not
 need them). A machine with no sound card still runs a game: it is just silent.
 
@@ -71,7 +73,7 @@ ctest --test-dir build --output-on-failure
 | Option | Default | What it does |
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build `kuge-client` (needs SDL2, SDL2_mixer, SDL2_ttf). Turn it off for a server. |
-| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so`, every module in one shared library. |
+| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. |
@@ -79,6 +81,31 @@ ctest --test-dir build --output-on-failure
 Dependencies are pinned: `vendor/` holds the submodules (kronkworld, kronkpool, kronknet,
 kronk3d), and kronkflow, kronklab and stb are fetched at a fixed commit. Only one copy of
 kronkpool is built, the vendored one.
+
+### On Windows
+
+KUGE builds with MSVC (Visual Studio 2022 17.5 or later). SDL2, SDL2_mixer and SDL2_ttf come from
+[vcpkg](https://vcpkg.io), in PowerShell:
+
+```powershell
+vcpkg install sdl2 sdl2-mixer sdl2-ttf --triplet x64-windows
+cmake -S . -B build -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+The programs are in `build/example/Release/`, with the DLLs of SDL next to them (vcpkg copies
+them). What differs from Linux:
+
+- Ctrl+C and Ctrl+Break end `run()` as SIGINT does (Windows has no SIGTERM to send).
+  `kuge_rtype_server` also stops on `quit` typed in its terminal.
+- The player's folders (`userDirectory`) are both in `%APPDATA%`.
+- The unit tests are not built: kronklab runs each test in a `fork()`. `ctest` runs the
+  boundaries and the games played for real: `pong_smoke`, `platformer_smoke`, and
+  `rtype_smoke`, which needs the `sh` of Git for Windows.
+- `KUGE_SANITIZE` is for GCC and Clang only.
+
+The CI builds and tests both: Linux with GCC, Windows with MSVC.
 
 ### Using KUGE from a game
 
@@ -608,7 +635,7 @@ asset) to any `AssetManager<T>`, and call `reloadChanged()` from the thread that
 Three small pieces, all in `kuge-core` (no window needed):
 
 - **`userDirectory(UserDir::Data, "mygame")`** is where the player's files go
-  (`$XDG_DATA_HOME` or `~/.local/share`, and `Config` for settings), created if needed.
+  (`$XDG_DATA_HOME` or `~/.local/share`, and `Config` for settings; `%APPDATA%` on Windows), created if needed.
 - **`SnapshotRegistry`** says what of a `World` is saved and how. Register each component
   and resource type with a name and two lambdas (write, read), and mark entities with
   `Persistent`. `save(world, writer)` writes them (entities by increasing number, so the same
@@ -710,9 +737,9 @@ server.poll();                 // once per tick: reads, sends what is due, calls
 | UDP | `makeUdpServer(port)`, `makeUdpClient(host, port)` | A packet is a datagram. |
 | Loopback | `LoopbackNetwork::listen(name)`, `connect(name)` | In memory, by name, **thread-safe**: a client and a server in the same process, on different threads (a player who hosts the match). |
 
-TCP and UDP go through kronknet, IPv4 only ("localhost" or a dotted address). A server that cannot
-bind throws; a client that cannot reach its server does not throw, its endpoint reports a
-disconnection.
+TCP and UDP go through kronknet, over IPv4 or IPv6 ("localhost", "127.0.0.1", "::1": an address, not a
+host name). A server listens on both. A server that cannot bind throws; a client that cannot reach its
+server does not throw, its endpoint reports a disconnection.
 
 `LoopbackNetwork` can misbehave on purpose: `Conditions{.loss, .duplicate, .latency, .jitter, .seed}`
 lose, repeat, delay and reorder packets (the same seed loses the same ones), and its clock can be
@@ -1073,6 +1100,8 @@ ctest --test-dir build --output-on-failure
 | `boundary_*` | a module cannot include what it does not link |
 | `rtype_smoke` | the real R-Type programs (server, client, host) play a scripted game and leave a picture that is checked |
 | `pong_smoke`, `platformer_smoke` | the real binaries play a scripted game and leave a picture that is checked |
+
+On Windows, only `boundary_*` and the `*_smoke` tests are built (see [On Windows](#on-windows)).
 
 Things that are worth knowing:
 

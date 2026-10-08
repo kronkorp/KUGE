@@ -8,11 +8,44 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <iostream>
-#include <poll.h>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
-#include <unistd.h>
+
+namespace
+{
+    // What is typed, read by a thread of its own: a line is only there once Enter is pressed,
+    // and the network is polled meanwhile
+    struct Typed
+    {
+        std::mutex              mutex;
+        std::deque<std::string> lines;
+        bool                    closed = false;   //!< No more lines (Ctrl+D, or Ctrl+Z on Windows)
+    };
+
+    std::shared_ptr<Typed> readTyped(void)
+    {
+        auto typed = std::make_shared<Typed>();
+
+        // Detached: when the chat ends, it may still wait for a line, and the process ends it
+        std::thread([typed] {
+            std::string line;
+
+            while (std::getline(std::cin, line)) {
+                std::lock_guard lock(typed->mutex);
+
+                typed->lines.push_back(line);
+            }
+            std::lock_guard lock(typed->mutex);
+
+            typed->closed = true;
+        }).detach();
+        return typed;
+    }
+}
 
 int main(int argc, char** argv)
 {
@@ -38,6 +71,7 @@ int main(int argc, char** argv)
     bool over = false;
     bool said = false;
     const auto start = std::chrono::steady_clock::now();
+    const auto typed = wait < 0 ? readTyped() : nullptr;
 
     matchmaking.onJoined([&](kuge::net::Endpoint& room, const kuge::net::Welcome& welcome) {
         std::cout << "* in room " << welcome.roomId << " as #" << welcome.networkId << std::endl;
@@ -55,15 +89,15 @@ int main(int argc, char** argv)
                 said = true;
                 matchmaking.room()->send(kuge::net::CLIENT_CONNECTION, ChatSay{say});
             }
-            pollfd input{STDIN_FILENO, POLLIN, 0};
+            if (typed) {
+                std::lock_guard lock(typed->mutex);
 
-            if (wait < 0 && poll(&input, 1, 0) > 0) {
-                std::string line;
-
-                if (!std::getline(std::cin, line)) {
+                for (; !typed->lines.empty(); typed->lines.pop_front()) {
+                    matchmaking.room()->send(kuge::net::CLIENT_CONNECTION, ChatSay{typed->lines.front()});
+                }
+                if (typed->closed) {
                     break;
                 }
-                matchmaking.room()->send(kuge::net::CLIENT_CONNECTION, ChatSay{line});
             }
         }
         if (wait >= 0 && std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() > wait) {

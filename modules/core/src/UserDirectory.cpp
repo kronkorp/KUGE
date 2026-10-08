@@ -21,6 +21,15 @@ std::filesystem::path kuge::userDirectory(UserDir kind, std::string_view game)
         throw std::invalid_argument(std::format("'{}' cannot be the name of a folder", game));
     }
     const bool config = kind == UserDir::Config;
+#ifdef _WIN32
+    // Both in the roaming application data: what belongs to the player follows them
+    (void)config;
+    std::filesystem::path base(variable("APPDATA"));
+
+    if (base.empty()) {
+        base = ".";
+    }
+#else
     std::filesystem::path base(variable(config ? "XDG_CONFIG_HOME" : "XDG_DATA_HOME"));
 
     if (base.empty()) {
@@ -28,6 +37,7 @@ std::filesystem::path kuge::userDirectory(UserDir kind, std::string_view game)
 
         base = home.empty() ? std::filesystem::path(".") : std::filesystem::path(home) / (config ? ".config" : ".local/share");
     }
+#endif
     const std::filesystem::path directory = base / std::string(game);
     std::error_code error;
 
