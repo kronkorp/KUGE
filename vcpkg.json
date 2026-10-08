@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "kuge",
+  "version-string": "0.1.0",
+  "description": "Kronk Ultra Game Engine",
+  "builtin-baseline": "2750401336fb7c95f6619657a46a7e798661341c",
+  "features": {
+    "client": {
+      "description": "The client module: window, inputs, 2D drawing, sounds and text",
+      "dependencies": [
+        {
+          "name": "sdl2",
+          "default-features": false,
+          "features": [
+            { "name": "x11", "platform": "linux" },
+            { "name": "wayland", "platform": "linux" }
+          ]
+        },
+        {
+          "name": "sdl2-mixer",
+          "default-features": false,
+          "features": ["libflac", "mpg123"]
+        },
+        "sdl2-ttf",
+        "stb"
+      ]
+    }
+  }
+}
