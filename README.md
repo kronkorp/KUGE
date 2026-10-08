@@ -51,9 +51,20 @@ Everything listed as *done* is covered by tests (see [Tests](#tests)).
 ## Build
 
 Requirements: a C++20 compiler (GCC 13 is what it is developed with; on Windows, MSVC: see
-[On Windows](#on-windows)), CMake 3.24 or later,
-and, for the client module, SDL2, SDL2_mixer and SDL2_ttf (the core and the physics do not
-need them). A machine with no sound card still runs a game: it is just silent.
+[On Windows](#on-windows)), CMake 3.24 or later, and git. The libraries of the client module
+(SDL2, SDL2_mixer, SDL2_ttf and stb) are not installed by hand: they come from
+[vcpkg](https://vcpkg.io), which the first `cmake` clones into `.vcpkg/` and which builds them,
+once (a few minutes). See [Dependencies](#dependencies).
+
+On Linux, SDL is built against the system's display and sound, so it needs their headers. On
+Debian or Ubuntu:
+
+```sh
+sudo apt install libx11-dev libxext-dev libxcursor-dev libxi-dev libxrandr-dev libxss-dev \
+    libwayland-dev libxkbcommon-dev libegl1-mesa-dev libpulse-dev
+```
+
+A machine with no sound card still runs a game: it is just silent.
 
 ```sh
 git clone --recurse-submodules <url> kuge && cd kuge
@@ -77,19 +88,31 @@ ctest --test-dir build --output-on-failure
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. |
+| `KUGE_VCPKG_DIR` | `.vcpkg` | Where vcpkg is cloned, when no toolchain is given and `VCPKG_ROOT` is not set. |
 
-Dependencies are pinned: `vendor/` holds the submodules (kronkworld, kronkpool, kronknet,
-kronk3d), and kronkflow, kronklab and stb are fetched at a fixed commit. Only one copy of
-kronkpool is built, the vendored one.
+### Dependencies
+
+Every dependency is pinned, and none is installed by hand (on Linux, only the system's headers
+above are):
+
+- `vendor/` holds the submodules (kronkworld, kronkpool, kronknet, kronk3d), and kronkflow and
+  kronklab are fetched at a fixed commit. Only one copy of kronkpool is built, the vendored one.
+- SDL2, SDL2_mixer (with OGG, MP3 and FLAC), SDL2_ttf and stb come from vcpkg, in manifest mode:
+  `vcpkg.json` lists them, and its `builtin-baseline` (a commit of vcpkg) fixes their versions.
+  The vcpkg used is the toolchain given with `-DCMAKE_TOOLCHAIN_FILE`, or else the one in
+  `VCPKG_ROOT`, or else vcpkg cloned at the baseline into `.vcpkg/` (`cmake/Vcpkg.cmake`). With
+  `-DKUGE_BUILD_CLIENT=OFF`, none of them is built.
+
+A game that fetches KUGE as a subproject lists SDL2 & co. in its own `vcpkg.json`, and gives the
+vcpkg toolchain to its own build: vcpkg only reads the manifest of the top-level project.
 
 ### On Windows
 
-KUGE builds with MSVC (Visual Studio 2022 17.5 or later). SDL2, SDL2_mixer and SDL2_ttf come from
-[vcpkg](https://vcpkg.io), in PowerShell:
+KUGE builds with MSVC (Visual Studio 2022 17.5 or later). SDL2 & co. come from vcpkg as on Linux,
+with no headers to install. In PowerShell:
 
 ```powershell
-vcpkg install sdl2 sdl2-mixer sdl2-ttf --triplet x64-windows
-cmake -S . -B build -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+cmake -S . -B build -DBUILD_EXAMPLES=ON -DBUILD_TESTS=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
