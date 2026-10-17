@@ -1,30 +1,21 @@
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_NO_STDIO
-#define STBI_FAILURE_USERMSG
-#include "stb_image.h"
-
 #include "render/ImageDecoder.hpp"
 #include "Serializer.hpp"
 #include <format>
-#include <memory>
+#include <kronk3d/scene/Image.hpp>
 
 kuge::Image kuge::decodeImage(std::span<const std::uint8_t> data)
 {
-    int width = 0;
-    int height = 0;
-    int channels = 0;
-    std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> pixels(
-        stbi_load_from_memory(data.data(), static_cast<int>(data.size()), &width, &height, &channels, 4),
-        &stbi_image_free);
+    // kronk3d already carries stb_image (a second copy would clash at link time)
+    const k3::Result<k3::Image> decoded = k3::Image::loadFromMemory(data.data(), data.size());
 
-    if (!pixels) {
-        throw ImageError(std::format("cannot read the picture: {}", stbi_failure_reason()));
+    if (!decoded) {
+        throw ImageError(std::format("cannot read the picture: {}", decoded.error()));
     }
     Image image;
 
-    image.width = width;
-    image.height = height;
-    image.rgba.assign(pixels.get(), pixels.get() + static_cast<std::size_t>(width) * height * 4);
+    image.width = static_cast<int>(decoded->width);
+    image.height = static_cast<int>(decoded->height);
+    image.rgba = decoded->pixels;
     return image;
 }
 

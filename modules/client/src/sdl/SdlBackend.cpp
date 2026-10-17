@@ -338,6 +338,21 @@ namespace
                 }
             }
 
+            void updateTexture(TextureId id, std::span<const std::uint8_t> rgba) override
+            {
+                const auto found = m_textures.find(id);
+                int width = 0;
+                int height = 0;
+
+                if (found == m_textures.end() || SDL_QueryTexture(found->second, nullptr, nullptr, &width, &height) != 0
+                    || rgba.size() != static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4) {
+                    throw std::runtime_error("SdlRenderer: unknown texture, or the pixels do not match its size");
+                }
+                if (SDL_UpdateTexture(found->second, nullptr, rgba.data(), width * 4) != 0) {
+                    fail("cannot fill a texture");
+                }
+            }
+
             void fillRect(const Rect& destination, Color color) override
             {
                 const SDL_FRect rect = toSdl(destination);

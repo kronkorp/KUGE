@@ -52,7 +52,7 @@ Everything listed as *done* is covered by tests (see [Tests](#tests)).
 
 Requirements: a C++20 compiler (GCC 13 is what it is developed with; on Windows, MSVC: see
 [On Windows](#on-windows)), CMake 3.24 or later, and git. The libraries of the client module
-(SDL2, SDL2_mixer, SDL2_ttf and stb) are not installed by hand: they come from
+(SDL2, SDL2_mixer, SDL2_ttf) are not installed by hand: they come from
 [vcpkg](https://vcpkg.io), which the first `cmake` clones into `.vcpkg/` and which builds them,
 once (a few minutes). See [Dependencies](#dependencies).
 
@@ -97,7 +97,7 @@ above are):
 
 - `vendor/` holds the submodules (kronkworld, kronkpool, kronknet, kronk3d), and kronkflow and
   kronklab are fetched at a fixed commit. Only one copy of kronkpool is built, the vendored one.
-- SDL2, SDL2_mixer (with OGG, MP3 and FLAC), SDL2_ttf and stb come from vcpkg, in manifest mode:
+- SDL2, SDL2_mixer (with OGG, MP3 and FLAC), SDL2_ttf come from vcpkg, in manifest mode:
   `vcpkg.json` lists them, and its `builtin-baseline` (a commit of vcpkg) fixes their versions.
   The vcpkg used is the toolchain given with `-DCMAKE_TOOLCHAIN_FILE`, or else the one in
   `VCPKG_ROOT`, or else vcpkg cloned at the baseline into `.vcpkg/` (`cmake/Vcpkg.cmake`). With

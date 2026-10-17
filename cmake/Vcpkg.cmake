@@ -1,5 +1,5 @@
 # Where the third-party libraries come from: vcpkg, in manifest mode. vcpkg.json lists them (SDL2,
-# SDL2_mixer, SDL2_ttf, stb) and pins their versions with its builtin-baseline, so a machine with
+# SDL2_mixer, SDL2_ttf) and pins their versions with its builtin-baseline, so a machine with
 # a compiler, CMake and git builds the same ones as the CI, and nothing is installed on the system.
 #
 # Included before project(), which is when vcpkg installs what vcpkg.json asks for. The vcpkg used:

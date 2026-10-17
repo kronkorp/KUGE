@@ -42,6 +42,10 @@ namespace kuge
             //! @throw ImageError
             static std::shared_ptr<Texture> fromFile(IRenderer2D& renderer, const std::filesystem::path& path);
 
+            //! Puts other pixels in this texture, which keeps its size and its id (cheaper than replace()
+            //! for a picture that changes every frame). @throw std::runtime_error if rgba is not width * height pixels
+            void update(std::span<const std::uint8_t> rgba);
+
             //! Puts another picture in this texture: whoever holds it draws the new one.
             //! The id and the size change. If the renderer cannot keep the new picture
             //! (it throws), the texture is left as it was.
