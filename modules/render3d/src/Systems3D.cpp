@@ -1,8 +1,11 @@
 #include "Systems3D.hpp"
+#include "Animator3D.hpp"
 #include "Components3D.hpp"
+#include "animation/Animation.hpp"
 #include "Ref.hpp"
 #include "Time.hpp"
 #include "Transform3D.hpp"
+#include <algorithm>
 #include <kronk3d/render/IRasterizer.hpp>
 
 bool kuge::SnapshotTransforms3D::handle(kw::World& world)
@@ -18,6 +21,29 @@ bool kuge::SnapshotTransforms3D::handle(kw::World& world)
 namespace
 {
 
+    //! The cues of the clip that plays, crossed between the time `before` (-1: it just began, so a cue at 0 counts) and `after`
+    void fireCues(kw::Entity entity, const kuge::Animator3D& animation, float before, float after,
+        std::vector<kuge::AnimationEvent>& events)
+    {
+        if (!animation.cues) {
+            return;
+        }
+        const auto found = animation.cues->find(animation.animator.clip());
+
+        if (found == animation.cues->end()) {
+            return;
+        }
+        const bool wrapped = animation.options.loop && after < before;   // a loop began again
+
+        for (const kuge::Cue3D& cue : found->second) {
+            const bool crossed = wrapped ? (cue.time > before || cue.time <= after) : (cue.time > before && cue.time <= after);
+
+            if (crossed) {
+                events.push_back({entity, cue.name});
+            }
+        }
+    }
+
     //! Where an entity is on this frame: between its previous and current tick, if it keeps the previous one
     kuge::Transform3D shown(kw::World& world, kw::Entity entity, float alpha)
     {
@@ -29,6 +55,54 @@ namespace
         return transform;
     }
 
+}
+
+bool kuge::AnimateModels::handle(kw::World& world)
+{
+    auto& events = world.getResource<AnimationEvents>().list;
+    const float dt = static_cast<float>(world.getResource<Time>().dt);
+    const std::uint64_t revision = world.getResource<Ref<const ModelRevision>>()->animated;
+
+    m_entities.clear();
+    for (kw::Entity entity : world.view<Animator3D>()) {
+        m_entities.push_back(entity);
+    }
+    std::sort(m_entities.begin(), m_entities.end());
+    for (kw::Entity entity : m_entities) {
+        Animator3D& animation = world.get<Animator3D>(entity);
+
+        if (!animation.model) {
+            continue;
+        }
+        if (animation.revision && *animation.revision != revision) {
+            // The model was read again: what the Animator keeps of the old one is no longer right
+            const std::string clip(animation.animator.clip());
+            const std::string next = animation.next;
+            const k3::PlayOptions options = animation.options;
+
+            animation.animator = k3::Animator(animation.model);
+            animation.seen = -1;
+            if (!clip.empty()) {
+                animation.play(clip, options, next);
+            }
+        }
+        animation.revision = revision;
+        if (animation.animator.clip().empty()) {
+            continue;
+        }
+        const float before = animation.seen;
+
+        animation.animator.update(dt);
+        animation.seen = animation.animator.time();
+        fireCues(entity, animation, before, animation.seen, events);
+        if (animation.animator.finished() && !animation.next.empty()) {
+            const std::string next = std::move(animation.next);
+
+            animation.next.clear();
+            animation.play(next);
+        }
+    }
+    return true;
 }
 
 bool kuge::ModelRender::handle(kw::World& world)
@@ -71,6 +145,13 @@ bool kuge::ModelRender::handle(kw::World& world)
 
         if (model.visible && model.model) {
             rasterizer.draw(*model.model, shown(world, entity, alpha).matrix());
+        }
+    }
+    for (kw::Entity entity : world.view<Transform3D, Animator3D>()) {
+        Animator3D& animation = world.get<Animator3D>(entity);
+
+        if (animation.visible && animation.model) {
+            animation.animator.draw(rasterizer, shown(world, entity, alpha).matrix());
         }
     }
     rasterizer.endFrame();

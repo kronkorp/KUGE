@@ -1,18 +1,10 @@
 extern "C" {
     #include "kronklab/kronklab.h"
 }
-#include "ClientModule.hpp"
 #include "Components3D.hpp"
-#include "Engine.hpp"
-#include "Render3DModule.hpp"
-#include "Scene3D.hpp"
 #include "Transform3D.hpp"
-#include "backend/dummy/DummyBackend.hpp"
-#include <chrono>
-#include <filesystem>
-#include <fstream>
+#include "fixture.hpp"
 #include <thread>
-#include <unistd.h>
 
 // NOTE: kronklab test names are limited to 31 characters.
 
@@ -31,53 +23,8 @@ namespace
         R"("bufferViews":[{"buffer":0,"byteLength":36}],)"
         R"("buffers":[{"byteLength":36,"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA"}]})";
 
-    // A folder of the test, removed with it
-    struct Folder
-    {
-        std::filesystem::path path;
-
-        explicit Folder(const char* name)
-            : path(std::filesystem::temp_directory_path() / ("kuge_test_" + std::to_string(::getpid()) + "_" + name))
-        {
-            std::filesystem::create_directories(path);
-        }
-        ~Folder() { std::filesystem::remove_all(path); }
-
-        // The date is set too, so that a test does not depend on the clock's grain
-        std::filesystem::path write(const char* name, const std::string& text, int seconds = 0) const
-        {
-            const auto file = path / name;
-
-            std::ofstream(file, std::ios::binary) << text;
-            std::filesystem::last_write_time(file, std::filesystem::file_time_type{} + std::chrono::seconds(1000 + seconds));
-            return file;
-        }
-    };
-
-    struct Scene : kuge::Scene3D
-    {
-        void onEnter(void) override { installClient3DSystems(); }
-        using kuge::Scene::world;
-    };
-
-    struct Fixture
-    {
-        kuge::DummyBackend    dummy;
-        kuge::Engine          engine;
-        kuge::Render3DModule* models;
-
-        explicit Fixture(kuge::Render3DConfig config = {})
-            : dummy(kuge::makeDummyBackend({64.0f, 48.0f})),
-              engine(kuge::Engine::Config{.mode = kuge::Engine::Mode::Windowed})
-        {
-            engine.addModule<kuge::ClientModule>(std::move(dummy.backend));
-            models = &engine.addModule<kuge::Render3DModule>(config);
-            engine.scenes().change<Scene>();
-            engine.step(0.0);
-        }
-
-        kw::World& world(void) { return static_cast<Scene*>(engine.scenes().top())->world(); }
-    };
+    using render3d::Fixture;
+    using render3d::Folder;
 }
 
 Test(models, obj_is_loaded_and_shared)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetManager.hpp"
+#include "Components3D.hpp"
 #include "Module.hpp"
 #include <chrono>
 #include <kronk3d/scene/Animation.hpp>
@@ -64,11 +65,11 @@ namespace kuge
             //! is made by the next loop. Reloaded in place when its file changes.
             AssetManager<k3::Model>& models(void) noexcept { return m_models; }
 
-            //! glTF 2.0 (.glb, .gltf): the nodes, skins and clips an Animator plays. Not reloaded:
-            //! an Animator that plays a model keeps what it read of it.
+            //! glTF 2.0 (.glb, .gltf): the nodes, skins and clips an Animator3D plays. Reloaded in place
+            //! too: the Animator3D that play it start again (see ModelRevision).
             AssetManager<k3::AnimatedModel>& animatedModels(void) noexcept { return m_animatedModels; }
 
-            //! Reloads, in place, the OBJ models whose file changed since they were loaded, and logs
+            //! Reloads, in place, the models whose file changed since they were loaded, and logs
             //! the ones that could not be (they keep their old content). Done by itself each
             //! `watchAssets` seconds if the config asks.
             //! @return  How many were reloaded
@@ -83,6 +84,7 @@ namespace kuge
             std::unique_ptr<k3::IRasterizer> m_rasterizer;
             AssetManager<k3::Model>          m_models;
             AssetManager<k3::AnimatedModel>  m_animatedModels;
+            ModelRevision                    m_revision;
             std::chrono::steady_clock::time_point m_lastWatch = std::chrono::steady_clock::now();
     };
 
