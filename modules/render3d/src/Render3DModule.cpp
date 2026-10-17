@@ -1,5 +1,6 @@
 #include "Render3DModule.hpp"
 #include "Engine.hpp"
+#include "Log.hpp"          // kronk3d's (setLogSink)
 #include "Logger.hpp"
 #include "Ref.hpp"
 #include <any>
@@ -9,6 +10,19 @@
 
 namespace
 {
+    // kronk3d's messages go to KUGE's logger. Both libraries define a class named Logger, each its own: if
+    // kronk3d used its own, its code would build one the size of its own class and call the constructor
+    // of the other one (the linker keeps one), writing past the end of the object.
+    void logLikeKuge(k3::LogLevel level, std::string_view message)
+    {
+        switch (level) {
+            case k3::LogLevel::Debug:   Logger::logger().debug("{}", message); break;
+            case k3::LogLevel::Info:    Logger::logger().info("{}", message); break;
+            case k3::LogLevel::Warning: Logger::logger().warn("{}", message); break;
+            case k3::LogLevel::Error:   Logger::logger().error("{}", message); break;
+        }
+    }
+
     template<typename T>
     T unwrap(k3::Result<T>&& result, const std::filesystem::path& path)
     {
@@ -56,6 +70,7 @@ kuge::Render3DModule::Render3DModule(Render3DConfig config)
           ++m_revision.animated;
       })
 {
+    k3::setLogSink(logLikeKuge);   // (before anything of kronk3d can log)
     k3::RasterizerConfig rasterizer;
 
     rasterizer.antiAliasing = config.antiAliasing;
