@@ -49,6 +49,7 @@ add_executable(kuge_tests
     core/snapshot_test.cpp
     core/spawn_test.cpp
     core/tilemap_test.cpp
+    core/transform3d_test.cpp
 )
 target_link_libraries(kuge_tests PRIVATE kuge-core kronklab-static)
 target_compile_options(kuge_tests PRIVATE ${KUGE_WARNINGS})
