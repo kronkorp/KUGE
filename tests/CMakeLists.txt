@@ -153,7 +153,7 @@ if(TARGET kuge-client)
 endif()
 
 if(TARGET kuge-render3d)
-    add_executable(kuge_render3d_tests render3d/render3d_test.cpp)
+    add_executable(kuge_render3d_tests render3d/models_test.cpp render3d/render3d_test.cpp)
     target_link_libraries(kuge_render3d_tests PRIVATE kuge-render3d kronklab-static)
     target_compile_options(kuge_render3d_tests PRIVATE ${KUGE_WARNINGS})
     kuge_add_test(kuge_render3d_tests kuge_render3d_tests)
