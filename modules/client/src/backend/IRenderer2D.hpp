@@ -63,6 +63,11 @@ namespace kuge
             virtual TextureId createTexture(int width, int height, std::span<const std::uint8_t> rgba) = 0;
             virtual void destroyTexture(TextureId texture) noexcept = 0;
 
+            //! Puts other pixels in a texture, of the same size (a picture that changes every frame)
+            //! @param rgba  width * height pixels of the texture
+            //! @throw std::runtime_error if the texture is unknown, or the pixels do not match its size
+            virtual void updateTexture(TextureId texture, std::span<const std::uint8_t> rgba) = 0;
+
             virtual void fillRect(const Rect& destination, Color color) = 0;
             virtual void strokeRect(const Rect& destination, Color color) = 0;
             virtual void drawTexture(const TextureDraw& draw) = 0;

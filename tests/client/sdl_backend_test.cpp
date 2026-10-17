@@ -7,6 +7,7 @@ extern "C" {
 #include "backend/SdlBackend.hpp"
 #include "sdl/SdlKeys.hpp"
 #include <SDL.h>
+#include <array>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -238,6 +239,30 @@ Test(sdl, textures_can_go)
     renderer.begin(kuge::colors::Black);
     renderer.drawTexture(draw);                        // drawing what is gone: nothing
     Assert(close(pixel(renderer.readPixels(), 5, 5), kuge::colors::Black), "nothing was drawn");
+}
+
+Test(sdl, textures_can_be_updated)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(100, 100));
+    auto& renderer = *backend.renderer;
+    const kuge::TextureId id = renderer.createTexture(1, 1, std::array<std::uint8_t, 4>{255, 0, 0, 255});
+    const std::array<std::uint8_t, 4> blue{0, 0, 255, 255};
+    kuge::TextureDraw draw;
+
+    renderer.updateTexture(id, blue);
+    draw.texture = id;
+    draw.destination = {0.0f, 0.0f, 20.0f, 20.0f};
+    renderer.begin(kuge::colors::Black);
+    renderer.drawTexture(draw);
+    Assert(close(pixel(renderer.readPixels(), 5, 5), {0, 0, 255, 255}), "the new pixels are shown");
+
+    bool refused = false;
+    try { renderer.updateTexture(id, std::array<std::uint8_t, 8>{}); } catch (const std::runtime_error&) { refused = true; }
+    Assert(refused, "not the size of the texture");
+    refused = false;
+    try { renderer.updateTexture(kuge::NO_TEXTURE, blue); } catch (const std::runtime_error&) { refused = true; }
+    Assert(refused, "no such texture");
 }
 
 Test(sdl, bad_textures_are_refused)

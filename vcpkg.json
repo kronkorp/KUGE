@@ -21,8 +21,7 @@
           "default-features": false,
           "features": ["libflac", "mpg123"]
         },
-        "sdl2-ttf",
-        "stb"
+        "sdl2-ttf"
       ]
     }
   }

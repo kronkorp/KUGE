@@ -68,6 +68,7 @@ namespace kuge
             void present(void) override;
             TextureId createTexture(int width, int height, std::span<const std::uint8_t> rgba) override;
             void destroyTexture(TextureId texture) noexcept override;
+            void updateTexture(TextureId texture, std::span<const std::uint8_t> rgba) override;
             void fillRect(const Rect& destination, Color color) override;
             void strokeRect(const Rect& destination, Color color) override;
             void drawTexture(const TextureDraw& draw) override;

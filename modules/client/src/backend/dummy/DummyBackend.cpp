@@ -30,6 +30,16 @@ void kuge::DummyRenderer::destroyTexture(TextureId texture) noexcept
     m_textures.erase(texture);
 }
 
+void kuge::DummyRenderer::updateTexture(TextureId texture, std::span<const std::uint8_t> rgba)
+{
+    const auto found = m_textures.find(texture);
+
+    if (found == m_textures.end() || found->second.rgba.size() != rgba.size()) {
+        throw std::runtime_error("DummyRenderer: unknown texture, or the pixels do not match its size");
+    }
+    found->second.rgba.assign(rgba.begin(), rgba.end());
+}
+
 void kuge::DummyRenderer::fillRect(const Rect& destination, Color color)
 {
     m_current.push_back({Call::Kind::Fill, destination, color, {}});

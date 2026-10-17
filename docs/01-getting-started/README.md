@@ -4,7 +4,7 @@
 
 - A C++20 compiler (GCC 13 is what it is developed with; on Windows, MSVC from Visual Studio 2022
   17.5 or later), CMake 3.24 or later, and git.
-- No library to install by hand: the client module's (SDL2, SDL2_mixer, SDL2_ttf, stb) come from vcpkg,
+- No library to install by hand: the client module's (SDL2, SDL2_mixer, SDL2_ttf) come from vcpkg,
   which the first `cmake` clones into `.vcpkg/` and which builds them once. The core, the physics,
   the network, the server and the replication need none of them: with `-DKUGE_BUILD_CLIENT=OFF`,
   a server builds with no SDL at all.
@@ -41,7 +41,7 @@ library, kronklab, runs each test in a `fork()`). The README's "On Windows" says
 `vendor/` holds submodules (kronkworld, the ECS; kronkpool, the thread pool; kronknet, the sockets;
 kronk3d, the 3D renderer, v0.1.0: it is configured with KUGE but built only for a target that links
 `kronk3d::static`; it needs nothing from vcpkg). kronkflow (the scheduler) and kronklab (the test library) are fetched at a
-fixed commit. SDL2, SDL2_mixer, SDL2_ttf and stb (image loading) come from vcpkg: `vcpkg.json` lists
+fixed commit. SDL2, SDL2_mixer and SDL2_ttf come from vcpkg (images are read by kronk3d's stb_image): `vcpkg.json` lists
 them and its `builtin-baseline` fixes their versions. When no toolchain is given and `VCPKG_ROOT`
 is not set, `cmake/Vcpkg.cmake` clones vcpkg at that baseline into `.vcpkg/`.
 
