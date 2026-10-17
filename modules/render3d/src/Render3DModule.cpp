@@ -65,6 +65,9 @@ kuge::Render3DModule::Render3DModule(Render3DConfig config)
       }),
       m_animatedModels([](const std::filesystem::path& path) {
           return std::make_shared<k3::AnimatedModel>(readAnimatedModel(path));
+      }, [this](k3::AnimatedModel& model, const std::filesystem::path& path) {
+          model = readAnimatedModel(path);   // read first: it may throw
+          ++m_revision.animated;
       })
 {
     k3::setLogSink(logLikeKuge);   // (before anything of kronk3d can log)
@@ -93,6 +96,7 @@ void kuge::Render3DModule::inject(kw::World& world)
     world.addResource<Ref<k3::IRasterizer>>(*m_rasterizer);
     world.addResource<Ref<AssetManager<k3::Model>>>(m_models);
     world.addResource<Ref<AssetManager<k3::AnimatedModel>>>(m_animatedModels);
+    world.addResource<Ref<const ModelRevision>>(m_revision);
     world.addResource<k3::Camera>();
     world.addResource<k3::Environment>();
 }
@@ -113,13 +117,18 @@ void kuge::Render3DModule::beginFrame(Engine&)
 
 std::size_t kuge::Render3DModule::reloadAssets(void)
 {
-    const auto report = m_models.reloadChanged();
+    std::size_t count = 0;
+    const auto tell = [&count](const auto& report) {
+        count += report.reloaded.size();
+        for (const auto& [path, why] : report.failed) {
+            Logger::logger().warn("reload: '{}' kept as it was: {}", path.string(), why);
+        }
+        for (const auto& path : report.reloaded) {
+            Logger::logger().info("reload: '{}'", path.string());
+        }
+    };
 
-    for (const auto& [path, why] : report.failed) {
-        Logger::logger().warn("reload: '{}' kept as it was: {}", path.string(), why);
-    }
-    for (const auto& path : report.reloaded) {
-        Logger::logger().info("reload: '{}'", path.string());
-    }
-    return report.reloaded.size();
+    tell(m_models.reloadChanged());
+    tell(m_animatedModels.reloadChanged());
+    return count;
 }
