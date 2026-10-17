@@ -39,7 +39,8 @@ There, `ctest` runs the boundaries and the games played for real, not the unit t
 library, kronklab, runs each test in a `fork()`). The README's "On Windows" says what else differs.
 
 `vendor/` holds submodules (kronkworld, the ECS; kronkpool, the thread pool; kronknet, the sockets;
-kronk3d, for later). kronkflow (the scheduler) and kronklab (the test library) are fetched at a
+kronk3d, the 3D renderer, v0.1.0: it is configured with KUGE but built only for a target that links
+`kronk3d::static`; it needs nothing from vcpkg). kronkflow (the scheduler) and kronklab (the test library) are fetched at a
 fixed commit. SDL2, SDL2_mixer, SDL2_ttf and stb (image loading) come from vcpkg: `vcpkg.json` lists
 them and its `builtin-baseline` fixes their versions. When no toolchain is given and `VCPKG_ROOT`
 is not set, `cmake/Vcpkg.cmake` clones vcpkg at that baseline into `.vcpkg/`.
