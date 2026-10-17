@@ -25,6 +25,37 @@ namespace kuge
         k3::Light light{};
     };
 
+    ////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief  Makes the k3::Camera of the scene follow an entity that has a Transform3D (a component)
+     *
+     * UpdateCamera turns yaw and pitch with the mouse (a mouse look: see IInputSource::setRelativeMouse()),
+     * then places the camera. If several entities have one, the one with the lowest number is used.
+     *
+     *     world.add<kuge::CameraRig>(player, kuge::CameraRig{});                              // first person
+     *     world.add<kuge::CameraRig>(player, kuge::CameraRig{.mode = kuge::CameraRig::Mode::Orbit, .distance = 6.0f});
+     *
+     * The game reads `yaw` to steer the entity the way it looks. There is no roll: k3::Camera has none.
+     */
+    ////////////////////////////////////////////////////////////////////////////
+    struct CameraRig
+    {
+        enum class Mode {
+            FirstPerson,   //!< The camera is at `offset` from the entity, and looks where yaw and pitch say
+            Orbit          //!< The camera looks at `offset` from the entity, `distance` away, behind where it looks
+        };
+
+        Mode  mode = Mode::FirstPerson;
+        k3::Math::Vector3f offset{0.0f, 1.7f, 0.0f};   //!< In the world: the eyes above the feet, or the point looked at
+        float distance = 5.0f;                         //!< Orbit only
+        float yaw = 0.0f;                              //!< Radians, as k3::Camera: positive turns right
+        float pitch = 0.0f;                            //!< Radians, positive looks up
+        float sensitivity = 0.0025f;                   //!< Radians per pixel of the mouse
+        float minPitch = -1.5f;                        //!< (a little less than a quarter turn: not straight down)
+        float maxPitch = 1.5f;
+        bool  look = true;                             //!< Follows the mouse (false: the game sets yaw and pitch)
+    };
+
     //! How many times a glTF model was reloaded in place (a resource of the World): an Animator3D made
     //! before starts again from its model when this moves
     struct ModelRevision

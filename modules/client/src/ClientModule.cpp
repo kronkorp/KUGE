@@ -70,6 +70,7 @@ void kuge::ClientModule::inject(kw::World& world)
 {
     world.addResource<Ref<IWindow>>(*m_backend.window);
     world.addResource<Ref<IRenderer2D>>(*m_backend.renderer);
+    world.addResource<Ref<IInputSource>>(*m_backend.input);
     world.addResource<Ref<InputMap>>(m_input);
     world.addResource<Ref<AssetManager<Texture>>>(m_textures);
     world.addResource<Ref<Audio>>(m_mixer);
@@ -86,6 +87,7 @@ void kuge::ClientModule::beginFrame(Engine& engine)
 {
     m_textures.pump();
     m_events.clear();
+    m_input.beginFrame();
     m_backend.input->poll(m_events);
     for (const Event& event : m_events) {
         if (std::holds_alternative<QuitEvent>(event)) {

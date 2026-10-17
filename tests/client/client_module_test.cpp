@@ -85,9 +85,24 @@ Test(client, scenes_get_the_services)
     Assert(&world.getResource<kuge::Ref<kuge::IWindow>>().get() == &fx.client->window(), "window");
     Assert(&world.getResource<kuge::Ref<kuge::IRenderer2D>>().get() == &fx.client->renderer(), "renderer");
     Assert(&world.getResource<kuge::Ref<kuge::InputMap>>().get() == &fx.client->input(), "inputs");
+    world.getResource<kuge::Ref<kuge::IInputSource>>()->setRelativeMouse(true);
+    Assert(fx.dummy.input->relativeMouse(), "the source of inputs, to capture the mouse");
     Assert(&world.getResource<kuge::Ref<kuge::AssetManager<kuge::Texture>>>().get() == &fx.client->textures(), "assets");
     Assert(world.getResource<kuge::Camera2D>().zoom == 1.0f, "a camera");
     Assert(world.getResource<kuge::WhitePixel>().texture != nullptr, "a white pixel");
+}
+
+Test(client, mouse_delta_is_of_the_frame)
+{
+    Fixture fx;
+
+    fx.dummy.input->push(kuge::MouseMoveEvent{{5.0f, 5.0f}, {3.0f, -1.0f}});
+    fx.dummy.input->push(kuge::MouseMoveEvent{{9.0f, 6.0f}, {4.0f, 1.0f}});
+    fx.frame();
+    Assert(fx.client->input().mouseDelta() == kuge::Vec2(7.0f, 0.0f), "the moves of the frame, added");
+    fx.frame();
+    Assert(fx.client->input().mouseDelta() == kuge::Vec2(0.0f, 0.0f), "none the next one");
+    Assert(fx.client->input().mousePosition() == kuge::Vec2(9.0f, 6.0f), "(the position stays)");
 }
 
 Test(client, inputs_become_actions)

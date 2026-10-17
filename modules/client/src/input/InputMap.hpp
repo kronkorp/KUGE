@@ -76,6 +76,11 @@ namespace kuge
             //! Where the mouse is, in pixels of the window
             Vec2 mousePosition(void) const noexcept { return m_mouse; }
 
+            //! How far the mouse moved during the frame (y points down), for a mouse look. The client
+            //! starts it again at each frame: nobody has to read it.
+            Vec2 mouseDelta(void) const noexcept { return m_mouseDelta; }
+            void beginFrame(void) noexcept { m_mouseDelta = {}; }
+
             // -- Typing: what a text field needs, which actions are not ------------------
 
             //! What was typed since the last call (UTF-8), once. Kept apart from the actions: typing "w" in a
@@ -137,6 +142,7 @@ namespace kuge
             std::bitset<static_cast<std::size_t>(MouseButton::Count)> m_mouseButtons;
             std::map<int, PadState>                                   m_pads;
             Vec2                                                      m_mouse;
+            Vec2                                                      m_mouseDelta;
             float                                                     m_axisThreshold = 0.5f;
 
             // What was typed, for a text field (bounded: nobody may be reading it)

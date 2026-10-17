@@ -32,6 +32,8 @@ namespace kuge
     {
         public:
             void push(const Event& event) { m_pending.push_back(event); }
+            void setRelativeMouse(bool on) override { m_relativeMouse = on; }
+            bool relativeMouse(void) const noexcept { return m_relativeMouse; }
             void poll(std::vector<Event>& out) override
             {
                 out.insert(out.end(), m_pending.begin(), m_pending.end());
@@ -40,6 +42,7 @@ namespace kuge
 
         private:
             std::vector<Event> m_pending;
+            bool               m_relativeMouse = false;
         };
 
     //! A renderer that draws nothing and remembers what it was asked to draw

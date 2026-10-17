@@ -173,6 +173,8 @@ namespace
         public:
             explicit SdlInput(std::shared_ptr<SdlContext> context) : m_context(std::move(context)) {}
 
+            void setRelativeMouse(bool on) override { SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE); }
+
             void poll(std::vector<Event>& out) override
             {
                 SDL_Event event;
