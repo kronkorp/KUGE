@@ -30,7 +30,6 @@ namespace arena
             kuge::replication::ReplicationRegistry                  m_registry;
             std::unique_ptr<kuge::replication::ReplicationServer>   m_replication;
             std::unique_ptr<kuge::replication::InputServer<Steer>>  m_inputs;
-            bool                                                    m_anyPlayer = false;
     };
 
 }

@@ -16,20 +16,24 @@
 #include "backend/SdlBackend.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 int main(int argc, char** argv)
 {
     int frames = 0;
     const char* screenshot = nullptr;
+    std::filesystem::path assets = ARENA_ASSETS_DIR;
 
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
+        if (!std::strcmp(argv[i], "--assets") && i + 1 < argc) {
+            assets = argv[++i];
+        } else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
             frames = std::atoi(argv[++i]);
         } else if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
             screenshot = argv[++i];
         } else {
-            Logger::logger().error("usage: arena3d_host [--frames N [--screenshot f.ppm]]");
+            Logger::logger().error("usage: arena3d_host [--assets DIR] [--frames N [--screenshot f.ppm]]");
             return 2;
         }
     }
@@ -64,6 +68,7 @@ int main(int argc, char** argv)
             options.sockets = false;
             options.network = &network;
             options.captureMouse = frames == 0;
+            options.assets = assets;
             arena::bindDefaults(client.input());
             engine.scenes().change<arena::ArenaScene>(options, report);
             if (frames == 0) {
@@ -90,10 +95,15 @@ int main(int argc, char** argv)
                         status = 1;
                     }
                 }
-                Logger::logger().info("report: joined={} games={} ended={} players={} coins={}(max {}) score={} corrections={}",
-                    report->joined, report->games, report->gamesEnded, report->players, report->coins, report->mostCoins,
-                    report->score, report->prediction.corrections);
-                if (status == 0 && !(report->joined && report->mostPlayers >= 1 && report->mostCoins >= 1 && report->score >= 1)) {
+                std::string clips;
+
+                for (const auto& clip : report->clips) {
+                    clips += clip + " ";
+                }
+                Logger::logger().info("report: joined={} games={} ended={} players={} crates={} bullets={}(max {}) health={} clips=[{}] corrections={}",
+                    report->joined, report->games, report->gamesEnded, report->players, report->crates, report->bullets, report->mostBullets,
+                    report->health, clips, report->prediction.corrections);
+                if (status == 0 && !arena::scriptPassed(*report)) {
                     status = 3;
                 }
             }

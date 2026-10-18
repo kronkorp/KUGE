@@ -1,10 +1,12 @@
 // The Arena client: a window on a game that runs on a server.
 //
 //     arena3d_client [--host H] [--port P] [--name N]
-//         W A S D or the arrows walk, the mouse turns the view, Space jumps
+//         W A S D or the arrows walk, the mouse turns the view, Space jumps, the left button (or F) fires, V
+//         looks from the eyes or from behind
 //     arena3d_client --frames N [--screenshot file.ppm]
 //         a scripted player walks for N frames, as fast as it can (no waiting), and the picture of
-//         the last frame is kept. Exit code 0 if it joined a game, saw it, and took a coin.
+//         the last frame is kept. Exit code 0 if it joined a game, ran, jumped and shot (its character played
+//         each clip) and its bullets were seen.
 
 #include "ArenaClient.hpp"
 #include "Engine.hpp"
@@ -14,6 +16,7 @@
 #include "backend/SdlBackend.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 int main(int argc, char** argv)
@@ -29,12 +32,14 @@ int main(int argc, char** argv)
             options.port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         } else if (!std::strcmp(argv[i], "--name") && i + 1 < argc) {
             options.name = argv[++i];
+        } else if (!std::strcmp(argv[i], "--assets") && i + 1 < argc) {
+            options.assets = argv[++i];
         } else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
             frames = std::atoi(argv[++i]);
         } else if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
             screenshot = argv[++i];
         } else {
-            Logger::logger().error("usage: arena3d_client [--host H] [--port P] [--name N] [--frames N [--screenshot f.ppm]]");
+            Logger::logger().error("usage: arena3d_client [--host H] [--port P] [--name N] [--assets DIR] [--frames N [--screenshot f.ppm]]");
             return 2;
         }
     }
@@ -77,11 +82,16 @@ int main(int argc, char** argv)
                 return 1;
             }
         }
-        Logger::logger().info("report: joined={} games={} ended={} players={} coins={}(max {}) crates={} score={} corrections={} of {} pending={} snapshots={}",
-            report->joined, report->games, report->gamesEnded, report->players, report->coins, report->mostCoins, report->crates,
-            report->score, report->prediction.corrections, report->prediction.reconciliations, report->prediction.pending,
+        std::string clips;
+
+        for (const auto& clip : report->clips) {
+            clips += clip + " ";
+        }
+        Logger::logger().info("report: joined={} games={} ended={} players={} crates={} bullets={}(max {}) health={} clips=[{}] corrections={} of {} pending={} snapshots={}",
+            report->joined, report->games, report->gamesEnded, report->players, report->crates, report->bullets, report->mostBullets,
+            report->health, clips, report->prediction.corrections, report->prediction.reconciliations, report->prediction.pending,
             report->replication.snapshotsApplied);
-        return report->joined && report->mostPlayers >= 1 && report->mostCoins >= 1 && report->score >= 1 ? 0 : 3;
+        return arena::scriptPassed(*report) ? 0 : 3;
     } catch (const std::exception& error) {
         Logger::logger().error("{}", error.what());
         return 1;

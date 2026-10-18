@@ -155,7 +155,7 @@ Built with `-DBUILD_EXAMPLES=ON`.
 
 | `build/example/kuge_chat_server`, `kuge_chat_client` | A chat over the network: a server with no window (lobby and rooms of four), and a terminal client. `kuge_chat_client Ana --say hello --wait 2` says it once and leaves. |
 | `build/example/kuge_rtype_server [port]`, `kuge_rtype_client`, `kuge_rtype_host` | R-Type, the small one: up to four ships shoot waves of enemies. The **server** has no window, the **client** connects to it, the **host** runs the room and the window in one process (see [R-Type](#r-type-one-game-three-ways)). Arrows or WASD, Space to fire. `--frames N --screenshot f.ppm` plays a scripted pilot. |
-| `build/example/kuge_arena3d_server [port]`, `kuge_arena3d_client`, `kuge_arena3d_host` | Arena, a 3D game: up to four players run, jump and push crates (Jolt) to take coins. Same three programs as R-Type (server, client, host). W A S D or arrows, the mouse turns the view, Space jumps. `--frames N --screenshot f.ppm` plays a scripted player. See [3D](docs/18-3d/README.md). |
+| `build/example/kuge_arena3d_server [port]`, `kuge_arena3d_client`, `kuge_arena3d_host` | Arena, a 3D shooter: up to four players run, jump, push crates (Jolt) and shoot one another on a map with ramps and cover; the characters are a glTF with the clips idle, run, jump, shoot and death. Same three programs as R-Type (server, client, host). W A S D or arrows, the mouse turns the view, Space jumps, left button or F fires, V changes the view. `--frames N --screenshot f.ppm` plays a scripted player. See [3D](docs/18-3d/README.md). |
 | `build/example/kuge_platformer` | A platformer that uses everything: tilemap, animations, physics, HUD text, menus, sounds and saves. A/D or arrows, Space to jump, Esc to pause (Resume / Save game / Main menu). Collect the 8 coins; avoid the blobs. `--font <file.ttf>` picks the font. |
 
 `kuge_pong --frames 90 --screenshot out.ppm` plays a scripted match without waiting and
@@ -1128,7 +1128,8 @@ ctest --test-dir build --output-on-failure
 | `kuge_physics3d_tests` | physics3d: bodies that fall and rest, kinematic bodies, triggers, layers, rays, characters that stay upright, bit-for-bit replay, and Jolt in a server with a predicting client |
 | `boundary_*` | a module cannot include what it does not link |
 | `rtype_smoke` | the real R-Type programs (server, client, host) play a scripted game and leave a picture that is checked |
-| `arena3d_smoke` | the real Arena programs (server, client, host) play a scripted game: the player takes a coin, and the picture has the coin and the player in it |
+| `kuge_arena3d_tests` | Arena's rules with no network and no screen: the map, ramps, walls, crates, shots, deaths and returns, the end of a match, the clip of each action, the assets |
+| `arena3d_smoke` | the real Arena programs (server, client, host) play a scripted game: the character runs, jumps and shoots (each clip is played, the bullets are seen), and the picture has the HUD, the shirt and hundreds of colours |
 | `pong_smoke`, `platformer_smoke` | the real binaries play a scripted game and leave a picture that is checked |
 
 On Windows, only `boundary_*` and the `*_smoke` tests are built (see [On Windows](#on-windows)).

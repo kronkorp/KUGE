@@ -1,0 +1,6 @@
+newmtl crate
+Kd 1 1 1
+Ks 0.05 0.05 0.05
+Ns 8
+illum 2
+map_Kd crate.png

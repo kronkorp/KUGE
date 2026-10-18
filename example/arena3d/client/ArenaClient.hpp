@@ -3,7 +3,9 @@
 // (prediction). It knows the room only through the network module and the replication: the same scene
 // plays against a server on another machine (sockets) and against one in the same process (loopback).
 
+#include "Animator3D.hpp"
 #include "Arena.hpp"
+#include "AssetManager.hpp"
 #include "ClientModule.hpp"
 #include "Components3D.hpp"
 #include "Input.hpp"
@@ -14,15 +16,22 @@
 #include "Prediction.hpp"
 #include "ReplicationClient.hpp"
 #include "Scene3D.hpp"
+#include <cmath>
+#include <filesystem>
 #include <functional>
 #include <kronk3d/render/Skybox.hpp>
 #include <memory>
+#include <set>
 #include <string>
+
+#ifndef ARENA_ASSETS_DIR
+#define ARENA_ASSETS_DIR "assets"
+#endif
 
 namespace arena
 {
 
-    enum class Action : std::uint8_t { Forward, Back, Left, Right, Jump };
+    enum class Action : std::uint8_t { Forward, Back, Left, Right, Jump, Fire, View };
 
     inline void bindDefaults(kuge::InputMap& input)
     {
@@ -33,6 +42,8 @@ namespace arena
         input.declare(Action::Left, "left");
         input.declare(Action::Right, "right");
         input.declare(Action::Jump, "jump");
+        input.declare(Action::Fire, "fire");
+        input.declare(Action::View, "view");
         input.bind(Action::Forward, Key::W);
         input.bind(Action::Forward, Key::Up);
         input.bind(Action::Back, Key::S);
@@ -42,6 +53,9 @@ namespace arena
         input.bind(Action::Right, Key::D);
         input.bind(Action::Right, Key::Right);
         input.bind(Action::Jump, Key::Space);
+        input.bind(Action::Fire, kuge::MouseButton::Left);
+        input.bind(Action::Fire, Key::F);
+        input.bind(Action::View, Key::V);
     }
 
     //! Where the server is, and who is playing
@@ -55,6 +69,7 @@ namespace arena
         std::string                 name     = "player";
         bool                        rejoin   = true;                 //!< Ask for another game when one ends
         bool                        captureMouse = true;             //!< The mouse turns the view (false for a script)
+        std::filesystem::path       assets   = ARENA_ASSETS_DIR;     //!< The models and textures
     };
 
     //! What the scene saw, for a script or a test to check (filled by the scene, read after the run)
@@ -62,11 +77,12 @@ namespace arena
     {
         bool            joined = false;             //!< Was welcomed in a room, at least once
         std::uint32_t   networkId = 0;
-        std::size_t     players = 0, coins = 0, crates = 0;                 //!< Entities that exist now
-        std::size_t     mostPlayers = 0, mostCoins = 0, mostCrates = 0;     //!< At the most
+        std::size_t     players = 0, crates = 0, bullets = 0, corpses = 0;                //!< Entities that exist now
+        std::size_t     mostPlayers = 0, mostBullets = 0, mostCorpses = 0;                //!< At the most
         std::uint64_t   games = 0;                  //!< Welcomes
         std::uint64_t   gamesEnded = 0;             //!< "Room closed" heard
-        int             score = 0;                  //!< Of the player
+        int             health = 0, frags = 0;      //!< Of the player
+        std::set<std::string> clips;                //!< The clips that the player's own character played
         kuge::replication::PredictionStats prediction;
         kuge::replication::ReplicationClientStats replication;
     };
@@ -91,6 +107,7 @@ namespace arena
                     std::function<void(kw::World&)> m_fn;
             };
 
+            void loadAssets(void);
             void makeStage(void);
             void connect(void);
             void spawned(kw::Entity entity, const kuge::replication::SpawnInfo& info);
@@ -98,6 +115,7 @@ namespace arena
             void clearLastGame(void);
             void tick(kw::World& world);
             void frame(kw::World& world);
+            kw::Entity square(kuge::Color color, kuge::Vec2 size, int layer);
 
             ClientOptions                                         m_options;
             std::shared_ptr<ClientReport>                         m_report;
@@ -105,52 +123,82 @@ namespace arena
             std::unique_ptr<kuge::net::MatchmakingClient>         m_matchmaking;
             std::unique_ptr<kuge::replication::ReplicationClient> m_replication;
             std::unique_ptr<kuge::replication::Prediction<Steer, kuge::Transform3D>> m_prediction;
-            std::shared_ptr<const k3::Model>                      m_coin = coinModel();
-            std::shared_ptr<const k3::Model>                      m_crate = crateModel();
-            std::vector<kw::Entity>                               m_hud;       //!< One square for each coin taken
+            std::shared_ptr<const k3::AnimatedModel>              m_player;     //!< As the file has it: painted for each player
+            std::shared_ptr<const k3::AnimatedModel>              m_painted[4];
+            std::shared_ptr<const k3::Model>                      m_crate;
+            std::shared_ptr<const k3::Model>                      m_bullet;
+            kw::Entity                                            m_health{};   //!< The bar of the HUD
+            std::vector<kw::Entity>                               m_crosshair;
+            std::vector<kw::Entity>                               m_fragSquares;   //!< FRAG_LIMIT squares for each of four players
             std::uint32_t                                         m_networkId = 0;
             std::uint32_t                                         m_waited = 0;   //!< Ticks since the lobby was lost
+            bool                                                  m_firstPerson = false;
     };
 
     // -- Implementation ------------------------------------------------------------------------------------
 
+    inline kw::Entity ArenaScene::square(kuge::Color color, kuge::Vec2 size, int layer)
+    {
+        const kw::Entity entity = world().create();
+        kuge::Sprite sprite;
+
+        sprite.size = size;
+        sprite.pivot = {0.0f, 0.0f};
+        sprite.tint = color;
+        sprite.layer = layer;
+        sprite.visible = false;
+        world().add<kuge::Transform2D>(entity, kuge::Transform2D{});
+        world().add<kuge::Sprite>(entity, sprite);
+        return entity;
+    }
+
+    // The files: the character (glTF, with its clips), the crate (OBJ, with its texture), the textures of the level
+    inline void ArenaScene::loadAssets(void)
+    {
+        auto& objects = *world().getResource<kuge::Ref<kuge::AssetManager<k3::Model>>>();
+        auto& characters = *world().getResource<kuge::Ref<kuge::AssetManager<k3::AnimatedModel>>>();
+
+        m_player = characters.load(m_options.assets / "player.glb");
+        for (std::uint32_t i = 0; i < 4; ++i) {
+            m_painted[i] = paint(*m_player, teamColor(i + 1));
+        }
+        m_crate = objects.load(m_options.assets / "crate.obj");
+        m_bullet = bulletModel();
+    }
+
     // The level (the same on every machine, so nobody sends it), the sky and the light, and the interface
     inline void ArenaScene::makeStage(void)
     {
-        const auto solidModel = [this](std::shared_ptr<const k3::Model> model, Vec3 at) {
+        const LevelTextures textures(m_options.assets);
+
+        for (const Piece& piece : level()) {
             const kw::Entity entity = world().create();
             kuge::Transform3D transform;
 
-            transform.translation = at;
+            transform.translation = piece.center;
+            transform.rotation = piece.rotation;
             world().add<kuge::Transform3D>(entity, transform);
-            world().add<kuge::Model3D>(entity, kuge::Model3D{std::move(model)});
-        };
-        constexpr float EDGE = HALF_SIZE + 0.5f;
-
-        solidModel(floorModel(), {0.0f, -0.5f, 0.0f});
-        solidModel(wallModel(2.0f * HALF_SIZE + 2.0f, true), {0.0f, 1.5f, -EDGE});
-        solidModel(wallModel(2.0f * HALF_SIZE + 2.0f, true), {0.0f, 1.5f, EDGE});
-        solidModel(wallModel(2.0f * HALF_SIZE + 2.0f, false), {-EDGE, 1.5f, 0.0f});
-        solidModel(wallModel(2.0f * HALF_SIZE + 2.0f, false), {EDGE, 1.5f, 0.0f});
-
+            world().add<kuge::Model3D>(entity, kuge::Model3D{textures.modelOf(piece)});
+        }
         auto& environment = world().getResource<k3::Environment>();
 
         environment.skybox = k3::Skybox::gradient({0.04f, 0.12f, 0.35f, 1.0f}, {0.4f, 0.55f, 0.75f, 1.0f}, {0.08f, 0.09f, 0.1f, 1.0f});
-        environment.ambient = {0.3f, 0.32f, 0.38f, 1.0f};
+        environment.ambient = {0.34f, 0.36f, 0.42f, 1.0f};
+        environment.ambientGround = k3::Math::Color{0.12f, 0.11f, 0.1f, 1.0f};
         environment.lights.push_back(k3::Light::directional({-0.4f, -1.0f, -0.3f}, {1.0f, 0.95f, 0.85f, 1.0f}, 1.1f));
-        // The interface, over the 3D scene: a square for each coin taken (its place is set at each frame)
-        for (std::size_t i = 0; i < COIN_COUNT; ++i) {
-            const kw::Entity square = world().create();
-            kuge::Sprite sprite;
+        // The interface, over the 3D scene (its places are set at each frame): a crosshair, the health, and the
+        // frags of each player, a square for each, in the colour of its shirt
+        for (int i = 0; i < 4; ++i) {
+            m_crosshair.push_back(square(kuge::Color{255, 255, 255, 255}, {2.0f, 2.0f}, 10));
+        }
+        m_health = square(kuge::Color{0, 255, 0, 255}, {200.0f, 8.0f}, 10);
+        for (std::uint32_t player = 1; player <= 4; ++player) {
+            const k3::Math::Color color = teamColor(player);
 
-            sprite.size = {12.0f, 12.0f};
-            sprite.pivot = {0.0f, 0.0f};
-            sprite.tint = kuge::Color{255, 255, 255, 255};
-            sprite.layer = 10;
-            sprite.visible = false;
-            world().add<kuge::Transform2D>(square, kuge::Transform2D{{10.0f + 16.0f * static_cast<float>(i), 10.0f}});
-            world().add<kuge::Sprite>(square, sprite);
-            m_hud.push_back(square);
+            for (int i = 0; i < FRAG_LIMIT; ++i) {
+                m_fragSquares.push_back(square(kuge::Color{static_cast<std::uint8_t>(color.r * 255), static_cast<std::uint8_t>(color.g * 255),
+                    static_cast<std::uint8_t>(color.b * 255), 255}, {10.0f, 10.0f}, 10));
+            }
         }
     }
 
@@ -158,25 +206,26 @@ namespace arena
     inline void ArenaScene::spawned(kw::Entity entity, const kuge::replication::SpawnInfo& info)
     {
         switch (info.type) {
-            case PLAYER: {
-                const bool me = info.owner == m_networkId;
-                // Mine is cyan; the others take a colour each (all pure channels, so that a script can find them)
-                static const k3::Math::Color colors[4] = {{0, 1, 1, 1}, {1, 0, 1, 1}, {0, 1, 0, 1}, {1, 0.5f, 0, 1}};
+            case PLAYER:
+            case CORPSE: {
+                const auto& model = m_painted[(info.owner + 3) % 4];
 
-                world().add<kuge::Model3D>(entity, kuge::Model3D{playerModel(me ? colors[0] : colors[1 + info.owner % 3])});
-                if (me) {
+                world().add<kuge::Animator3D>(entity, kuge::Animator3D::of(model, info.type == CORPSE ? "death" : "idle"));
+                if (info.type == PLAYER && info.owner == m_networkId) {
                     kuge::CameraRig rig;
+                    const auto& rotation = world().get<kuge::Transform3D>(entity).rotation;
 
-                    rig.mode = kuge::CameraRig::Mode::Orbit;
-                    rig.offset = {0.0f, 0.5f, 0.0f};
-                    rig.distance = 5.0f;
-                    rig.pitch = -0.3f;
+                    rig.mode = m_firstPerson ? kuge::CameraRig::Mode::FirstPerson : kuge::CameraRig::Mode::Orbit;
+                    rig.offset = {0.0f, m_firstPerson ? EYE_HEIGHT : 0.7f, 0.0f};
+                    rig.distance = 4.0f;
+                    rig.yaw = -2.0f * std::atan2(rotation.y, rotation.w);      // (the way the body faces)
+                    rig.pitch = -0.15f;
                     world().add<kuge::CameraRig>(entity, rig);
                 }
                 break;
             }
-            case COIN:
-                world().add<kuge::Model3D>(entity, kuge::Model3D{m_coin});
+            case BULLET:
+                world().add<kuge::Model3D>(entity, kuge::Model3D{m_bullet});
                 break;
             default:
                 world().add<kuge::Model3D>(entity, kuge::Model3D{m_crate});
@@ -208,7 +257,7 @@ namespace arena
             kuge::replication::ReplicationClientConfig{.tickRate = welcome.tickRate});
         m_replication->setLocalPlayer(welcome.networkId);
         m_replication->predictType(PLAYER);
-        for (const auto type : {PLAYER, COIN, CRATE}) {
+        for (const auto type : {PLAYER, CRATE, BULLET, CORPSE}) {
             m_replication->onSpawn(type, [this](kw::World&, kw::Entity entity, const kuge::replication::SpawnInfo& info) { spawned(entity, info); });
         }
         m_replication->attach(room);
@@ -230,6 +279,7 @@ namespace arena
     {
         installClient3DSystems();
         kuge::net::installNet(setup());
+        loadAssets();
         makeStage();
         if (m_options.captureMouse) {
             world().getResource<kuge::Ref<kuge::IInputSource>>()->setRelativeMouse(true);
@@ -268,9 +318,18 @@ namespace arena
         steer.forward = static_cast<std::int8_t>((actions.isDown(Action::Forward) ? 1 : 0) - (actions.isDown(Action::Back) ? 1 : 0));
         steer.strafe = static_cast<std::int8_t>((actions.isDown(Action::Right) ? 1 : 0) - (actions.isDown(Action::Left) ? 1 : 0));
         steer.jump = actions.isDown(Action::Jump);
+        steer.fire = actions.isDown(Action::Fire);
         if (m_prediction) {
             if (const auto body = m_prediction->entity(); body && world.has<kuge::CameraRig>(*body)) {
-                steer.yaw = quantizeYaw(world.get<kuge::CameraRig>(*body).yaw);
+                auto& rig = world.get<kuge::CameraRig>(*body);
+
+                steer.yaw = quantize(rig.yaw);
+                steer.pitch = quantize(rig.pitch);
+                if (actions.wasPressed(Action::View)) {     // V: from the eyes, or from behind
+                    m_firstPerson = !m_firstPerson;
+                    rig.mode = m_firstPerson ? kuge::CameraRig::Mode::FirstPerson : kuge::CameraRig::Mode::Orbit;
+                    rig.offset.y = m_firstPerson ? EYE_HEIGHT : 0.7f;
+                }
             }
             m_prediction->tick(steer);
         }
@@ -286,7 +345,7 @@ namespace arena
         }
     }
 
-    // Each frame: the other entities are placed (interpolated), and what is shown is looked after
+    // Each frame: the other entities are placed (interpolated), and the interface is set to what is happening
     inline void ArenaScene::frame(kw::World& world)
     {
         const auto frameDt = static_cast<float>(world.getResource<kuge::Time>().frameDt);
@@ -297,29 +356,69 @@ namespace arena
             m_replication->update(frameDt);
         }
         ClientReport& report = *m_report;
-        std::size_t players = 0, coins = 0, crates = 0;
-        int score = 0;
+        std::size_t players = 0, crates = 0, bullets = 0, corpses = 0;
+        int frags[4] = {0, 0, 0, 0};
+        int health = 0;
+        bool mine = false;
 
         for (kw::Entity entity : world.view<kuge::replication::Replicated>()) {
             const auto& info = world.get<kuge::replication::Replicated>(entity);
 
             players += info.type == PLAYER ? 1 : 0;
-            coins += info.type == COIN ? 1 : 0;
             crates += info.type == CRATE ? 1 : 0;
-            if (info.type == PLAYER && info.owner == m_networkId && world.has<Score>(entity)) {
-                score = world.get<Score>(entity).points;
+            bullets += info.type == BULLET ? 1 : 0;
+            corpses += info.type == CORPSE ? 1 : 0;
+            if (info.type != PLAYER) {
+                continue;
+            }
+            if (world.has<Score>(entity)) {
+                frags[(info.owner + 3) % 4] = world.get<Score>(entity).frags;
+            }
+            if (info.owner == m_networkId) {
+                mine = true;
+                health = world.has<Health>(entity) ? world.get<Health>(entity).points : 0;
+                report.frags = world.has<Score>(entity) ? world.get<Score>(entity).frags : report.frags;
+                if (world.has<kuge::Animator3D>(entity)) {
+                    auto& animation = world.get<kuge::Animator3D>(entity);
+
+                    animation.visible = !m_firstPerson;      // (from its eyes, a player does not see its own body)
+                    report.clips.insert(std::string(animation.animator.clip()));
+                }
             }
         }
-        for (std::size_t i = 0; i < m_hud.size(); ++i) {
-            world.get<kuge::Sprite>(m_hud[i]).visible = static_cast<int>(i) < score;
+        // The interface
+        for (std::size_t i = 0; i < m_crosshair.size(); ++i) {
+            // Four ticks around the middle of the screen
+            const kuge::Vec2 middle = screen * 0.5f;
+            const kuge::Vec2 places[4] = {{middle.x - 1.0f, middle.y - 10.0f}, {middle.x - 1.0f, middle.y + 6.0f},
+                {middle.x - 10.0f, middle.y - 1.0f}, {middle.x + 6.0f, middle.y - 1.0f}};
+            auto& sprite = world.get<kuge::Sprite>(m_crosshair[i]);
+
+            world.get<kuge::Transform2D>(m_crosshair[i]).position = places[i];
+            sprite.size = i < 2 ? kuge::Vec2{2.0f, 4.0f} : kuge::Vec2{4.0f, 2.0f};
+            sprite.visible = mine;
+        }
+        auto& bar = world.get<kuge::Sprite>(m_health);
+
+        world.get<kuge::Transform2D>(m_health).position = {10.0f, screen.y - 20.0f};
+        bar.size = {2.0f * static_cast<float>(health), 8.0f};
+        bar.tint = health > HEALTH / 2 ? kuge::Color{0, 255, 0, 255} : kuge::Color{255, 0, 0, 255};
+        bar.visible = mine && health > 0;
+        for (std::size_t i = 0; i < m_fragSquares.size(); ++i) {
+            const std::size_t player = i / FRAG_LIMIT;
+            const int index = static_cast<int>(i % FRAG_LIMIT);
+
+            world.get<kuge::Transform2D>(m_fragSquares[i]).position = {10.0f + 14.0f * static_cast<float>(index), 10.0f + 14.0f * static_cast<float>(player)};
+            world.get<kuge::Sprite>(m_fragSquares[i]).visible = index < frags[player];
         }
         report.players = players;
-        report.coins = coins;
         report.crates = crates;
-        report.score = score;
+        report.bullets = bullets;
+        report.corpses = corpses;
+        report.health = health;
         report.mostPlayers = std::max(report.mostPlayers, players);
-        report.mostCoins = std::max(report.mostCoins, coins);
-        report.mostCrates = std::max(report.mostCrates, crates);
+        report.mostBullets = std::max(report.mostBullets, bullets);
+        report.mostCorpses = std::max(report.mostCorpses, corpses);
         if (m_prediction) {
             report.prediction = m_prediction->stats();
         }
