@@ -1,0 +1,211 @@
+# 18 3D
+
+KUGE makes 3D games out of the same parts as 2D ones, with three more modules and one library:
+
+| Piece | What it is |
+|---|---|
+| [kronk3d](https://github.com/kronkorp/kronk3d) (`vendor/kronk3d`, v0.1.0) | The renderer: meshes, materials, lights, shadows, sky, fog, glTF and OBJ loading, skeletal animation. KUGE uses it as it is |
+| `kuge-render3d` | A 3D scene in a client: `Render3DModule`, `Model3D`, `Light3D`, `Animator3D`, `CameraRig` |
+| `kuge-physics3d` | Rigid bodies with [Jolt](https://github.com/jrouwe/JoltPhysics): `Physics3D`, `Collider3D`, `Body3D` |
+| `kuge-replication` | `registerTransform3D`, `registerBody3D`, `registerAnimationState3D`, and `Prediction` for 3D |
+| `kuge-core` | `Transform3D`, `AnimationState3D`, the components `Collider3D` and `Body3D` (no Jolt, so a server of anything can use them) |
+
+KUGE does not wrap what kronk3d already does: the camera is a `k3::Camera`, the environment a `k3::Environment`,
+a model a `k3::Model`, a light a `k3::Light`. Their documentation is kronk3d's README.
+
+The best way to see it all together is `example/arena3d`, a small game with a server, a client and a host:
+[Arena](#arena-a-game-in-three-programs), below.
+
+## How it is drawn
+
+`Render3DModule` owns kronk3d's **software rasterizer**: the scene is drawn in memory by the CPU, then the image
+is given to the 2D renderer, which shows it on the whole screen. Two things follow:
+
+- it works with every backend, with no OpenGL context, in the tests (the dummy backend) and on a machine with no GPU;
+- sprites and the interface are drawn **over** the 3D, with the tools you already know.
+
+The cost is the CPU (and one copy of the image per frame). `Render3DConfig::renderScale` draws at a fraction of
+the screen and enlarges it; `antiAliasing` is kronk3d's (FXAA or SSAA). An OpenGL backend is possible, and
+kronk3d has one; it is not wired to the client yet.
+
+```cpp
+auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend({.title = "My game", .width = 960, .height = 540}));
+engine.addModule<kuge::Render3DModule>();          // after the client: it is destroyed before it
+```
+
+## A scene
+
+A 3D scene inherits `Scene3D` and calls `installClient3DSystems()` where a 2D one calls `installClientSystems()`:
+
+```cpp
+class Level : public kuge::Scene3D {
+    void onEnter() override {
+        installClient3DSystems();
+
+        auto& camera = world().getResource<k3::Camera>();        // resources of the World
+        camera.position = {0, 2, 6};
+        camera.lookAt({0, 0, 0});
+        auto& sky = world().getResource<k3::Environment>();
+        sky.ambient = {0.3f, 0.3f, 0.35f, 1};
+        sky.lights.push_back(k3::Light::directional({-0.4f, -1, -0.3f}));
+
+        const kw::Entity crate = world().create();
+        world().add<kuge::Transform3D>(crate, kuge::Transform3D{});
+        world().add<kuge::Model3D>(crate, kuge::Model3D{model});            // a shared_ptr<const k3::Model>
+    }
+};
+```
+
+The world is right-handed, **y points up**, units are meters, and a `Transform3D` is kronk3d's `k3::Transform`
+(translation, rotation as a unit quaternion `x y z w`, scale). `kuge::axisAngle(axis, radians)` makes a rotation.
+As in 2D, give an entity a `PreviousTransform3D` (same value) and it is drawn between its two ticks.
+
+| Resource or component | What it does |
+|---|---|
+| `k3::Camera`, `k3::Environment` (resources) | The view, the sky, the fog, the ambient light, the shadows |
+| `Model3D` | Draws a `k3::Model` at the `Transform3D` of the entity |
+| `Light3D` | A `k3::Light` that follows its entity (at most 8 lights light the scene, the environment's first) |
+| `Animator3D` | A glTF model that plays clips (below) |
+| `CameraRig` | Makes the camera follow an entity, first person or orbiting (below) |
+
+Systems run in this order each frame: `UpdateCamera`, `ModelRender` (draws the 3D), then the sprites and the
+interface, so **2D is over 3D**.
+
+## Models from files
+
+`Render3DModule` has two asset managers, like the textures of the client (`Ref<AssetManager<...>>` in the World):
+
+- `models()`: Wavefront **OBJ** (with its `.mtl` and pictures) as a `k3::Model`;
+- `animatedModels()`: **glTF 2.0** (`.glb`, `.gltf`, what Blender exports) as a `k3::AnimatedModel`.
+
+```cpp
+auto tree = render.models().load("assets/tree.obj");                  // throws kuge::ModelError, naming the file
+auto ticket = render.animatedModels().loadAsync("assets/hero.glb");   // read on a worker, made by the next loop
+```
+
+Asking twice for the same file gives the same model while someone holds it. With
+`Render3DConfig{.watchAssets = 1.0}`, a model whose file changed is read again **in place** (a file that does not
+read leaves the model as it was); `reloadAssets()` does it by hand.
+
+## Animation
+
+`Animator3D` is kronk3d's `k3::Animator` (skeleton, clips, crossfades) on an entity that has a `Transform3D`:
+
+```cpp
+world.add<kuge::Animator3D>(hero, kuge::Animator3D::of(model, "idle"));
+auto& animator = world.get<kuge::Animator3D>(hero);
+animator.play("run");                                       // fades from the clip that plays (0.2 s)
+animator.play("attack", {.loop = false}, "idle");           // and goes to idle when it ends
+```
+
+`AnimateModels` moves it forward by one tick. **Cues** are what happens at a time of a clip (a footstep): give the
+animator a `ClipCues` (`clip name -> [{time, name}]`) and the cues crossed arrive in `AnimationEvents`, the same
+resource as the 2D ones. A static glTF is drawn by an `Animator3D` with no clip (its rest pose). The pose
+changes at each tick, not at each frame.
+
+On a network, the server has no model: it says which clip an entity plays with an `AnimationState3D`
+(`{clip, loop, serial}`, replicated), and `PlayReplicatedClips` plays it on the client's `Animator3D`. A `serial`
+that moves starts the same clip again. Nothing about the pose travels: every client animates by itself.
+
+## Mouse look and cameras
+
+`IInputSource::setRelativeMouse(true)` hides the cursor and keeps it in the window (a scene reaches it as
+`Ref<IInputSource>`). `InputMap::mouseDelta()` is how far the mouse moved during the frame.
+
+```cpp
+world.add<kuge::CameraRig>(player, kuge::CameraRig{});                                  // first person, at 1.7 m
+world.add<kuge::CameraRig>(player, kuge::CameraRig{.mode = kuge::CameraRig::Mode::Orbit, .distance = 5.0f});
+```
+
+`UpdateCamera` turns `yaw` and `pitch` with the mouse and places the `k3::Camera`; read the rig's `yaw` to walk
+the way the player looks. There is no roll (`k3::Camera` has none).
+
+## Physics
+
+`kuge-physics3d` runs Jolt, on one thread (scenes already run side by side). An entity with a `Transform3D` and a
+`Collider3D` **is** a body, which the physics makes, moves and removes by itself:
+
+```cpp
+kuge::installPhysics3D(setup(), {.gravity = {0, -9.81f, 0}});          // in onEnter(): the resource and the system
+
+world().add<kuge::Collider3D>(floor, kuge::Collider3D::box(50, 1, 50));                  // a floor: no Body3D
+world().add<kuge::Collider3D>(crate, kuge::Collider3D::box(1, 1, 1));
+world().add<kuge::Body3D>(crate, kuge::Body3D{});                                          // it falls
+world().add<kuge::Collider3D>(zone, kuge::Collider3D::sphere(2).asTrigger());              // reports who is inside
+```
+
+- **Shapes**: `box`, `sphere`, `capsule` (standing along y); `asTrigger()`, `onLayer(bits, meets)`; friction and
+  restitution are fields.
+- **Bodies**: `Static`, `Kinematic` (moves by its velocity, pushes what it meets), `Dynamic` (gravity, pushed).
+  `lockRotation` keeps a character upright, `mass` is optional, `grounded` is written by the physics.
+- **The ECS is the truth**: what the game wrote in a `Transform3D` or a `velocity` since the last tick (a teleport,
+  a walk) is given to Jolt; Jolt steps; the results are written back. A character walks by setting `velocity.x`
+  and `velocity.z` and leaving `y` to the gravity.
+- **Questions**: `physics.raycast(origin, direction, maxDistance, mask, triggers)`, `overlapSphere(center, radius)`
+  and `physics.events()` (a `TriggerEvent3D` for each trigger entered or left in the last tick).
+
+Jolt comes from vcpkg (`vcpkg.json`, feature `physics3d`) and is built the first time; `-DKUGE_BUILD_PHYSICS3D=OFF`
+leaves it out. The same world gives the same result, bit for bit, on one machine; Jolt is not built to agree
+across platforms.
+
+## On a network
+
+The replication of the 2D chapter works as it is, with components that are 3D:
+
+```cpp
+registerTransform3D(registry, Replicate::Interpolated, /*predicted=*/true);   // position, rotation, scale
+registerBody3D(registry, Replicate::OnChange, true);                         // type, velocity, mass...
+registerAnimationState3D(registry);                                          // the clip of a character
+```
+
+`Prediction<Input, Transform3D>` makes the player's own body answer at once, as in 2D: the client simulates its
+body on a private world (the level and the player: the same `build`, `apply` and `step` functions as the room),
+and puts it right when a snapshot says otherwise, sliding the correction in over `smoothing` seconds, or
+snapping if it is more than `snapDistance` meters. `Prediction<Input>` is `Prediction<Input, Transform2D>`.
+
+Which model an entity shows is what `Replicated::type` is for: the game builds the entity on the client from its
+type (`onSpawn`). Where the player looks is part of the game's own input (`yaw` in Arena's `Steer`): it is not
+in `ActionState`.
+
+## Arena, a game in three programs
+
+`example/arena3d` is a small game that uses all of the above: up to four players run, jump and push crates in a
+walled room to take coins. Like R-Type it is a server, a client and a host that share one folder:
+
+```
+example/arena3d/
+  common/   Arena.hpp/.cpp   what is shared: Steer (the input), the registry, the level, the rules
+  server/   ArenaRoom, main  a room: inputs, Jolt, coins, replication; the server has no window
+  client/   ArenaClient, Models, Script, main    the scene: models, camera, prediction, a HUD of squares
+  host/     main             the room and the window in one process (a game that plays alone)
+```
+
+```sh
+cmake -S . -B build -DBUILD_EXAMPLES=ON
+build/example/kuge_arena3d_server &        # then, in other terminals:
+build/example/kuge_arena3d_client          # W A S D or the arrows, the mouse turns the view, Space jumps
+build/example/kuge_arena3d_host            # or: both in one process
+```
+
+What to read in it:
+
+- `common/Arena.cpp`: `steerPlayer` turns an input into a velocity (the room and the prediction both call it), and
+  `buildLevel` makes the floor and walls (the room and the prediction both build them).
+- `server/ArenaRoom.cpp`: the same shape as R-Type's room, with `Physics3D` in the `Physics` stage and
+  `collectCoins` after it (it reads `Physics3D::events()`).
+- `client/ArenaClient.hpp`: `spawned()` gives a model to what the server tells about, the camera rig to the
+  player's own body, and `tick()` sends the input with the yaw. The models are boxes made in code
+  (`client/Models.hpp`); a real game loads its own.
+- `arena3d_smoke` (a test) starts the real programs on SDL's dummy screen: a client and then a host each join a
+  game, take the coin in front of them, and leave a picture in which a pure yellow (a coin) and a pure cyan (the
+  player) are looked for. The tests of the modules are in `tests/render3d`, `tests/physics3d` and
+  `tests/replication/replication3d_test.cpp`.
+
+## What is not there yet
+
+- The OpenGL backend of kronk3d (`HardwareRasterizer`) is not wired to the client: it needs a window with a
+  GL context, and text and interface drawn through kronk3d's 2D overlay.
+- Spatial audio, picking by ray from the mouse, particles (`k3::BillboardBatch`), instancing of many copies of a
+  mesh (`drawInstances`): kronk3d has the tools, KUGE has no component for them.
+- Cues have no text file (the 2D clips do); poses are not interpolated between two ticks; no roll for the camera.
+- Windows (MSVC) is built by the CI like the rest; Jolt and the 3D are not checked on a machine of ours.

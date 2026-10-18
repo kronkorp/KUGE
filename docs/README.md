@@ -23,6 +23,7 @@ Read them in order the first time. Each page stands alone afterwards.
 | [08 The network](08-the-network/README.md) | Endpoints, typed messages, reliable channels, TCP, UDP and the in-memory loopback |
 | [09 The server](09-the-server/README.md) | A lobby, rooms, tokens, and how a player is matched to a game |
 | [10 Replication and prediction](10-replication-and-prediction/README.md) | Showing a world to clients, interpolation, and making your own player answer at once |
+| [18 3D](18-3d/README.md) | Models, animation, cameras, Jolt physics, 3D on a network, and Arena, a 3D game in three programs |
 
 ## Make R-Type, from A to Z
 

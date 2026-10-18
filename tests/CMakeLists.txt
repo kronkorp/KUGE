@@ -28,6 +28,18 @@ if(TARGET kuge_rtype_server AND TARGET kuge_rtype_client AND TARGET kuge_rtype_h
     endif()
 endif()
 
+# Arena, a 3D game, as real programs: a server and a client over the network, then the host (both in one process)
+if(TARGET kuge_arena3d_server AND TARGET kuge_arena3d_client AND TARGET kuge_arena3d_host)
+    if(KUGE_SH)
+        add_test(NAME arena3d_smoke
+            COMMAND ${KUGE_SH} ${PROJECT_SOURCE_DIR}/cmake/RunArena3D.sh
+                    $<TARGET_FILE:kuge_arena3d_server> $<TARGET_FILE:kuge_arena3d_client> $<TARGET_FILE:kuge_arena3d_host>
+                    ${CMAKE_CURRENT_BINARY_DIR}/arena3d)
+    else()
+        message(STATUS "No sh found: the Arena smoke test (cmake/RunArena3D.sh) is not run")
+    endif()
+endif()
+
 # The unit tests run on kronklab, which runs each test in a fork(): Windows does not have it
 if(WIN32)
     return()

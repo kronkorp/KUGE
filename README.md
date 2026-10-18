@@ -44,7 +44,8 @@ R-Type, as a dedicated server, a client and a host, from an empty folder to test
 | Replication (snapshots, interpolation) and client-side prediction | done |
 | One game, three ways (R-Type: server, client, host), with no window on the server | done |
 | Linux (GCC) and Windows (MSVC) | done |
-| 3D (kronk3d) | planned |
+| 3D: scenes, models (OBJ, glTF), animation, cameras, physics (Jolt), replication and prediction | done |
+| A 3D game, three ways (Arena: server, client, host) | done |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
 
@@ -127,7 +128,7 @@ them). What differs from Linux:
 - The player's folders (`userDirectory`) are both in `%APPDATA%`.
 - The unit tests are not built: kronklab runs each test in a `fork()`. `ctest` runs the
   boundaries and the games played for real: `pong_smoke`, `platformer_smoke`, and
-  `rtype_smoke`, which needs the `sh` of Git for Windows.
+  `rtype_smoke` and `arena3d_smoke`, which need the `sh` of Git for Windows.
 - `KUGE_SANITIZE` is for GCC and Clang only.
 
 The CI builds and tests both: Linux with GCC, Windows with MSVC.
@@ -154,6 +155,7 @@ Built with `-DBUILD_EXAMPLES=ON`.
 
 | `build/example/kuge_chat_server`, `kuge_chat_client` | A chat over the network: a server with no window (lobby and rooms of four), and a terminal client. `kuge_chat_client Ana --say hello --wait 2` says it once and leaves. |
 | `build/example/kuge_rtype_server [port]`, `kuge_rtype_client`, `kuge_rtype_host` | R-Type, the small one: up to four ships shoot waves of enemies. The **server** has no window, the **client** connects to it, the **host** runs the room and the window in one process (see [R-Type](#r-type-one-game-three-ways)). Arrows or WASD, Space to fire. `--frames N --screenshot f.ppm` plays a scripted pilot. |
+| `build/example/kuge_arena3d_server [port]`, `kuge_arena3d_client`, `kuge_arena3d_host` | Arena, a 3D game: up to four players run, jump and push crates (Jolt) to take coins. Same three programs as R-Type (server, client, host). W A S D or arrows, the mouse turns the view, Space jumps. `--frames N --screenshot f.ppm` plays a scripted player. See [3D](docs/18-3d/README.md). |
 | `build/example/kuge_platformer` | A platformer that uses everything: tilemap, animations, physics, HUD text, menus, sounds and saves. A/D or arrows, Space to jump, Esc to pause (Resume / Save game / Main menu). Collect the 8 coins; avoid the blobs. `--font <file.ttf>` picks the font. |
 
 `kuge_pong --frames 90 --screenshot out.ppm` plays a scripted match without waiting and
@@ -1122,8 +1124,11 @@ ctest --test-dir build --output-on-failure
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
+| `kuge_render3d_tests` | render3d: a model drawn and lit, the transform and its interpolation, 2D over 3D, models from files (OBJ, glTF, in the background, reloaded), animation (clips, cues, the next clip, a replicated clip), mouse look and cameras |
+| `kuge_physics3d_tests` | physics3d: bodies that fall and rest, kinematic bodies, triggers, layers, rays, characters that stay upright, bit-for-bit replay, and Jolt in a server with a predicting client |
 | `boundary_*` | a module cannot include what it does not link |
 | `rtype_smoke` | the real R-Type programs (server, client, host) play a scripted game and leave a picture that is checked |
+| `arena3d_smoke` | the real Arena programs (server, client, host) play a scripted game: the player takes a coin, and the picture has the coin and the player in it |
 | `pong_smoke`, `platformer_smoke` | the real binaries play a scripted game and leave a picture that is checked |
 
 On Windows, only `boundary_*` and the `*_smoke` tests are built (see [On Windows](#on-windows)).
@@ -1152,7 +1157,7 @@ modules/client/       kuge-client (input/, render/, animation/, audio/, ui/, bac
 modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net, Matchmaking)
 modules/server/       kuge-server (GameServer, the lobby, RoomScene)
 modules/replication/  kuge-replication (registry, snapshots, interpolation, inputs, prediction)
-example/              the headless example, pong/, platformer/, chat/ and rtype/ (common, server, client, host)
+example/              the headless example, pong/, platformer/, chat/, rtype/ and arena3d/ (common, server, client, host)
 tests/                one folder per module, and the boundary tests
 vendor/               submodules: kronkworld, kronkpool, kronknet, kronk3d
 ```

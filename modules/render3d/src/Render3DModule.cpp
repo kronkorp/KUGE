@@ -10,9 +10,8 @@
 
 namespace
 {
-    // kronk3d's messages go to KUGE's logger. Both libraries define a class named Logger, each its own: if
-    // kronk3d used its own, its code would build one the size of its own class and call the constructor
-    // of the other one (the linker keeps one), writing past the end of the object.
+    // kronk3d's messages go to KUGE's logger: one output, one format. (They would go to its own, which is a
+    // copy of KUGE's under other names, see the CMakeLists.txt at the root.)
     void logLikeKuge(k3::LogLevel level, std::string_view message)
     {
         switch (level) {

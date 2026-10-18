@@ -35,3 +35,8 @@ endif()
 if(TARGET kuge-server AND TARGET kuge-replication)
     add_subdirectory(rtype)
 endif()
+
+# Arena: a 3D game (render, physics, replication, prediction): a server, a client and both in one process
+if(TARGET kuge-server AND TARGET kuge-replication AND TARGET kuge-physics3d)
+    add_subdirectory(arena3d)
+endif()
