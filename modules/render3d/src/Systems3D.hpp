@@ -31,6 +31,14 @@ namespace kuge
             std::vector<kw::Entity> m_entities;   //!< Kept between ticks
     };
 
+    //! Frame, stage Render (before ModelRender): moves the k3::Camera of the scene to the CameraRig, after
+    //! the mouse look of the frame. It follows the entity as it is drawn (between its two ticks).
+    class UpdateCamera : public kw::ISystem
+    {
+        public:
+            bool handle(kw::World& world) override;
+    };
+
     //! Frame, stage Render: draws the entities that have a Transform3D and a Model3D or an Animator3D, seen by the
     //! k3::Camera and lit by the k3::Environment and the Light3D, with kronk3d's rasterizer, then
     //! shows the image on the whole screen. Put it before the systems that draw in 2D (sprites, interface):

@@ -2,6 +2,7 @@
 #include "Animator3D.hpp"
 #include "Components3D.hpp"
 #include "animation/Animation.hpp"
+#include "input/InputMap.hpp"
 #include "Ref.hpp"
 #include "Time.hpp"
 #include "Transform3D.hpp"
@@ -102,6 +103,39 @@ bool kuge::AnimateModels::handle(kw::World& world)
             animation.play(next);
         }
     }
+    return true;
+}
+
+bool kuge::UpdateCamera::handle(kw::World& world)
+{
+    kw::Entity chosen = 0;
+    bool found = false;
+
+    for (kw::Entity entity : world.view<CameraRig, Transform3D>()) {
+        if (!found || entity < chosen) {
+            chosen = entity;
+            found = true;
+        }
+    }
+    if (!found) {
+        return true;
+    }
+    CameraRig& rig = world.get<CameraRig>(chosen);
+
+    if (rig.look) {
+        const Vec2 mouse = world.getResource<Ref<InputMap>>()->mouseDelta();
+
+        rig.yaw += mouse.x * rig.sensitivity;
+        rig.pitch = std::clamp(rig.pitch - mouse.y * rig.sensitivity, rig.minPitch, rig.maxPitch);
+    }
+    const k3::Math::Vector3f at = shown(world, chosen, static_cast<float>(world.getResource<Time>().alpha)).translation;
+    k3::Camera& camera = world.getResource<k3::Camera>();
+
+    camera.yaw = rig.yaw;
+    camera.pitch = rig.pitch;
+    const k3::Math::Vector3f point = at + rig.offset;
+
+    camera.position = rig.mode == CameraRig::Mode::Orbit ? point - camera.forward() * rig.distance : point;
     return true;
 }
 

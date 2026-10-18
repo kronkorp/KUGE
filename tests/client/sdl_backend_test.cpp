@@ -241,6 +241,17 @@ Test(sdl, textures_can_go)
     Assert(close(pixel(renderer.readPixels(), 5, 5), kuge::colors::Black), "nothing was drawn");
 }
 
+Test(sdl, mouse_can_be_relative)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(100, 100));
+
+    backend.input->setRelativeMouse(true);
+    Assert(SDL_GetRelativeMouseMode() == SDL_TRUE, "the cursor is captured");
+    backend.input->setRelativeMouse(false);
+    Assert(SDL_GetRelativeMouseMode() == SDL_FALSE, "and freed");
+}
+
 Test(sdl, textures_can_be_updated)
 {
     useNoScreen();

@@ -157,6 +157,7 @@ void kuge::InputMap::apply(const Event& event)
         }
     } else if (const auto* move = std::get_if<MouseMoveEvent>(&event)) {
         m_mouse = move->position;
+        m_mouseDelta += move->delta;
     } else if (const auto* pad = std::get_if<GamepadButtonEvent>(&event)) {
         const auto code = static_cast<std::size_t>(pad->button);
 

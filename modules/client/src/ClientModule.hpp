@@ -39,7 +39,7 @@ namespace kuge
      * Each loop, before the ticks, it reads what happened outside (closing the
      * window stops the engine) and clears the screen; after the frame it shows
      * what was drawn. Each scene gets, as resources of its World:
-     *  - kuge::Ref<IWindow>, Ref<IRenderer2D>, Ref<InputMap>,
+     *  - kuge::Ref<IWindow>, Ref<IRenderer2D>, Ref<InputMap>, Ref<IInputSource>,
      *    Ref<AssetManager<Texture>> (the textures of files), Ref<Audio> with
      *    Ref<AssetManager<Sound>> and Ref<AssetManager<Music>>;
      *  - ActionState (what the player asked for at the last tick, see SampleInput);
