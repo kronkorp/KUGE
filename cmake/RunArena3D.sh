@@ -24,14 +24,14 @@ stop_server() {
 }
 fail() { echo "arena smoke: $1"; [ -n "$SPID" ] && stop_server 2>/dev/null; exit 1; }
 
-# The picture is 640x360: a header of 15 bytes, then the pixels. The game must be in it: the player's shirt (cyan),
-# the health bar (green) and the crosshair (white) are pure colors, which no lighting changes, and a lit and textured
-# 3D scene has hundreds of other colors (a flat picture would have a few).
+# The picture is 640x360: a header of 15 bytes, then the pixels. The game must be in it: the health bar (green) and
+# the crosshair (white) are pure colors, and a lit, textured, foggy 3D scene has hundreds of other colors (a flat
+# picture would have a few).
 check_picture() {
     size=$(wc -c < "$1")
     [ "$size" -eq $((15 + 640 * 360 * 3)) ] || fail "$1 is $size bytes"
     od -An -tx1 -v -w3 "$1" | tr -d ' ' > "$1.colours"
-    for colour in 00ffff 00ff00 ffffff; do
+    for colour in 00ff00 ffffff; do
         grep -q "^$colour$" "$1.colours" || fail "the colour $colour is not in $1: the game was not drawn"
     done
     count=$(sort -u "$1.colours" | wc -l)

@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <functional>
 #include <kronk3d/render/Skybox.hpp>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -31,7 +32,7 @@
 namespace arena
 {
 
-    enum class Action : std::uint8_t { Forward, Back, Left, Right, Jump, Fire, View };
+    enum class Action : std::uint8_t { Forward, Back, Left, Right, Jump, Fire, View, Release };
 
     inline void bindDefaults(kuge::InputMap& input)
     {
@@ -44,6 +45,7 @@ namespace arena
         input.declare(Action::Jump, "jump");
         input.declare(Action::Fire, "fire");
         input.declare(Action::View, "view");
+        input.declare(Action::Release, "release");
         input.bind(Action::Forward, Key::W);
         input.bind(Action::Forward, Key::Up);
         input.bind(Action::Back, Key::S);
@@ -56,6 +58,7 @@ namespace arena
         input.bind(Action::Fire, kuge::MouseButton::Left);
         input.bind(Action::Fire, Key::F);
         input.bind(Action::View, Key::V);
+        input.bind(Action::Release, Key::Escape);
     }
 
     //! Where the server is, and who is playing
@@ -69,6 +72,9 @@ namespace arena
         std::string                 name     = "player";
         bool                        rejoin   = true;                 //!< Ask for another game when one ends
         bool                        captureMouse = true;             //!< The mouse turns the view (false for a script)
+        float                       sensitivity = 0.075f;            //!< Degrees of the view for a pixel of the mouse
+        bool                        firstPerson = true;              //!< The view of the eyes (V changes it)
+        double                      daySeconds = 150.0;              //!< A whole day, from dawn to dawn
         std::filesystem::path       assets   = ARENA_ASSETS_DIR;     //!< The models and textures
     };
 
@@ -108,6 +114,8 @@ namespace arena
             };
 
             void loadAssets(void);
+            void capture(bool on);
+            void applySky(double seconds);
             void makeStage(void);
             void connect(void);
             void spawned(kw::Entity entity, const kuge::replication::SpawnInfo& info);
@@ -123,16 +131,22 @@ namespace arena
             std::unique_ptr<kuge::net::MatchmakingClient>         m_matchmaking;
             std::unique_ptr<kuge::replication::ReplicationClient> m_replication;
             std::unique_ptr<kuge::replication::Prediction<Steer, kuge::Transform3D>> m_prediction;
-            std::shared_ptr<const k3::AnimatedModel>              m_player;     //!< As the file has it: painted for each player
+            std::shared_ptr<const k3::AnimatedModel>              m_player;     //!< As the file has it
             std::shared_ptr<const k3::AnimatedModel>              m_painted[4];
             std::shared_ptr<const k3::Model>                      m_crate;
             std::shared_ptr<const k3::Model>                      m_bullet;
+            kw::Entity                                            m_gun{};      //!< What the player holds
+            float                                                 m_kick = 0.0f;
+            std::uint8_t                                          m_shots = 0;  //!< The serial of the last shot seen
+            Proxies                                               m_proxies;    //!< In the predicted world: what is near the player
+            bool                                                  m_captured = false;
+            double                                                m_seconds = 0.0;
             kw::Entity                                            m_health{};   //!< The bar of the HUD
             std::vector<kw::Entity>                               m_crosshair;
             std::vector<kw::Entity>                               m_fragSquares;   //!< FRAG_LIMIT squares for each of four players
             std::uint32_t                                         m_networkId = 0;
             std::uint32_t                                         m_waited = 0;   //!< Ticks since the lobby was lost
-            bool                                                  m_firstPerson = false;
+            bool                                                  m_firstPerson = true;
     };
 
     // -- Implementation ------------------------------------------------------------------------------------
@@ -158,9 +172,9 @@ namespace arena
         auto& objects = *world().getResource<kuge::Ref<kuge::AssetManager<k3::Model>>>();
         auto& characters = *world().getResource<kuge::Ref<kuge::AssetManager<k3::AnimatedModel>>>();
 
-        m_player = characters.load(m_options.assets / "player.glb");
+        m_player = characters.load(m_options.assets / "robot.glb");
         for (std::uint32_t i = 0; i < 4; ++i) {
-            m_painted[i] = paint(*m_player, teamColor(i + 1));
+            m_painted[i] = makeRobot(*m_player, teamColor(i + 1));
         }
         m_crate = objects.load(m_options.assets / "crate.obj");
         m_bullet = bulletModel();
@@ -182,10 +196,16 @@ namespace arena
         }
         auto& environment = world().getResource<k3::Environment>();
 
-        environment.skybox = k3::Skybox::gradient({0.04f, 0.12f, 0.35f, 1.0f}, {0.4f, 0.55f, 0.75f, 1.0f}, {0.08f, 0.09f, 0.1f, 1.0f});
-        environment.ambient = {0.34f, 0.36f, 0.42f, 1.0f};
+        // The sky is one picture, dimmed and tinted along the day (see applySky()); the sun and the moon are the two lights
+        environment.skybox = k3::Skybox::gradient({0.04f, 0.12f, 0.35f, 1.0f}, {0.45f, 0.6f, 0.8f, 1.0f}, {0.08f, 0.09f, 0.1f, 1.0f});
         environment.ambientGround = k3::Math::Color{0.12f, 0.11f, 0.1f, 1.0f};
-        environment.lights.push_back(k3::Light::directional({-0.4f, -1.0f, -0.3f}, {1.0f, 0.95f, 0.85f, 1.0f}, 1.1f));
+        environment.lights.push_back(k3::Light::directional({-0.4f, -1.0f, -0.3f}));
+        environment.lights.push_back(k3::Light::directional({0.4f, -1.0f, 0.3f}));
+        environment.fog.density = 0.022f;          // a third of the light left at 50 m
+        environment.fog.heightFalloff = 0.0f;
+        applySky(0.0);
+        m_gun = world().create();
+        world().add<kuge::ViewModel3D>(m_gun, kuge::ViewModel3D{gunModel()});
         // The interface, over the 3D scene (its places are set at each frame): a crosshair, the health, and the
         // frags of each player, a square for each, in the colour of its shirt
         for (int i = 0; i < 4; ++i) {
@@ -200,6 +220,51 @@ namespace arena
                     static_cast<std::uint8_t>(color.b * 255), 255}, {10.0f, 10.0f}, 10));
             }
         }
+    }
+
+    // The mouse is the view's (taken, hidden, kept in the window) or the desktop's (Esc gives it back, a click takes it)
+    inline void ArenaScene::capture(bool on)
+    {
+        m_captured = on;
+        world().getResource<kuge::Ref<kuge::IInputSource>>()->setRelativeMouse(on);
+        for (kw::Entity entity : world().view<kuge::CameraRig>()) {
+            world().get<kuge::CameraRig>(entity).look = on;
+        }
+    }
+
+    // The light of a moment of the day (seconds since the match began, the same for every player: it is counted in
+    // ticks of the server). The sun goes over the arena from east to west, the moon is opposite; the sky is the same
+    // picture all along, dimmed and tinted; the fog is the colour of the horizon.
+    inline void ArenaScene::applySky(double seconds)
+    {
+        using Color = k3::Math::Color;
+        const auto mix = [](const Color& a, const Color& b, float k) {
+            return Color{a.r + (b.r - a.r) * k, a.g + (b.g - a.g) * k, a.b + (b.b - a.b) * k, 1.0f};
+        };
+        const auto smooth = [](float low, float high, float x) {
+            const float k = std::clamp((x - low) / (high - low), 0.0f, 1.0f);
+
+            return k * k * (3.0f - 2.0f * k);
+        };
+        const double phase = std::fmod(seconds / m_options.daySeconds + 0.28, 1.0);     // (the match begins in the morning)
+        const float turn = static_cast<float>(phase * 6.2831853);
+        const float height = -std::cos(turn);                                           // the sun: -1 at midnight, 1 at noon
+        const Vec3 sun{std::sin(turn) * 0.9f, height, 0.35f};
+        const float length = Vec3::length(sun);
+        const float day = smooth(-0.12f, 0.3f, height);
+        const float dusk = std::clamp(1.0f - std::fabs(height) / 0.3f, 0.0f, 1.0f);
+        auto& environment = world().getResource<k3::Environment>();
+
+        environment.lights[0].direction = {-sun.x / length, -sun.y / length, -sun.z / length};
+        environment.lights[0].color = mix(Color{1.0f, 0.5f, 0.22f, 1.0f}, Color{1.0f, 0.96f, 0.88f, 1.0f}, std::clamp(height / 0.5f, 0.0f, 1.0f));
+        environment.lights[0].intensity = 1.2f * day;
+        environment.lights[1].direction = {sun.x / length, sun.y / length, sun.z / length};
+        environment.lights[1].color = Color{0.55f, 0.65f, 1.0f, 1.0f};
+        environment.lights[1].intensity = 0.3f * (1.0f - day);
+        environment.ambient = mix(Color{0.03f, 0.035f, 0.075f, 1.0f}, Color{0.34f, 0.36f, 0.42f, 1.0f}, day);
+        environment.ambientGround = mix(Color{0.012f, 0.012f, 0.018f, 1.0f}, Color{0.12f, 0.11f, 0.1f, 1.0f}, day);
+        environment.skybox.tint = mix(mix(Color{0.035f, 0.045f, 0.11f, 1.0f}, Color{1.0f, 1.0f, 1.0f, 1.0f}, day), Color{1.0f, 0.6f, 0.4f, 1.0f}, dusk * 0.6f);
+        environment.fog.color = mix(mix(Color{0.02f, 0.03f, 0.07f, 1.0f}, Color{0.5f, 0.62f, 0.78f, 1.0f}, day), Color{0.85f, 0.45f, 0.3f, 1.0f}, dusk * 0.5f);
     }
 
     // What the server does not send: how things look
@@ -219,7 +284,9 @@ namespace arena
                     rig.offset = {0.0f, m_firstPerson ? EYE_HEIGHT : 0.7f, 0.0f};
                     rig.distance = 4.0f;
                     rig.yaw = -2.0f * std::atan2(rotation.y, rotation.w);      // (the way the body faces)
-                    rig.pitch = -0.15f;
+                    rig.pitch = m_firstPerson ? 0.0f : -0.15f;
+                    rig.sensitivity = m_options.sensitivity * 3.14159265f / 180.0f;
+                    rig.look = m_captured;
                     world().add<kuge::CameraRig>(entity, rig);
                 }
                 break;
@@ -266,7 +333,10 @@ namespace arena
 
         config.build = [](kw::World& w) { buildLevel(w); return buildPlayer(w); };
         config.apply = &steerPlayer;
-        config.step = &stepWorld;
+        config.step = [this](kw::World& predicted, double dt) {
+            syncProxies(m_proxies, predicted, world(), m_networkId);     // (what is near the player is in the world that predicts it)
+            stepWorld(predicted, dt);
+        };
         config.dt = TICK_DT;
         config.snapDistance = 3.0f;      // meters
         m_prediction = std::make_unique<kuge::replication::Prediction<Steer, kuge::Transform3D>>(config, world(), m_registry, *m_replication, room);
@@ -281,9 +351,8 @@ namespace arena
         kuge::net::installNet(setup());
         loadAssets();
         makeStage();
-        if (m_options.captureMouse) {
-            world().getResource<kuge::Ref<kuge::IInputSource>>()->setRelativeMouse(true);
-        }
+        m_firstPerson = m_options.firstPerson;
+        capture(m_options.captureMouse);
         m_matchmaking = std::make_unique<kuge::net::MatchmakingClient>(world().getResource<kuge::net::Net>());
         m_matchmaking->onJoined([this](kuge::net::Endpoint& room, const kuge::net::Welcome& welcome) { joined(room, welcome); });
         m_matchmaking->onRoomClosed([this](kuge::net::RoomEnd) {
@@ -318,7 +387,16 @@ namespace arena
         steer.forward = static_cast<std::int8_t>((actions.isDown(Action::Forward) ? 1 : 0) - (actions.isDown(Action::Back) ? 1 : 0));
         steer.strafe = static_cast<std::int8_t>((actions.isDown(Action::Right) ? 1 : 0) - (actions.isDown(Action::Left) ? 1 : 0));
         steer.jump = actions.isDown(Action::Jump);
-        steer.fire = actions.isDown(Action::Fire);
+        // Esc gives the mouse back; a click takes it again (and that click does not fire)
+        bool taken = false;
+
+        if (actions.wasPressed(Action::Release) && m_captured) {
+            capture(false);
+        } else if (!m_captured && actions.wasPressed(Action::Fire)) {
+            capture(true);
+            taken = true;
+        }
+        steer.fire = m_captured && !taken && actions.isDown(Action::Fire);
         if (m_prediction) {
             if (const auto body = m_prediction->entity(); body && world.has<kuge::CameraRig>(*body)) {
                 auto& rig = world.get<kuge::CameraRig>(*body);
@@ -378,6 +456,14 @@ namespace arena
                 mine = true;
                 health = world.has<Health>(entity) ? world.get<Health>(entity).points : 0;
                 report.frags = world.has<Score>(entity) ? world.get<Score>(entity).frags : report.frags;
+                if (world.has<kuge::AnimationState3D>(entity)) {
+                    const auto& state = world.get<kuge::AnimationState3D>(entity);
+
+                    if (state.serial != m_shots && state.clip.rfind("shooting", 0) == 0) {
+                        m_kick = 0.07f;
+                    }
+                    m_shots = state.serial;
+                }
                 if (world.has<kuge::Animator3D>(entity)) {
                     auto& animation = world.get<kuge::Animator3D>(entity);
 
@@ -386,6 +472,15 @@ namespace arena
                 }
             }
         }
+        // The gun is held in first person, and kicks back when its player shoots
+        auto& held = world.get<kuge::ViewModel3D>(m_gun);
+
+        held.visible = mine && m_firstPerson;
+        m_kick = std::max(0.0f, m_kick - frameDt * 0.7f);
+        held.kick = m_kick;
+        // The day goes on (by the clock of the server once there is one)
+        m_seconds = m_replication ? m_replication->renderTick() / 60.0 : m_seconds + frameDt;
+        applySky(m_seconds);
         // The interface
         for (std::size_t i = 0; i < m_crosshair.size(); ++i) {
             // Four ticks around the middle of the screen

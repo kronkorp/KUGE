@@ -1,6 +1,7 @@
 #include "Arena.hpp"
 #include <algorithm>
 #include <limits>
+#include <set>
 
 namespace arena
 {
@@ -32,16 +33,16 @@ namespace arena
 
         struct Clip { const char* name; bool loop; };
 
-        // The clip that goes with what a character does: in the air, firing, running, or standing
+        // The clip that goes with what a character does: going up or coming down, firing, running, or standing
         Clip clipFor(const Fighter& fighter, const kuge::Body3D& body)
         {
             const float speed2 = body.velocity.x * body.velocity.x + body.velocity.z * body.velocity.z;
 
-            if (fighter.airborne >= 4) {
-                return {"jump", false};     // (a few ticks of air, so that a bump on a ramp is not a jump)
+            if (fighter.airborne >= 4) {       // (a few ticks of air, so that a bump on a ramp is not a jump)
+                return body.velocity.y > 0.5f ? Clip{"jump", false} : Clip{"falling", true};
             }
             if (fighter.flash > 0) {
-                return {"shoot", false};
+                return speed2 > 1.0f ? Clip{"shooting", false} : Clip{"shooting_standing", false};
             }
             return speed2 > 1.0f ? Clip{"run", true} : Clip{"idle", true};
         }
@@ -105,25 +106,91 @@ namespace arena
         return multiply(bodyRotation(yaw), kuge::axisAngle(RIGHT, pitch));
     }
 
+    kw::Entity buildCrate(kw::World& world, Vec3 at, k3::Math::Vector4f rotation)
+    {
+        const kw::Entity crate = world.create();
+        kuge::Transform3D transform;
+        kuge::Collider3D collider = kuge::Collider3D::box(1.0f, 1.0f, 1.0f);
+        kuge::Body3D body;
+
+        transform.translation = at;
+        transform.rotation = rotation;
+        collider.friction = 0.6f;
+        body.mass = 100.0f;           // heavy, but a player pushes it
+        body.linearDamping = 0.6f;    // it stops soon after it is let go
+        body.angularDamping = 2.0f;   // and does not tumble for long
+        world.add<kuge::Transform3D>(crate, transform);
+        world.add<kuge::Collider3D>(crate, collider);
+        world.add<kuge::Body3D>(crate, body);
+        return crate;
+    }
+
     void buildGame(kw::World& world)
     {
         Match& match = world.getResource<Match>();
 
         for (const Vec3& at : crates()) {
-            const kw::Entity crate = world.create();
-            kuge::Transform3D transform;
-            kuge::Collider3D collider = kuge::Collider3D::box(1.0f, 1.0f, 1.0f);
-            kuge::Body3D body;
+            match.track(buildCrate(world, at), CRATE, 0);
+        }
+    }
 
-            transform.translation = at;
-            collider.friction = 0.6f;
-            body.mass = 100.0f;           // heavy, but a player pushes it
-            body.linearDamping = 0.6f;    // it stops soon after it is let go
-            body.angularDamping = 2.0f;   // and does not tumble for long
-            world.add<kuge::Transform3D>(crate, transform);
-            world.add<kuge::Collider3D>(crate, collider);
-            world.add<kuge::Body3D>(crate, body);
-            match.track(crate, CRATE, 0);
+    void syncProxies(Proxies& proxies, kw::World& predicted, kw::World& shown, std::uint32_t me)
+    {
+        if (&predicted != proxies.of) {      // (a new world: the one of the last game is gone)
+            proxies.bodies.clear();
+            proxies.of = &predicted;
+        }
+        std::set<std::uint32_t> present;
+
+        for (kw::Entity entity : shown.view<kuge::replication::Replicated>()) {
+            const auto& info = shown.get<kuge::replication::Replicated>(entity);
+            const bool crate = info.type == CRATE;
+            const bool other = info.type == PLAYER && info.owner != me;
+
+            if ((!crate && !other) || !shown.has<kuge::Transform3D>(entity)) {
+                continue;
+            }
+            const kuge::Transform3D& at = shown.get<kuge::Transform3D>(entity);
+            auto found = proxies.bodies.find(info.id);
+
+            present.insert(info.id);
+            if (found == proxies.bodies.end()) {
+                kw::Entity proxy;
+
+                if (crate) {
+                    proxy = buildCrate(predicted, at.translation, at.rotation);
+                } else {
+                    kuge::Body3D body;
+
+                    body.type = kuge::Body3D::Type::Kinematic;
+                    body.lockRotation = true;
+                    proxy = predicted.create();
+                    predicted.add<kuge::Transform3D>(proxy, at);
+                    predicted.add<kuge::Collider3D>(proxy, kuge::Collider3D::capsule(PLAYER_RADIUS, PLAYER_HEIGHT));
+                    predicted.add<kuge::Body3D>(proxy, body);
+                }
+                proxies.bodies.emplace(info.id, proxy);
+                continue;
+            }
+            kuge::Transform3D& proxy = predicted.get<kuge::Transform3D>(found->second);
+
+            if (!crate) {
+                proxy.translation = at.translation;      // (where it is shown, to the millimeter: it is not pushed)
+            } else if (Vec3::length(proxy.translation - at.translation) > 0.4f) {
+                proxy.translation = at.translation;      // (this crate went elsewhere than here: the server says)
+                proxy.rotation = at.rotation;
+                if (shown.has<kuge::Body3D>(entity)) {
+                    predicted.get<kuge::Body3D>(found->second).velocity = shown.get<kuge::Body3D>(entity).velocity;
+                }
+            }
+        }
+        for (auto it = proxies.bodies.begin(); it != proxies.bodies.end();) {
+            if (present.count(it->first)) {
+                ++it;
+            } else {
+                predicted.remove(it->second);
+                it = proxies.bodies.erase(it);
+            }
         }
     }
 
@@ -180,7 +247,10 @@ namespace arena
         // The same clip again starts over: the serial moves
         auto& state = world.get<kuge::AnimationState3D>(shooter);
 
-        state = kuge::AnimationState3D{"shoot", false, static_cast<std::uint8_t>(state.serial + 1)};
+        const auto& velocity = world.get<kuge::Body3D>(shooter).velocity;
+        const bool moving = velocity.x * velocity.x + velocity.z * velocity.z > 1.0f;
+
+        state = kuge::AnimationState3D{moving ? "shooting" : "shooting_standing", false, static_cast<std::uint8_t>(state.serial + 1)};
 
         const float yaw = static_cast<float>(steer.yaw) / 1000.0f;
         const float pitch = static_cast<float>(steer.pitch) / 1000.0f;

@@ -57,6 +57,18 @@ namespace kuge
         bool  look = true;                             //!< Follows the mouse (false: the game sets yaw and pitch)
     };
 
+    //! What a first-person player holds (a component, on an entity of its own: it has no Transform3D): a model
+    //! drawn in front of everything, from the camera, with a field of view of its own, so that it never goes
+    //! through a wall (kronk3d's "layer"). `offset` is where it is from the eyes: x to the right, y up, -z ahead.
+    struct ViewModel3D
+    {
+        std::shared_ptr<const k3::Model> model;
+        k3::Math::Vector3f offset{0.22f, -0.2f, -0.45f};
+        float  kick = 0.0f;                     //!< Meters it is pulled back (a recoil: the game moves it)
+        float  fovY = 0.9f;                     //!< Radians
+        bool   visible = true;
+    };
+
     //! How many times a glTF model was reloaded in place (a resource of the World): an Animator3D made
     //! before starts again from its model when this moves
     struct ModelRevision

@@ -67,7 +67,7 @@ namespace arena
     inline bool scriptPassed(const ClientReport& report)
     {
         return report.joined && report.mostPlayers >= 1 && report.mostBullets >= 1 && report.clips.count("idle") && report.clips.count("run")
-            && report.clips.count("jump") && report.clips.count("shoot");
+            && report.clips.count("jump") && (report.clips.count("shooting") || report.clips.count("shooting_standing"));
     }
 
 }

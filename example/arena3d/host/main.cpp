@@ -24,16 +24,25 @@ int main(int argc, char** argv)
     int frames = 0;
     const char* screenshot = nullptr;
     std::filesystem::path assets = ARENA_ASSETS_DIR;
+    float sensitivity = 0.075f;
+    double daySeconds = 150.0;
+    bool firstPerson = true;
 
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--assets") && i + 1 < argc) {
+        if (!std::strcmp(argv[i], "--sensitivity") && i + 1 < argc) {
+            sensitivity = static_cast<float>(std::atof(argv[++i]));
+        } else if (!std::strcmp(argv[i], "--day") && i + 1 < argc) {
+            daySeconds = std::atof(argv[++i]);
+        } else if (!std::strcmp(argv[i], "--third-person")) {
+            firstPerson = false;
+        } else if (!std::strcmp(argv[i], "--assets") && i + 1 < argc) {
             assets = argv[++i];
         } else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
             frames = std::atoi(argv[++i]);
         } else if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
             screenshot = argv[++i];
         } else {
-            Logger::logger().error("usage: arena3d_host [--assets DIR] [--frames N [--screenshot f.ppm]]");
+            Logger::logger().error("usage: arena3d_host [--sensitivity DEG] [--day SECONDS] [--third-person] [--assets DIR] [--frames N [--screenshot f.ppm]]");
             return 2;
         }
     }
@@ -57,8 +66,9 @@ int main(int argc, char** argv)
             kuge::WindowConfig window;
 
             window.title = "KUGE Arena (host)";
-            window.width = 1280;
-            window.height = 720;
+            window.width = frames > 0 ? 640 : 1280;      // (a script has a small one: it is drawn by the CPU)
+            window.height = frames > 0 ? 360 : 720;
+            window.resizable = true;
             kuge::Engine engine(kuge::Engine::Config{.mode = kuge::Engine::Mode::Windowed, .tickRate = 60});
             auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend(window));
             auto report = std::make_shared<arena::ClientReport>();
@@ -67,8 +77,10 @@ int main(int argc, char** argv)
             engine.addModule<kuge::Render3DModule>();
             options.sockets = false;
             options.network = &network;
-            options.captureMouse = frames == 0;
-            options.assets = assets;
+                options.assets = assets;
+            options.sensitivity = sensitivity;
+            options.daySeconds = daySeconds;
+            options.firstPerson = firstPerson;
             arena::bindDefaults(client.input());
             engine.scenes().change<arena::ArenaScene>(options, report);
             if (frames == 0) {

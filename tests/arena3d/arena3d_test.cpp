@@ -3,7 +3,9 @@ extern "C" {
 }
 #include "Arena.hpp"
 #include "Engine.hpp"
+#include "Models.hpp"
 #include <cmath>
+#include <deque>
 #include <functional>
 #include <kronk3d/io/GltfLoader.hpp>
 #include <kronk3d/io/ObjLoader.hpp>
@@ -249,6 +251,57 @@ Test(arena, pushing_a_crate_is_smooth)
     Assert(sim.where(crate).x > 5.4f, "and stopped by the platform, not through it: x = %f", sim.where(crate).x);
 }
 
+Test(arena, a_client_predicts_crates)
+{
+    // A player pushes a crate: the real world is the room's; the predicted one only has the level and the player, and
+    // the crate as the client is shown it (six ticks late, the crate of the room as the interpolation has it)
+    const auto walk = [](bool withProxies) {
+        Sim real(true);
+        const kw::Entity pusher = real.player(1, {14.0f, 1.0f, 3.0f}, -PI / 2);
+        kw::Entity crate = 0;
+
+        for (kw::Entity entity : real.world().view<kuge::Collider3D>()) {
+            if (real.world().has<kuge::Body3D>(entity) && !real.world().has<Owned>(entity)
+                && near(real.where(entity).x, 11.0f, 0.1f) && near(real.where(entity).z, 3.0f, 0.1f)) {
+                crate = entity;
+            }
+        }
+        kw::World predicted;
+        kw::World shown;
+        Proxies proxies;
+
+        buildLevel(predicted);
+        const kw::Entity self = buildPlayer(predicted, {14.0f, 1.0f, 3.0f}, -PI / 2);
+        const kw::Entity drawn = shown.create();
+
+        shown.add<kuge::replication::Replicated>(drawn, kuge::replication::Replicated{7, CRATE, 0});
+        shown.add<kuge::Transform3D>(drawn, real.world().get<kuge::Transform3D>(crate));
+        shown.add<kuge::Body3D>(drawn, kuge::Body3D{});
+        std::deque<std::pair<kuge::Transform3D, kuge::Body3D>> late;
+
+        real.ticks(30);
+        for (int t = 0; t < 120; ++t) {
+            steerPlayer(real.world(), pusher, Sim::steer(1, 0, -PI / 2));
+            real.ticks(1);
+            late.push_back({real.world().get<kuge::Transform3D>(crate), real.world().get<kuge::Body3D>(crate)});
+            if (late.size() > 6) {
+                shown.get<kuge::Transform3D>(drawn) = late.front().first;
+                shown.get<kuge::Body3D>(drawn) = late.front().second;
+                late.pop_front();
+            }
+            steerPlayer(predicted, self, Sim::steer(1, 0, -PI / 2));
+            if (withProxies) {
+                syncProxies(proxies, predicted, shown, 1);
+            }
+            stepWorld(predicted, TICK_DT);
+        }
+        return std::fabs(real.where(pusher).x - predicted.get<kuge::Transform3D>(self).translation.x);
+    };
+
+    Assert(walk(true) < 0.3f, "with the crate, the predicted player is where the real one is: %f m apart", walk(true));
+    Assert(walk(false) > 0.7f, "without it, it walks through the crate (this is what the proxies are for): %f m", walk(false));
+}
+
 Test(arena, shots_hurt_and_kill)
 {
     Sim sim;
@@ -346,33 +399,51 @@ Test(arena, clips_follow_what_it_does)
     Assert(sim.clip(a) == "idle", "stopped: %s", sim.clip(a).c_str());
     sim.hold(a, Sim::steer(0, 0, 0.0f, true), 1);
     sim.hold(a, Sim::steer(0, 0), 8);
-    Assert(sim.clip(a) == "jump", "in the air: %s", sim.clip(a).c_str());
+    Assert(sim.clip(a) == "jump", "going up: %s", sim.clip(a).c_str());
+    sim.hold(a, Sim::steer(0, 0), 32);
+    Assert(sim.clip(a) == "falling", "coming down: %s", sim.clip(a).c_str());
     sim.hold(a, Sim::steer(0, 0), 90);
     Assert(sim.clip(a) == "idle", "landed: %s", sim.clip(a).c_str());
     const auto serial = sim.world().get<kuge::AnimationState3D>(a).serial;
 
     sim.hold(a, Sim::steer(0, 0, 0.0f, false, true), 1);
-    Assert(sim.clip(a) == "shoot" && sim.world().get<kuge::AnimationState3D>(a).serial != serial, "firing: %s", sim.clip(a).c_str());
+    Assert(sim.clip(a) == "shooting_standing" && sim.world().get<kuge::AnimationState3D>(a).serial != serial, "firing: %s", sim.clip(a).c_str());
     sim.ticks(20);
+    sim.hold(a, Sim::steer(1, 0, 0.0f, false, true), 3);
+    Assert(sim.clip(a) == "shooting", "firing while running: %s", sim.clip(a).c_str());
+    sim.hold(a, Sim::steer(0, 0), 20);
     Assert(sim.clip(a) == "idle", "and back: %s", sim.clip(a).c_str());
 }
 
 Test(arena, assets_are_there)
 {
     const std::filesystem::path dir = ARENA_ASSETS_DIR;
-    auto player = k3::GltfLoader::load(dir / "player.glb");
+    auto robot = k3::GltfLoader::load(dir / "robot.glb");
 
-    Assert(player.operator bool(), "player.glb loads: %s", player ? "" : player.error().c_str());
-    for (const char* clip : {"idle", "run", "jump", "shoot", "death"}) {
-        Assert(player->findAnimation(clip) >= 0, "the clip %s", clip);
+    Assert(robot.operator bool(), "robot.glb loads: %s", robot ? "" : robot.error().c_str());
+    for (const char* clip : {"idle", "run", "jump", "falling", "shooting", "shooting_standing"}) {
+        Assert(robot->findAnimation(clip) >= 0, "the clip %s", clip);
     }
-    bool team = false;
+    bool glow = false;
 
-    for (const auto& primitive : player->primitives) {
-        team = team || (primitive.material && primitive.material->name == "team" && primitive.material->unlit);
+    for (const auto& primitive : robot->primitives) {
+        glow = glow || (primitive.material && primitive.material->name == "player_glow");
+        Assert(primitive.skin >= 0, "skinned");
     }
-    Assert(team, "its shirt is a material named team");
-    Assert(player->primitives.size() >= 12, "a body of parts: %zu", player->primitives.size());
+    Assert(glow, "its lights are a material named player_glow (painted with the colour of the player)");
+
+    // What the client makes of it: our size, our direction, the colour of a player, and a clip for dying
+    const auto player = arena::makeRobot(*robot, {1.0f, 0.0f, 1.0f, 1.0f});
+
+    Assert(player->findAnimation("death") >= 0, "a clip for dying is added");
+    Assert(robot->findAnimation("death") < 0, "(to the copy: the file is not touched)");
+    const auto& root = player->nodes[0];
+
+    const float ratio = root.local.scale.y / robot->nodes[0].local.scale.y;
+
+    Assert(root.parent < 0 && near(ratio * 2.12f, 1.75f, 0.1f), "shrunk from 2.12 m to about the height of the capsule: %f", ratio * 2.12f);
+    Assert(near(root.local.translation.y, -PLAYER_HEIGHT / 2, 0.01f), "its feet at the bottom of the capsule: %f", root.local.translation.y);
+    Assert(near(std::fabs(root.local.rotation.y), 1.0f, 0.01f), "turned to face -z");
     auto crate = k3::ObjLoader::load(dir / "crate.obj");
 
     Assert(crate.operator bool(), "crate.obj loads: %s", crate ? "" : crate.error().c_str());

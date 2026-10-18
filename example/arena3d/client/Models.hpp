@@ -96,22 +96,88 @@ namespace arena
         }
     };
 
-    //! The character with the shirt of a player: the material called "team" is copied and painted, the rest is shared
-    inline std::shared_ptr<const k3::AnimatedModel> paint(const k3::AnimatedModel& base, k3::Math::Color color)
+    //! The robot as the game wants it, for one player: the file has a robot that is 2.12 m tall, faces +z, and
+    //! stands on the origin; this one is as tall as the capsule of the physics (feet at its bottom), faces -z like the
+    //! player, has the lights of the colour of the player (a pure colour, unlit: it is the same on the screen
+    //! whatever the light), and a clip for dying (it falls on its back). The file's model is not changed.
+    inline std::shared_ptr<const k3::AnimatedModel> makeRobot(const k3::AnimatedModel& base, k3::Math::Color color)
     {
+        constexpr float FILE_HEIGHT = 2.12f;      // the robot of the file (its root has a scale of 0.3, which its skin undoes)
+        constexpr float HEIGHT = 1.75f;
+        const k3::Math::Vector4f facing{0.0f, 1.0f, 0.0f, 0.0f};     // half a turn around y
         auto copy = std::make_shared<k3::AnimatedModel>(base);
-        std::shared_ptr<k3::Material> shirt;
+        std::shared_ptr<k3::Material> lights;
+        int root = -1;
 
-        for (auto& primitive : copy->primitives) {
-            if (primitive.material && primitive.material->name == "team") {
-                if (!shirt) {
-                    shirt = std::make_shared<k3::Material>(*primitive.material);
-                    shirt->diffuse = color;
-                }
-                primitive.material = shirt;
+        for (std::size_t i = 0; i < copy->nodes.size(); ++i) {
+            auto& node = copy->nodes[i];
+
+            if (node.parent < 0) {
+                // (the scale of the file stays: the inverse bind matrices of the skin cancel it, so the robot is the
+                // size of its vertices, and the root only has to shrink it)
+                node.local.scale = node.local.scale * (HEIGHT / FILE_HEIGHT);
+                node.local.translation = {0.0f, -0.9f, 0.0f};
+                node.local.rotation = facing;
+                root = root < 0 ? static_cast<int>(i) : root;
             }
         }
+        for (auto& primitive : copy->primitives) {
+            if (primitive.material && primitive.material->name == "player_glow") {
+                if (!lights) {
+                    lights = std::make_shared<k3::Material>(*primitive.material);
+                    lights->diffuse = color;
+                    lights->unlit = true;
+                }
+                primitive.material = lights;
+            }
+        }
+        if (root >= 0) {
+            // It falls backward around its feet: a quarter turn around x, after the half turn that makes it face -z
+            k3::Animation death;
+            k3::AnimationChannel fall;
+
+            death.name = "death";
+            death.duration = 0.9f;
+            fall.node = root;
+            fall.path = k3::AnimationChannel::Path::Rotation;
+            fall.interpolation = k3::AnimationChannel::Interpolation::Linear;
+            fall.times = {0.0f, 0.6f, 0.9f};
+            for (const float angle : {0.0f, 1.45f, 1.55f}) {
+                fall.values.push_back(multiply({std::sin(angle / 2), 0.0f, 0.0f, std::cos(angle / 2)}, facing));
+            }
+            death.channels.push_back(fall);
+            copy->animations.push_back(death);
+        }
         return copy;
+    }
+
+    //! What the player holds in first person: a gun, in dark metal
+    inline std::shared_ptr<const k3::Model> gunModel(void)
+    {
+        auto model = std::make_shared<k3::Model>();
+        auto metal = std::make_shared<k3::Material>();
+        auto grip = std::make_shared<k3::Material>();
+
+        metal->diffuse = {0.09f, 0.09f, 0.1f, 1.0f};
+        metal->specular = {0.4f, 0.4f, 0.4f, 1.0f};
+        metal->shininess = 48.0f;
+        grip->diffuse = {0.03f, 0.03f, 0.035f, 1.0f};
+        model->primitives.push_back({boxMesh({0.07f, 0.09f, 0.36f}, 1.0f), metal});
+        model->primitives.push_back({boxMesh({0.05f, 0.13f, 0.07f}, 1.0f), grip});
+        // (the grip is under the body of the gun, near its back: moved in the vertices, a model has no offsets)
+        for (auto& vertex : std::const_pointer_cast<k3::Mesh>(model->primitives[1].mesh)->positions) {
+            vertex = {vertex.x, vertex.y - 0.1f, vertex.z + 0.1f};
+        }
+        // (the light of the muzzle: a pure colour that shows)
+        auto light = std::make_shared<k3::Material>();
+
+        light->diffuse = {1.0f, 0.3f, 0.0f, 1.0f};
+        light->unlit = true;
+        model->primitives.push_back({boxMesh({0.025f, 0.025f, 0.02f}, 1.0f), light});
+        for (auto& vertex : std::const_pointer_cast<k3::Mesh>(model->primitives[2].mesh)->positions) {
+            vertex = {vertex.x, vertex.y + 0.06f, vertex.z - 0.16f};
+        }
+        return model;
     }
 
     //! A bullet: long, thin, bright (a pure yellow), and facing where it goes (-z at rest)

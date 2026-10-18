@@ -114,6 +114,19 @@ namespace arena
     Vec3 aim(float yaw, float pitch);
     k3::Math::Vector4f facing(float yaw, float pitch);
 
+    //! What a client simulates besides its player, to be stopped by what stops it on the server, and to push what it
+    //! pushes: the crates (bodies that are simulated there too, and put back where the server has them when they are
+    //! too far from it), and the other players (bodies that stand where they are shown: not pushed). `shown` is the
+    //! world the client draws, with the replicated entities.
+    struct Proxies
+    {
+        std::map<std::uint32_t, kw::Entity>  bodies;       //!< By network id
+        kw::World*                           of = nullptr; //!< The predicted world they are in (a new one: they are gone)
+    };
+
+    //! Once per tick, before the physics of the predicted world; `me` is the network id of the player
+    void syncProxies(Proxies& proxies, kw::World& predicted, kw::World& shown, std::uint32_t me);
+
     // -- The rules (the room's) ---------------------------------------------------------------------------------
 
     //! A resource of the room's World
@@ -128,6 +141,10 @@ namespace arena
         std::uint32_t                 spawned = 0;   //!< Bodies made: it varies where the next appears
         std::uint32_t                 winner = 0;    //!< 0: nobody yet
     };
+
+    //! A crate: a cube of 1 m that a player pushes (the room has them all; a client has the ones near its player,
+    //! to predict what it pushes)
+    kw::Entity buildCrate(kw::World& world, Vec3 at, k3::Math::Vector4f rotation = {0.0f, 0.0f, 0.0f, 1.0f});
 
     //! The crates
     void buildGame(kw::World& world);

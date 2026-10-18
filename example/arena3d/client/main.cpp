@@ -32,6 +32,12 @@ int main(int argc, char** argv)
             options.port = static_cast<std::uint16_t>(std::atoi(argv[++i]));
         } else if (!std::strcmp(argv[i], "--name") && i + 1 < argc) {
             options.name = argv[++i];
+        } else if (!std::strcmp(argv[i], "--sensitivity") && i + 1 < argc) {
+            options.sensitivity = static_cast<float>(std::atof(argv[++i]));
+        } else if (!std::strcmp(argv[i], "--day") && i + 1 < argc) {
+            options.daySeconds = std::atof(argv[++i]);
+        } else if (!std::strcmp(argv[i], "--third-person")) {
+            options.firstPerson = false;
         } else if (!std::strcmp(argv[i], "--assets") && i + 1 < argc) {
             options.assets = argv[++i];
         } else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
@@ -39,7 +45,7 @@ int main(int argc, char** argv)
         } else if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
             screenshot = argv[++i];
         } else {
-            Logger::logger().error("usage: arena3d_client [--host H] [--port P] [--name N] [--assets DIR] [--frames N [--screenshot f.ppm]]");
+            Logger::logger().error("usage: arena3d_client [--host H] [--port P] [--name N] [--sensitivity DEG] [--day SECONDS] [--third-person] [--assets DIR] [--frames N [--screenshot f.ppm]]");
             return 2;
         }
     }
@@ -47,9 +53,9 @@ int main(int argc, char** argv)
         kuge::WindowConfig window;
 
         window.title = "KUGE Arena";
-        window.width = 640;
-        window.height = 360;
-        options.captureMouse = frames == 0;
+        window.width = frames > 0 ? 640 : 1280;      // (a script has a small one: it is drawn by the CPU)
+        window.height = frames > 0 ? 360 : 720;
+        window.resizable = true;
         kuge::Engine engine(kuge::Engine::Config{.mode = kuge::Engine::Mode::Windowed, .tickRate = 60});
         auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend(window));
         auto report = std::make_shared<arena::ClientReport>();

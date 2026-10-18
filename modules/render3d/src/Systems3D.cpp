@@ -209,6 +209,23 @@ bool kuge::ModelRender::handle(kw::World& world)
             animation.animator.draw(rasterizer, shown(world, entity, alpha).matrix());
         }
     }
+    // What the player holds goes in a layer of its own, over the scene
+    for (kw::Entity entity : world.view<ViewModel3D>()) {
+        const ViewModel3D& held = world.get<ViewModel3D>(entity);
+
+        if (!held.visible || !held.model) {
+            continue;
+        }
+        k3::Camera layer;
+
+        layer.position = {0.0f, 0.0f, 0.0f};
+        layer.fovY = held.fovY;
+        layer.nearPlane = 0.02f;
+        layer.farPlane = 10.0f;
+        rasterizer.beginLayer(layer);
+        rasterizer.draw(*held.model, k3::Math::Matrix4::translate({held.offset.x, held.offset.y, held.offset.z + held.kick}));
+        break;       // (one is held at a time: the lowest entity)
+    }
     rasterizer.endFrame();
     environment.lights.resize(sceneLights);
 
