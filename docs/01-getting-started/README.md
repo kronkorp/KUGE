@@ -7,7 +7,8 @@
 - No library to install by hand: the client module's (SDL2, SDL2_mixer, SDL2_ttf) come from vcpkg,
   which the first `cmake` clones into `.vcpkg/` and which builds them once. The core, the physics,
   the network, the server and the replication need none of them: with `-DKUGE_BUILD_CLIENT=OFF`,
-  a server builds with no SDL at all.
+  a server builds with no SDL at all. The 3D physics needs Jolt, which vcpkg builds too (a few
+  minutes the first time): `-DKUGE_BUILD_PHYSICS3D=OFF` for a game that has none.
 - On Linux, the headers SDL is built against (display and sound). On Debian or Ubuntu:
 
   ```sh
@@ -48,6 +49,7 @@ is not set, `cmake/Vcpkg.cmake` clones vcpkg at that baseline into `.vcpkg/`.
 | Option | Default | What it does |
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build the client module. Turn it off for a server: no SDL needed. |
+| `KUGE_BUILD_PHYSICS3D` | `ON` | Build the 3D physics module (Jolt, from vcpkg). |
 | `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |

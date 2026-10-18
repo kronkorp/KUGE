@@ -84,6 +84,7 @@ ctest --test-dir build --output-on-failure
 | Option | Default | What it does |
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build `kuge-client` (needs SDL2, SDL2_mixer, SDL2_ttf). Turn it off for a server. |
+| `KUGE_BUILD_PHYSICS3D` | `ON` | Build `kuge-physics3d` (needs Jolt, from vcpkg). A server of a 2D game can turn it off. |
 | `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
@@ -101,7 +102,8 @@ above are):
   `vcpkg.json` lists them, and its `builtin-baseline` (a commit of vcpkg) fixes their versions.
   The vcpkg used is the toolchain given with `-DCMAKE_TOOLCHAIN_FILE`, or else the one in
   `VCPKG_ROOT`, or else vcpkg cloned at the baseline into `.vcpkg/` (`cmake/Vcpkg.cmake`). With
-  `-DKUGE_BUILD_CLIENT=OFF`, none of them is built.
+  `-DKUGE_BUILD_CLIENT=OFF`, none of them is built. The 3D physics (Jolt) comes from vcpkg too, with
+  its `rtti` feature (KUGE is built with RTTI); `-DKUGE_BUILD_PHYSICS3D=OFF` leaves it out.
 
 A game that fetches KUGE as a subproject lists SDL2 & co. in its own `vcpkg.json`, and gives the
 vcpkg toolchain to its own build: vcpkg only reads the manifest of the top-level project.
