@@ -117,7 +117,9 @@ namespace arena
 
             transform.translation = at;
             collider.friction = 0.6f;
-            body.mass = 60.0f;     // heavy, but a player pushes it
+            body.mass = 100.0f;           // heavy, but a player pushes it
+            body.linearDamping = 0.6f;    // it stops soon after it is let go
+            body.angularDamping = 2.0f;   // and does not tumble for long
             world.add<kuge::Transform3D>(crate, transform);
             world.add<kuge::Collider3D>(crate, collider);
             world.add<kuge::Body3D>(crate, body);

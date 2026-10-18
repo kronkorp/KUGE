@@ -50,7 +50,8 @@ namespace kuge
         float distance = 5.0f;                         //!< Orbit only
         float yaw = 0.0f;                              //!< Radians, as k3::Camera: positive turns right
         float pitch = 0.0f;                            //!< Radians, positive looks up
-        float sensitivity = 0.0025f;                   //!< Radians per pixel of the mouse
+        float sensitivity = 0.0013f;                   //!< Radians per pixel of the mouse (0.075 degrees)
+        float maxMove = 250.0f;                        //!< The most pixels of mouse that count in a frame: more is a glitch, not a hand
         float minPitch = -1.5f;                        //!< (a little less than a quarter turn: not straight down)
         float maxPitch = 1.5f;
         bool  look = true;                             //!< Follows the mouse (false: the game sets yaw and pitch)

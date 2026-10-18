@@ -57,8 +57,8 @@ int main(int argc, char** argv)
             kuge::WindowConfig window;
 
             window.title = "KUGE Arena (host)";
-            window.width = 640;
-            window.height = 360;
+            window.width = 1280;
+            window.height = 720;
             kuge::Engine engine(kuge::Engine::Config{.mode = kuge::Engine::Mode::Windowed, .tickRate = 60});
             auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend(window));
             auto report = std::make_shared<arena::ClientReport>();

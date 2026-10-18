@@ -143,7 +143,8 @@ bool kuge::UpdateCamera::handle(kw::World& world)
     CameraRig& rig = world.get<CameraRig>(chosen);
 
     if (rig.look) {
-        const Vec2 mouse = world.getResource<Ref<InputMap>>()->mouseDelta();
+        const Vec2 raw = world.getResource<Ref<InputMap>>()->mouseDelta();
+        const Vec2 mouse{std::clamp(raw.x, -rig.maxMove, rig.maxMove), std::clamp(raw.y, -rig.maxMove, rig.maxMove)};
 
         rig.yaw += mouse.x * rig.sensitivity;
         rig.pitch = std::clamp(rig.pitch - mouse.y * rig.sensitivity, rig.minPitch, rig.maxPitch);

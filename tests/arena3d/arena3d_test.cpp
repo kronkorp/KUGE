@@ -211,6 +211,44 @@ Test(arena, crates_are_pushed)
     Assert(sim.where(body).x < 10.0f, "and the player followed it: x = %f", sim.where(body).x);
 }
 
+Test(arena, pushing_a_crate_is_smooth)
+{
+    Sim sim(true);
+    const kw::Entity body = sim.player(1, {17.0f, 1.0f, 3.0f}, -PI / 2);
+    kw::Entity crate = 0;
+
+    for (kw::Entity entity : sim.world().view<kuge::Collider3D>()) {
+        if (sim.world().has<kuge::Body3D>(entity) && !sim.world().has<Owned>(entity)
+            && near(sim.where(entity).x, 11.0f, 0.1f) && near(sim.where(entity).z, 3.0f, 0.1f)) {
+            crate = entity;
+        }
+    }
+    sim.ticks(60);
+    float highestPlayer = 0.0f;
+    float fastestCrate = 0.0f;
+    float tiltedCrate = 0.0f;
+    float lowestCrate = 1.0f;
+    float highestCrate = 0.0f;
+
+    for (int t = 0; t < 240; ++t) {                  // four seconds against the crate, then past it
+        steerPlayer(sim.world(), body, Sim::steer(1, 0, -PI / 2));
+        sim.ticks(1);
+        const auto& velocity = sim.world().get<kuge::Body3D>(crate).velocity;
+
+        highestPlayer = std::max(highestPlayer, sim.where(body).y);
+        fastestCrate = std::max(fastestCrate, std::sqrt(velocity.x * velocity.x + velocity.z * velocity.z));
+        tiltedCrate = std::max(tiltedCrate, std::fabs(sim.world().get<kuge::Transform3D>(crate).rotation.x) + std::fabs(sim.world().get<kuge::Transform3D>(crate).rotation.z));
+        lowestCrate = std::min(lowestCrate, sim.where(crate).y);
+        highestCrate = std::max(highestCrate, sim.where(crate).y);
+    }
+    Assert(highestPlayer < 1.0f, "the player does not ride up the crate: y = %f", highestPlayer);
+    Assert(fastestCrate < WALK_SPEED + 0.1f, "the crate goes no faster than the player that pushes it: %f m/s", fastestCrate);
+    Assert(tiltedCrate < 0.1f, "and does not tip over: %f", tiltedCrate);
+    Assert(lowestCrate > 0.45f && highestCrate < 0.6f, "it stays on the floor: %f to %f", lowestCrate, highestCrate);
+    Assert(sim.where(crate).x < 8.0f, "it was pushed: x = %f", sim.where(crate).x);
+    Assert(sim.where(crate).x > 5.4f, "and stopped by the platform, not through it: x = %f", sim.where(crate).x);
+}
+
 Test(arena, shots_hurt_and_kill)
 {
     Sim sim;
