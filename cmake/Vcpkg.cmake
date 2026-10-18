@@ -15,10 +15,14 @@ if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     return()
 endif()
 
-# The client's libraries are a feature of the manifest: a server (KUGE_BUILD_CLIENT=OFF) builds
+# The client's libraries and Jolt are features of the manifest: a server (KUGE_BUILD_CLIENT=OFF) builds
 # without SDL, as it links without it
 if(NOT DEFINED KUGE_BUILD_CLIENT OR KUGE_BUILD_CLIENT)
     list(APPEND VCPKG_MANIFEST_FEATURES client)
+endif()
+# Same for the 3D physics (Jolt)
+if(NOT DEFINED KUGE_BUILD_PHYSICS3D OR KUGE_BUILD_PHYSICS3D)
+    list(APPEND VCPKG_MANIFEST_FEATURES physics3d)
 endif()
 
 set(KUGE_VCPKG_DIR "${CMAKE_SOURCE_DIR}/.vcpkg" CACHE PATH "Where vcpkg is cloned when VCPKG_ROOT is not set")

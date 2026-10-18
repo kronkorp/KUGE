@@ -2,6 +2,7 @@
 
 #include "Replication.hpp"
 #include "AnimationState3D.hpp"
+#include "Physics3DComponents.hpp"
 #include "PhysicsComponents.hpp"
 #include "Transform2D.hpp"
 #include "Transform3D.hpp"
@@ -57,6 +58,27 @@ namespace kuge::replication
             },
             [](const Transform3D& a, const Transform3D& b, float k) { return lerp(a, b, k); },
             predicted);
+    }
+
+    //! Body3D: its kind, its velocity, and the rest of what the physics needs to simulate it again
+    //! @param predicted  Part of what a client simulates for its own entity
+    inline std::size_t registerBody3D(ReplicationRegistry& registry, Replicate mode = Replicate::OnChange, bool predicted = false)
+    {
+        return registry.component<Body3D>("Body3D", mode,
+            [](ByteWriter& out, const Body3D& b) {
+                out.write(b.type); out.write(b.velocity.x); out.write(b.velocity.y); out.write(b.velocity.z);
+                out.write(b.gravityScale); out.write(b.mass); out.write(b.lockRotation); out.write(b.grounded);
+            },
+            [](ByteReader& in) {
+                Body3D b;
+
+                b.type = in.read<Body3D::Type>();
+                b.velocity.x = in.read<float>(); b.velocity.y = in.read<float>(); b.velocity.z = in.read<float>();
+                b.gravityScale = in.read<float>(); b.mass = in.read<float>();
+                b.lockRotation = in.read<bool>(); b.grounded = in.read<bool>();
+                return b;
+            },
+            {}, predicted);
     }
 
     //! AnimationState3D: the clip of a character. Sent when it changes; the client plays it (see PlayReplicatedClips).

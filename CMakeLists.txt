@@ -32,6 +32,7 @@ endif()
 
 option(KUGE_BUILD_SHARED  "Also build kuge.so, an aggregate of every module" ON)
 option(KUGE_BUILD_CLIENT  "Build the client module (window, inputs, 2D rendering: needs SDL2)" ON)
+option(KUGE_BUILD_PHYSICS3D "Build the 3D physics module (needs Jolt)" ON)
 option(BUILD_EXAMPLES     "Build the example/ executables" OFF)
 option(BUILD_TESTS        "Build the tests (run them with ctest)" OFF)
 set(KUGE_SANITIZE "" CACHE STRING "Build with a sanitizer: address (+ undefined) or thread")
@@ -116,6 +117,18 @@ if(KUGE_BUILD_CLIENT)
     endforeach()
 endif()
 
+# Jolt (3D physics), from vcpkg too
+if(KUGE_BUILD_PHYSICS3D)
+    if(NOT VCPKG_TOOLCHAIN)
+        message(FATAL_ERROR
+            "The 3D physics module needs Jolt, which comes from vcpkg, and this build has no vcpkg toolchain. "
+            "Built on its own, KUGE finds one (cmake/Vcpkg.cmake). A game that fetches KUGE: pass "
+            "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake and list joltphysics (with "
+            "its rtti feature) in the game's vcpkg.json, or -DKUGE_BUILD_PHYSICS3D=OFF.")
+    endif()
+    find_package(Jolt CONFIG REQUIRED)
+endif()
+
 FetchContent_Declare(
     kronkflow
     GIT_REPOSITORY https://github.com/kronkorp/kronkflow
@@ -157,6 +170,9 @@ add_subdirectory(modules/net)
 add_subdirectory(modules/server)
 add_subdirectory(modules/replication)
 add_subdirectory(modules/physics)
+if(KUGE_BUILD_PHYSICS3D)
+    add_subdirectory(modules/physics3d)
+endif()
 if(KUGE_BUILD_CLIENT)
     add_subdirectory(modules/client)
     add_subdirectory(modules/render3d)
