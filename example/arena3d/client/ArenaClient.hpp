@@ -386,7 +386,8 @@ namespace arena
 
         steer.forward = static_cast<std::int8_t>((actions.isDown(Action::Forward) ? 1 : 0) - (actions.isDown(Action::Back) ? 1 : 0));
         steer.strafe = static_cast<std::int8_t>((actions.isDown(Action::Right) ? 1 : 0) - (actions.isDown(Action::Left) ? 1 : 0));
-        steer.jump = actions.isDown(Action::Jump);
+        // (a tap shorter than a tick is still a jump: ActionState keeps what was pressed since the last tick)
+        steer.jump = actions.isDown(Action::Jump) || actions.wasPressed(Action::Jump);
         // Esc gives the mouse back; a click takes it again (and that click does not fire)
         bool taken = false;
 
@@ -396,7 +397,7 @@ namespace arena
             capture(true);
             taken = true;
         }
-        steer.fire = m_captured && !taken && actions.isDown(Action::Fire);
+        steer.fire = m_captured && !taken && (actions.isDown(Action::Fire) || actions.wasPressed(Action::Fire));
         if (m_prediction) {
             if (const auto body = m_prediction->entity(); body && world.has<kuge::CameraRig>(*body)) {
                 auto& rig = world.get<kuge::CameraRig>(*body);

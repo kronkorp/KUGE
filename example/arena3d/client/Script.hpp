@@ -52,10 +52,8 @@ namespace arena
         if (frame == 220) {
             input.handle(kuge::KeyEvent{Key::Space, true});
         }
-        if (frame == 225) {
-            input.handle(kuge::KeyEvent{Key::Space, false});
-        }
         if (frame == 235) {
+            input.handle(kuge::KeyEvent{Key::Space, false});      // (a quarter of a second: a tap a slow machine can see)
             input.handle(kuge::KeyEvent{Key::W, false});
         }
         if (frame == 260) {
