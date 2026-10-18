@@ -66,20 +66,8 @@ int main(int argc, char** argv)
         if (frames == 0) {
             return engine.run();
         }
-        // Scripted: as fast as it goes, but the server lives in real time, so a frame waits for its time
-        auto next = std::chrono::steady_clock::now();
-
-        for (int frame = 0; frame < frames; ++frame) {
-            arena::scriptedPlayer(client.input(), frame);
-            if (frame == frames - 1) {
-                client.requestScreenshot();
-            }
-            if (!engine.step(1.0 / 60.0)) {
-                break;
-            }
-            next += std::chrono::microseconds(16667);      // (the schedule is absolute: the frames do not drift from the clock of the server)
-            std::this_thread::sleep_until(next);
-        }
+        // Scripted: in real time (the server lives in real time), for as many frames as asked at 60 a second
+        arena::playScript(engine, client, frames);
         if (screenshot) {
             const auto image = client.takeScreenshot();
 
