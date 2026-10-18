@@ -50,10 +50,23 @@ namespace kuge
         float distance = 5.0f;                         //!< Orbit only
         float yaw = 0.0f;                              //!< Radians, as k3::Camera: positive turns right
         float pitch = 0.0f;                            //!< Radians, positive looks up
-        float sensitivity = 0.0025f;                   //!< Radians per pixel of the mouse
+        float sensitivity = 0.0013f;                   //!< Radians per pixel of the mouse (0.075 degrees)
+        float maxMove = 250.0f;                        //!< The most pixels of mouse that count in a frame: more is a glitch, not a hand
         float minPitch = -1.5f;                        //!< (a little less than a quarter turn: not straight down)
         float maxPitch = 1.5f;
         bool  look = true;                             //!< Follows the mouse (false: the game sets yaw and pitch)
+    };
+
+    //! What a first-person player holds (a component, on an entity of its own: it has no Transform3D): a model
+    //! drawn in front of everything, from the camera, with a field of view of its own, so that it never goes
+    //! through a wall (kronk3d's "layer"). `offset` is where it is from the eyes: x to the right, y up, -z ahead.
+    struct ViewModel3D
+    {
+        std::shared_ptr<const k3::Model> model;
+        k3::Math::Vector3f offset{0.22f, -0.2f, -0.45f};
+        float  kick = 0.0f;                     //!< Meters it is pulled back (a recoil: the game moves it)
+        float  fovY = 0.9f;                     //!< Radians
+        bool   visible = true;
     };
 
     //! How many times a glTF model was reloaded in place (a resource of the World): an Animator3D made

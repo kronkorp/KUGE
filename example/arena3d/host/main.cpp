@@ -16,20 +16,33 @@
 #include "backend/SdlBackend.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <thread>
 
 int main(int argc, char** argv)
 {
     int frames = 0;
     const char* screenshot = nullptr;
+    std::filesystem::path assets = ARENA_ASSETS_DIR;
+    float sensitivity = 0.075f;
+    double daySeconds = 150.0;
+    bool firstPerson = true;
 
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
+        if (!std::strcmp(argv[i], "--sensitivity") && i + 1 < argc) {
+            sensitivity = static_cast<float>(std::atof(argv[++i]));
+        } else if (!std::strcmp(argv[i], "--day") && i + 1 < argc) {
+            daySeconds = std::atof(argv[++i]);
+        } else if (!std::strcmp(argv[i], "--third-person")) {
+            firstPerson = false;
+        } else if (!std::strcmp(argv[i], "--assets") && i + 1 < argc) {
+            assets = argv[++i];
+        } else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
             frames = std::atoi(argv[++i]);
         } else if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
             screenshot = argv[++i];
         } else {
-            Logger::logger().error("usage: arena3d_host [--frames N [--screenshot f.ppm]]");
+            Logger::logger().error("usage: arena3d_host [--sensitivity DEG] [--day SECONDS] [--third-person] [--assets DIR] [--frames N [--screenshot f.ppm]]");
             return 2;
         }
     }
@@ -53,8 +66,9 @@ int main(int argc, char** argv)
             kuge::WindowConfig window;
 
             window.title = "KUGE Arena (host)";
-            window.width = 640;
-            window.height = 360;
+            window.width = frames > 0 ? 640 : 1280;      // (a script has a small one: it is drawn by the CPU)
+            window.height = frames > 0 ? 360 : 720;
+            window.resizable = true;
             kuge::Engine engine(kuge::Engine::Config{.mode = kuge::Engine::Mode::Windowed, .tickRate = 60});
             auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend(window));
             auto report = std::make_shared<arena::ClientReport>();
@@ -63,25 +77,16 @@ int main(int argc, char** argv)
             engine.addModule<kuge::Render3DModule>();
             options.sockets = false;
             options.network = &network;
-            options.captureMouse = frames == 0;
+                options.assets = assets;
+            options.sensitivity = sensitivity;
+            options.daySeconds = daySeconds;
+            options.firstPerson = firstPerson;
             arena::bindDefaults(client.input());
             engine.scenes().change<arena::ArenaScene>(options, report);
             if (frames == 0) {
                 engine.run();
             } else {
-                auto next = std::chrono::steady_clock::now();
-
-                for (int frame = 0; frame < frames; ++frame) {
-                    arena::scriptedPlayer(client.input(), frame);
-                    if (frame == frames - 1) {
-                        client.requestScreenshot();
-                    }
-                    if (!engine.step(1.0 / 60.0)) {
-                        break;
-                    }
-                    next += std::chrono::microseconds(16667);      // (the schedule is absolute: the frames do not drift from the clock of the server)
-                    std::this_thread::sleep_until(next);
-                }
+                arena::playScript(engine, client, frames);
                 if (screenshot) {
                     const auto image = client.takeScreenshot();
 
@@ -90,10 +95,15 @@ int main(int argc, char** argv)
                         status = 1;
                     }
                 }
-                Logger::logger().info("report: joined={} games={} ended={} players={} coins={}(max {}) score={} corrections={}",
-                    report->joined, report->games, report->gamesEnded, report->players, report->coins, report->mostCoins,
-                    report->score, report->prediction.corrections);
-                if (status == 0 && !(report->joined && report->mostPlayers >= 1 && report->mostCoins >= 1 && report->score >= 1)) {
+                std::string clips;
+
+                for (const auto& clip : report->clips) {
+                    clips += clip + " ";
+                }
+                Logger::logger().info("report: joined={} games={} ended={} players={} crates={} bullets={}(max {}) health={} clips=[{}] corrections={}",
+                    report->joined, report->games, report->gamesEnded, report->players, report->crates, report->bullets, report->mostBullets,
+                    report->health, clips, report->prediction.corrections);
+                if (status == 0 && !arena::scriptPassed(*report)) {
                     status = 3;
                 }
             }

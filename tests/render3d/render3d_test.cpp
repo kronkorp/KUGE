@@ -211,3 +211,41 @@ Test(render3d, previous_follows_the_tick)
         AssertEq(fx.world().get<kuge::PreviousTransform3D>(entity).value.translation.x, 1.0f, "where it was at the tick");
     }
 }
+
+Test(render3d, what_is_held_is_in_front)
+{
+    // A wall of blue right in front of the camera, and a small red thing held low on the right: the wall
+    // does not hide it (it is drawn in a layer of its own, from the camera)
+    const auto flat = [](float half, float r, float g, float b) {
+        auto mesh = std::make_shared<k3::Mesh>();
+        auto material = std::make_shared<k3::Material>();
+        auto model = std::make_shared<k3::Model>();
+
+        mesh->positions = {{-half, -half, 0.f}, {half, -half, 0.f}, {half, half, 0.f}, {-half, half, 0.f}};
+        mesh->indices = {0, 1, 2, 0, 2, 3};
+        mesh->computeNormals();
+        material->diffuse = {r, g, b, 1.f};
+        material->unlit = true;
+        material->doubleSided = true;
+        model->primitives.push_back({mesh, material});
+        return std::shared_ptr<const k3::Model>(model);
+    };
+    Fixture fx([&flat](Scene& scene) {
+        lookAtQuad(scene);
+
+        const kw::Entity wall = scene.world().create();
+        const kw::Entity held = scene.world().create();
+        kuge::Transform3D transform;
+
+        transform.translation = {0.f, 0.f, 4.0f};     // between the camera (z = 5) and the origin: 1 m ahead
+        scene.world().add<kuge::Transform3D>(wall, transform);
+        scene.world().add<kuge::Model3D>(wall, kuge::Model3D{flat(20.0f, 0.f, 0.f, 1.f)});
+        scene.world().add<kuge::ViewModel3D>(held, kuge::ViewModel3D{flat(0.1f, 1.f, 0.f, 0.f)});
+    });
+    const auto& calls = fx.frame();
+    const std::uint8_t* middle = fx.pixel(calls, 32, 24);
+    const std::uint8_t* hand = fx.pixel(calls, 53, 41);
+
+    Assert(middle && middle[2] > 200 && middle[0] < 40, "the wall is there");
+    Assert(hand && red(hand), "and what is held is over it, low on the right");
+}

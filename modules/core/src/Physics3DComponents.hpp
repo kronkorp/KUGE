@@ -107,12 +107,17 @@ namespace kuge
         k3::Math::Vector3f velocity{};         //!< Meters per second
         float              gravityScale = 1.0f;
         float              mass = 0.0f;        //!< Kilograms; 0: from the size of the shape (1000 kg per cubic meter)
-        bool               lockRotation = false;   //!< Stays upright: a character that does not fall over
+        float              linearDamping = 0.05f;  //!< Slows it down by itself (a crate that stops sliding)
+        float              angularDamping = 0.05f; //!< Same for its turning
+        //! Stays upright: a character that does not fall over. It does not rub against walls either: pressed
+        //! against one in the air, it falls (a body that is driven by a velocity would stick to it).
+        bool               lockRotation = false;
         bool               grounded = false;   //!< Written by the physics: stands on something that is not a trigger
 
         constexpr bool operator==(const Body3D& o) const noexcept
         {
             return type == o.type && sameVector(velocity, o.velocity) && gravityScale == o.gravityScale && mass == o.mass
+                && linearDamping == o.linearDamping && angularDamping == o.angularDamping
                 && lockRotation == o.lockRotation && grounded == o.grounded;
         }
     };

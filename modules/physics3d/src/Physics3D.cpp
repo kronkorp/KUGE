@@ -194,13 +194,20 @@ struct kuge::Physics3D::Impl final : public JPH::ContactListener
         return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
     }
 
-    void touch(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold, bool added)
+    void touch(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold, JPH::ContactSettings& settings, bool added)
     {
         const Record* first = recordOf(a);
         const Record* second = recordOf(b);
 
         if (!first || !second || !compatible(first->collider, second->collider)) {
             return;
+        }
+        // A character (upright) does not rub against a wall: friction is for the ground. Its velocity is set by the
+        // game at each tick, so a wall that held it would hold it up in the air.
+        const bool character = (first->hasBody && first->body.lockRotation) || (second->hasBody && second->body.lockRotation);
+
+        if (character && std::fabs(manifold.mWorldSpaceNormal.GetY()) < 0.7f) {
+            settings.mCombinedFriction = 0.0f;
         }
         if (a.IsSensor() || b.IsSensor()) {
             if (added) {
@@ -221,14 +228,14 @@ struct kuge::Physics3D::Impl final : public JPH::ContactListener
         }
     }
 
-    void OnContactAdded(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold, JPH::ContactSettings&) override
+    void OnContactAdded(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold, JPH::ContactSettings& settings) override
     {
-        touch(a, b, manifold, true);
+        touch(a, b, manifold, settings, true);
     }
 
-    void OnContactPersisted(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold, JPH::ContactSettings&) override
+    void OnContactPersisted(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold, JPH::ContactSettings& settings) override
     {
-        touch(a, b, manifold, false);
+        touch(a, b, manifold, settings, false);
     }
 
     void OnContactRemoved(const JPH::SubShapeIDPair& pair) override
@@ -253,7 +260,8 @@ struct kuge::Physics3D::Impl final : public JPH::ContactListener
     {
         return record.collider == collider && record.hasBody == (body != nullptr) && sameVector(record.scale, scale)
             && (!body || (record.body.type == body->type && record.body.mass == body->mass
-                && record.body.gravityScale == body->gravityScale && record.body.lockRotation == body->lockRotation));
+                && record.body.gravityScale == body->gravityScale && record.body.lockRotation == body->lockRotation
+                && record.body.linearDamping == body->linearDamping && record.body.angularDamping == body->angularDamping));
     }
 
     void make(Record& record, kw::Entity entity, const Transform3D& transform, const Collider3D& collider, const Body3D* body)
@@ -276,6 +284,8 @@ struct kuge::Physics3D::Impl final : public JPH::ContactListener
         if (body) {
             settings.mLinearVelocity = toJolt(body->velocity);
             settings.mGravityFactor = body->gravityScale;
+            settings.mLinearDamping = body->linearDamping;
+            settings.mAngularDamping = body->angularDamping;
             if (body->lockRotation) {
                 settings.mAllowedDOFs = JPH::EAllowedDOFs::TranslationX | JPH::EAllowedDOFs::TranslationY | JPH::EAllowedDOFs::TranslationZ;
             }

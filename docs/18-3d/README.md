@@ -67,6 +67,7 @@ As in 2D, give an entity a `PreviousTransform3D` (same value) and it is drawn be
 | `Light3D` | A `k3::Light` that follows its entity (at most 8 lights light the scene, the environment's first) |
 | `Animator3D` | A glTF model that plays clips (below) |
 | `CameraRig` | Makes the camera follow an entity, first person or orbiting (below) |
+| `ViewModel3D` | What a first-person player holds (a gun): drawn in front of everything, from the camera, with a field of view of its own, so that it never goes through a wall (kronk3d's "layer") |
 
 Systems run in this order each frame: `UpdateCamera`, `ModelRender` (draws the 3D), then the sprites and the
 interface, so **2D is over 3D**.
@@ -118,7 +119,12 @@ world.add<kuge::CameraRig>(player, kuge::CameraRig{.mode = kuge::CameraRig::Mode
 ```
 
 `UpdateCamera` turns `yaw` and `pitch` with the mouse and places the `k3::Camera`; read the rig's `yaw` to walk
-the way the player looks. There is no roll (`k3::Camera` has none).
+the way the player looks. There is no roll (`k3::Camera` has none). `sensitivity` is in radians per pixel (0.0013:
+0.075 degrees), and `maxMove` is the most pixels that count in one frame (a jump of the mouse is not a hand).
+
+The SDL backend looks after the mouse of a mouse look: it gives it back when the window loses the focus and takes it
+again when it gets it back, and the first move after it is taken carries no delta (the cursor is brought to the
+middle of the window). A game should let the player free the mouse (Arena: Esc gives it, a click takes it).
 
 ## Physics
 
@@ -137,7 +143,9 @@ world().add<kuge::Collider3D>(zone, kuge::Collider3D::sphere(2).asTrigger());   
 - **Shapes**: `box`, `sphere`, `capsule` (standing along y); `asTrigger()`, `onLayer(bits, meets)`; friction and
   restitution are fields.
 - **Bodies**: `Static`, `Kinematic` (moves by its velocity, pushes what it meets), `Dynamic` (gravity, pushed).
-  `lockRotation` keeps a character upright, `mass` is optional, `grounded` is written by the physics.
+  `lockRotation` keeps a character upright (and without friction against walls: pressed against one in the air it
+  falls instead of sticking), `mass` is optional, `linearDamping` and `angularDamping` slow a body down by itself (a
+  crate that stops sliding), `grounded` is written by the physics.
 - **The ECS is the truth**: what the game wrote in a `Transform3D` or a `velocity` since the last tick (a teleport,
   a walk) is given to Jolt; Jolt steps; the results are written back. A character walks by setting `velocity.x`
   and `velocity.z` and leaving `y` to the gravity.
@@ -169,37 +177,72 @@ in `ActionState`.
 
 ## Arena, a game in three programs
 
-`example/arena3d` is a small game that uses all of the above: up to four players run, jump and push crates in a
-walled room to take coins. Like R-Type it is a server, a client and a host that share one folder:
+`example/arena3d` is a small shooter that uses all of the above: up to four players run, jump, push crates and
+shoot one another on a map with ramps, platforms and cover; four hits kill, the dead come back after 2.5 seconds,
+the first to eight frags wins. Like R-Type it is a server, a client and a host that share one folder:
 
 ```
 example/arena3d/
-  common/   Arena.hpp/.cpp   what is shared: Steer (the input), the registry, the level, the rules
-  server/   ArenaRoom, main  a room: inputs, Jolt, coins, replication; the server has no window
-  client/   ArenaClient, Models, Script, main    the scene: models, camera, prediction, a HUD of squares
+  assets/   robot.glb (the Godot robot, with its clips), crate.obj, textures, make_assets.py
+  common/   Arena.hpp/.cpp   what is shared: Steer (the input), the registry, the rules
+            Map.hpp/.cpp     the map: boxes (some tilted into ramps), the spawns, the crates
+  server/   ArenaRoom, main  a room: inputs, Jolt, bullets, deaths, replication; the server has no window
+  client/   ArenaClient, Models, Script, main    the scene: assets, camera, prediction, a HUD
   host/     main             the room and the window in one process (a game that plays alone)
 ```
 
 ```sh
 cmake -S . -B build -DBUILD_EXAMPLES=ON
 build/example/kuge_arena3d_server &        # then, in other terminals:
-build/example/kuge_arena3d_client          # W A S D or the arrows, the mouse turns the view, Space jumps
+build/example/kuge_arena3d_client          # W A S D or the arrows, the mouse turns the view, Space jumps, the left
+                                           # button (or F) fires, V looks from the eyes or from behind, Esc frees the
+                                           # mouse (a click takes it again)
 build/example/kuge_arena3d_host            # or: both in one process
 ```
 
 What to read in it:
 
-- `common/Arena.cpp`: `steerPlayer` turns an input into a velocity (the room and the prediction both call it), and
-  `buildLevel` makes the floor and walls (the room and the prediction both build them).
-- `server/ArenaRoom.cpp`: the same shape as R-Type's room, with `Physics3D` in the `Physics` stage and
-  `collectCoins` after it (it reads `Physics3D::events()`).
-- `client/ArenaClient.hpp`: `spawned()` gives a model to what the server tells about, the camera rig to the
-  player's own body, and `tick()` sends the input with the yaw. The models are boxes made in code
-  (`client/Models.hpp`); a real game loads its own.
+- **The assets.** The character is **the robot of Godot's 3D platformer demo** (`robot.glb`, MIT: see
+  `assets/ROBOT.md`), a skinned glTF with the clips `idle`, `walk`, `run`, `jump`, `falling`, `shooting` and
+  `shooting_standing`. `client/Models.hpp` (`makeRobot`) makes a copy for each player: its size and direction, the
+  glowing part (the material `player_glow`) in the colour of the player, and a clip for dying (it falls on its back,
+  which the file does not have). The crate is an OBJ with its texture, the level has textures; `assets/make_assets.py`
+  makes those with the standard library only (the files are always the same). The client loads them with
+  `Render3DModule::animatedModels()` and `models()`.
+- **The map is one list** (`common/Map.cpp`) that makes two things: colliders (`buildLevel`, for the room and for
+  the prediction) and meshes (`LevelTextures::modelOf`, for the client). Ramps are boxes tilted by `ramp()`: a
+  floor you see is a floor you stand on.
+- **Moving** (`steerPlayer`): the room and the prediction both turn an input into a velocity, and turn the body the
+  way the player looks (so the other players see it face where it aims). Jolt does the rest: gravity, ramps, walls,
+  and the push of a player on a crate (a body of 70 kg on one of 60).
+- **Shooting** (`fire`, `stepRules`): a bullet is not a physics body (too fast): it is an entity that the rules move
+  at each tick, with a ray from where it was to where it goes (`Physics3D::raycast`). It hurts a player that is
+  not its shooter, shoves a crate, and stops at anything. Killing makes a corpse (an entity that plays `death`) and
+  schedules the return of the player: its body is removed, the client's prediction lets go of it and takes the
+  next one.
+- **The clips** (`stepRules`): the room picks the clip of each character from what it does (in the air for a few
+  ticks: `jump` going up, `falling` coming down; firing: `shooting` on the move, `shooting_standing` still; moving:
+  `run`; else `idle`) and says it in an `AnimationState3D`. Every client plays it (`PlayReplicatedClips`), for the
+  others and for itself.
+- **Prediction near crates and players** (`syncProxies`): the world that predicts a client's player has only the
+  level and the player, so it would walk through a crate that the room stops it at. The client puts in it the crates
+  (bodies simulated there too, put back where the server has them when they go too far) and the other players (bodies
+  that stand where they are shown), and the player is stopped and pushes as on the server.
+- **The view** (`client/ArenaClient.hpp`): first person by default (V changes it) with a gun held as a `ViewModel3D`
+  that kicks when it fires; fog; a day that goes by in 150 seconds (`--day SECONDS`) by the clock of the server, so
+  that every player has the same light: the sun and the moon are two directional lights, and the sky is one picture
+  that `applySky` dims and tints. The window is 1280x720 and can be resized; the mouse sensitivity is
+  `--sensitivity DEGREES_PER_PIXEL`.
+- `client/ArenaClient.hpp`: `spawned()` gives each kind of entity its model, the camera rig to the player's own body,
+  and `tick()` sends the input with the yaw and the pitch. The HUD is 2D sprites over the 3D: a crosshair, the health
+  bar, and a square of the colour of its shirt for each frag of each player.
 - `arena3d_smoke` (a test) starts the real programs on SDL's dummy screen: a client and then a host each join a
-  game, take the coin in front of them, and leave a picture in which a pure yellow (a coin) and a pure cyan (the
-  player) are looked for. The tests of the modules are in `tests/render3d`, `tests/physics3d` and
-  `tests/replication/replication3d_test.cpp`.
+  game and play a script (turn, run, jump, shoot). The exit code says that the character of the client played
+  `idle`, `run`, `jump` and `shoot`, and that its bullets were drawn; the shell looks in the picture for the pure
+  cyan of the shirt, the green of the health bar and the white of the crosshair, and for hundreds of other
+  colours. `kuge_arena3d_tests` plays the rules with no network and no screen: the map is free at every spawn,
+  ramps are walked up, walls hold, crates are pushed, shots hurt and kill and miss when aimed too high, the dead
+  come back, the match ends, each clip follows what the player does, and the assets load.
 
 ## What is not there yet
 

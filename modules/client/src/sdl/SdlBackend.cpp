@@ -173,7 +173,12 @@ namespace
         public:
             explicit SdlInput(std::shared_ptr<SdlContext> context) : m_context(std::move(context)) {}
 
-            void setRelativeMouse(bool on) override { SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE); }
+            void setRelativeMouse(bool on) override
+            {
+                m_relative = on;
+                SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE);
+                m_skipMove = on;
+            }
 
             void poll(std::vector<Event>& out) override
             {
@@ -196,6 +201,11 @@ namespace
                             out.push_back(QuitEvent{});
                         } else if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                             out.push_back(ResizeEvent{event.window.data1, event.window.data2});
+                        } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST && m_relative) {
+                            SDL_SetRelativeMouseMode(SDL_FALSE);    // (the cursor is given back to whoever has the focus now)
+                        } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED && m_relative) {
+                            SDL_SetRelativeMouseMode(SDL_TRUE);     // (and taken again when the window gets it back)
+                            m_skipMove = true;
                         }
                         break;
                     case SDL_KEYDOWN:
@@ -210,9 +220,12 @@ namespace
                         }
                         break;
                     case SDL_MOUSEMOTION:
+                        // The first move after the mouse is taken is a jump (the cursor is brought to the middle of
+                        // the window): its delta is not a movement of the hand
                         out.push_back(MouseMoveEvent{
                             {static_cast<float>(event.motion.x), static_cast<float>(event.motion.y)},
-                            {static_cast<float>(event.motion.xrel), static_cast<float>(event.motion.yrel)}});
+                            m_skipMove ? Vec2{} : Vec2{static_cast<float>(event.motion.xrel), static_cast<float>(event.motion.yrel)}});
+                        m_skipMove = false;
                         break;
                     case SDL_MOUSEBUTTONDOWN:
                     case SDL_MOUSEBUTTONUP:
@@ -277,6 +290,8 @@ namespace
             }
 
             std::shared_ptr<SdlContext> m_context;
+            bool                        m_relative = false;   //!< The game wants the mouse for a mouse look
+            bool                        m_skipMove = false;   //!< The next move is the mouse being taken: no delta
     };
 
     ////////////////////////////////////////////////////////////////////////////

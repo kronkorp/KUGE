@@ -51,11 +51,11 @@ Test(camera, the_mouse_turns_the_view)
 
     moveMouse(fx, 100.0f, -40.0f);
     fx.engine.step(0.0);
-    Assert(near(camera(fx).yaw, 0.25f), "100 pixels to the right: 0.25 rad");
-    Assert(near(camera(fx).pitch, 0.1f), "40 pixels up: looks up");
-    Assert(near(fx.world().get<kuge::CameraRig>(entity).yaw, 0.25f), "the game reads it in the rig");
+    Assert(near(camera(fx).yaw, 0.13f), "100 pixels to the right: 0.13 rad (0.0013 per pixel): %f", camera(fx).yaw);
+    Assert(near(camera(fx).pitch, 0.052f), "40 pixels up: looks up: %f", camera(fx).pitch);
+    Assert(near(fx.world().get<kuge::CameraRig>(entity).yaw, 0.13f), "the game reads it in the rig");
     fx.engine.step(0.0);
-    Assert(near(camera(fx).yaw, 0.25f), "a frame without moving does not turn it again");
+    Assert(near(camera(fx).yaw, 0.13f), "a frame without moving does not turn it again");
 }
 
 Test(camera, pitch_stops_before_the_pole)
@@ -63,12 +63,26 @@ Test(camera, pitch_stops_before_the_pole)
     Fixture fx;
 
     spawn(fx, 0.0f, 0.0f, 0.0f);
-    moveMouse(fx, 0.0f, -100000.0f);
-    fx.engine.step(0.0);
+    for (int i = 0; i < 10; ++i) {
+        moveMouse(fx, 0.0f, -250.0f);
+        fx.engine.step(0.0);
+    }
     Assert(near(camera(fx).pitch, 1.5f), "not straight up");
-    moveMouse(fx, 0.0f, 100000.0f);
-    fx.engine.step(0.0);
+    for (int i = 0; i < 20; ++i) {
+        moveMouse(fx, 0.0f, 250.0f);
+        fx.engine.step(0.0);
+    }
     Assert(near(camera(fx).pitch, -1.5f), "not straight down");
+}
+
+Test(camera, a_glitch_is_not_a_hand)
+{
+    Fixture fx;
+
+    spawn(fx, 0.0f, 0.0f, 0.0f);
+    moveMouse(fx, 100000.0f, 0.0f);      // (a jump of the mouse: the cursor brought to the middle of the window...)
+    fx.engine.step(0.0);
+    Assert(near(camera(fx).yaw, 250.0f * 0.0013f), "no more than 250 pixels count in a frame: %f", camera(fx).yaw);
 }
 
 Test(camera, orbit_stays_behind)

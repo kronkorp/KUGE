@@ -67,7 +67,8 @@ namespace kuge::replication
         return registry.component<Body3D>("Body3D", mode,
             [](ByteWriter& out, const Body3D& b) {
                 out.write(b.type); out.write(b.velocity.x); out.write(b.velocity.y); out.write(b.velocity.z);
-                out.write(b.gravityScale); out.write(b.mass); out.write(b.lockRotation); out.write(b.grounded);
+                out.write(b.gravityScale); out.write(b.mass); out.write(b.linearDamping); out.write(b.angularDamping);
+                out.write(b.lockRotation); out.write(b.grounded);
             },
             [](ByteReader& in) {
                 Body3D b;
@@ -75,6 +76,7 @@ namespace kuge::replication
                 b.type = in.read<Body3D::Type>();
                 b.velocity.x = in.read<float>(); b.velocity.y = in.read<float>(); b.velocity.z = in.read<float>();
                 b.gravityScale = in.read<float>(); b.mass = in.read<float>();
+                b.linearDamping = in.read<float>(); b.angularDamping = in.read<float>();
                 b.lockRotation = in.read<bool>(); b.grounded = in.read<bool>();
                 return b;
             },

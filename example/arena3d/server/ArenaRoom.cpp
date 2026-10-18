@@ -1,4 +1,5 @@
 #include "ArenaRoom.hpp"
+#include <algorithm>
 
 namespace arena
 {
@@ -36,24 +37,20 @@ namespace arena
 
     void ArenaRoom::onPlayerJoined(const Player& player)
     {
-        // Players start in a row, facing the same way: the first one has a coin right ahead
-        static constexpr float START_X[4] = {0.0f, 2.0f, -2.0f, 4.0f};
-        const float x = START_X[(player.networkId - 1) % 4];
-        const kw::Entity body = buildPlayer(world(), {x, 1.0f, 6.0f});
-
-        world().add<Score>(body, Score{});
-        world().add<Owned>(body, Owned{player.networkId});
-        m_replication->track(body, PLAYER, player.networkId);
+        spawnPlayer(world(), player.networkId);
         m_replication->addClient(player.connection);
         m_inputs->addClient(player.connection);
-        m_anyPlayer = true;
     }
 
     void ArenaRoom::onPlayerLeft(const Player& player, kuge::net::DisconnectReason)
     {
+        auto& respawns = world().getResource<Match>().respawns;
+
         if (const auto body = playerOf(world(), player.networkId)) {
             world().remove(*body);
         }
+        respawns.erase(std::remove_if(respawns.begin(), respawns.end(),
+            [&player](const Match::Respawn& respawn) { return respawn.player == player.networkId; }), respawns.end());
         m_replication->removeClient(player.connection);
         m_inputs->removeClient(player.connection);
     }
@@ -67,19 +64,22 @@ namespace arena
             if (!body) {
                 continue;
             }
-            // A jump is made once, even if the input is used again because the next one is late
+            // A jump is made once, and a shot too, even if the input is used again because the next one is late
             Steer steer = applied.input;
 
             steer.jump = steer.jump && !applied.repeated;
             steerPlayer(world, *body, steer);
+            if (steer.fire && !applied.repeated) {
+                fire(world, *body, steer);
+            }
             m_replication->setInputAck(applied.connection, applied.sequence);
         }
     }
 
     void ArenaRoom::afterPhysics(kw::World& world)
     {
-        collectCoins(world);
-        if (!finishing() && m_anyPlayer && !players().empty() && outcome(world) == Outcome::Won) {
+        stepRules(world);
+        if (!finishing() && finished(world)) {
             finish(kuge::net::RoomEnd::GameOver);
         }
     }

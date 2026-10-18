@@ -252,6 +252,32 @@ Test(physics3d, characters_stay_upright)
     Assert(near(sim.where(walker).y, 0.9f, 0.05f), "on its feet: y = %f", sim.where(walker).y);
 }
 
+Test(physics3d, a_character_falls_along_a_wall)
+{
+    kw::Entity walker = 0;
+    kuge::Body3D body;
+
+    body.lockRotation = true;
+    Sim sim([&](Level& level) {
+        floor(level.world());
+        thing(level.world(), {3.0f, 5.0f, 0.0f}, kuge::Collider3D::box(1.0f, 10.0f, 10.0f));     // a wall
+        walker = crate(level.world(), {2.0f, 8.0f, 0.0f}, kuge::Collider3D::capsule(0.4f, 1.8f), body);
+    });
+
+    // In the air, pushing against the wall (the game sets the velocity at each tick, as a walking player does)
+    for (int t = 0; t < 45; ++t) {
+        sim.body(walker).velocity.x = 4.0f;
+        sim.ticks(1);
+    }
+    Assert(near(sim.where(walker).x, 2.1f, 0.1f), "it is against the wall: x = %f", sim.where(walker).x);
+    Assert(sim.where(walker).y < 8.0f - 2.0f, "and it falls, the wall does not hold it: y = %f", sim.where(walker).y);
+    for (int t = 0; t < 60; ++t) {
+        sim.body(walker).velocity.x = 4.0f;
+        sim.ticks(1);
+    }
+    Assert(near(sim.where(walker).y, 0.9f, 0.1f) && sim.body(walker).grounded, "down on the floor: y = %f", sim.where(walker).y);
+}
+
 Test(physics3d, same_world_same_result)
 {
     const auto run = []() {
