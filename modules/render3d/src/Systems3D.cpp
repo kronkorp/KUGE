@@ -1,4 +1,5 @@
 #include "Systems3D.hpp"
+#include "AnimationState3D.hpp"
 #include "Animator3D.hpp"
 #include "Components3D.hpp"
 #include "animation/Animation.hpp"
@@ -56,6 +57,25 @@ namespace
         return transform;
     }
 
+}
+
+bool kuge::PlayReplicatedClips::handle(kw::World& world)
+{
+    for (kw::Entity entity : world.view<Animator3D, AnimationState3D>()) {
+        Animator3D& animation = world.get<Animator3D>(entity);
+        const AnimationState3D& state = world.get<AnimationState3D>(entity);
+
+        if (state.clip.empty() || !animation.model
+            || (animation.stateSerial == state.serial && animation.animator.clip() == state.clip)) {
+            continue;
+        }
+        if (animation.stateSerial != state.serial) {
+            animation.animator.stop();   // the same clip again starts over
+        }
+        animation.play(state.clip, k3::PlayOptions{.loop = state.loop});
+        animation.stateSerial = state.serial;
+    }
+    return true;
 }
 
 bool kuge::AnimateModels::handle(kw::World& world)
