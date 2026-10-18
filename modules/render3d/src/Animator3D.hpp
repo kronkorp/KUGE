@@ -49,6 +49,7 @@ namespace kuge
         std::string                next;       //!< Played when the clip ends (a clip that does not loop)
         float                      seen = -1;  //!< Time of the clip at the last tick, for the cues. -1: none yet.
         std::optional<std::uint64_t> revision; //!< ModelRevision seen by AnimateModels
+        std::optional<std::uint8_t>  stateSerial; //!< AnimationState3D::serial played by PlayReplicatedClips
 
         static Animator3D of(std::shared_ptr<const k3::AnimatedModel> model, std::string_view first = {},
             const k3::PlayOptions& options = {}, std::shared_ptr<const ClipCues> cues = {});

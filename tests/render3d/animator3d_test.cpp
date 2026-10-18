@@ -1,6 +1,7 @@
 extern "C" {
     #include "kronklab/kronklab.h"
 }
+#include "AnimationState3D.hpp"
 #include "Animator3D.hpp"
 #include "Components3D.hpp"
 #include "Transform3D.hpp"
@@ -167,4 +168,27 @@ Test(animator3d, a_reloaded_model_restarts)
     tick(fx);
     Assert(fx.world().get<kuge::Animator3D>(entity).animator.clip() == "walk", "the same clip");
     Assert(fx.world().get<kuge::Animator3D>(entity).animator.time() < 0.05f, "from its beginning");
+}
+
+Test(animator3d, a_replicated_clip_plays)
+{
+    Fixture fx;
+    const kw::Entity entity = spawn(fx, kuge::Animator3D::of(character(), "idle"));
+    auto animator = [&]() -> kuge::Animator3D& { return fx.world().get<kuge::Animator3D>(entity); };
+
+    fx.world().add<kuge::AnimationState3D>(entity, kuge::AnimationState3D{"walk", true, 1});
+    tick(fx);
+    Assert(animator().animator.clip() == "walk", "the clip of the state");
+    tick(fx, 20);
+    Assert(animator().animator.time() > 0.3f, "it plays");
+    fx.world().get<kuge::AnimationState3D>(entity) = kuge::AnimationState3D{"walk", true, 2};
+    tick(fx);
+    Assert(animator().animator.time() < 0.05f, "the same clip with another serial starts over");
+    fx.world().get<kuge::AnimationState3D>(entity) = kuge::AnimationState3D{"attack", false, 2};
+    tick(fx);
+    Assert(animator().animator.clip() == "attack", "another clip");
+    tick(fx, 30);
+    Assert(animator().animator.finished(), "which does not loop: it ends");
+    tick(fx, 30);
+    Assert(animator().animator.clip() == "attack", "and stays on its last pose: the state did not change");
 }

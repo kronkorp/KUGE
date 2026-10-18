@@ -17,6 +17,15 @@ namespace kuge
             bool handle(kw::World& world) override;
     };
 
+    //! Fixed, stage Late (before AnimateModels): plays on the Animator3D of an entity the clip that its
+    //! AnimationState3D says (what a server replicates). A clip that changes fades from the one before; a
+    //! `serial` that moves starts the clip again.
+    class PlayReplicatedClips : public kw::ISystem
+    {
+        public:
+            bool handle(kw::World& world) override;
+    };
+
     //! Fixed, stage Late (after AnimateSprites, which clears the events): moves the Animator3D forward by
     //! one tick, plays the clip that follows one that ended, and adds to AnimationEvents the cues that
     //! were crossed. Entities are handled by increasing number, so that the events always come in the
