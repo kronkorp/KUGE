@@ -2,7 +2,7 @@
 // What the scripted runs (--frames) share: a player that plays by itself, and the picture of a frame
 
 #include "ClientModule.hpp"
-#include <SDL.h>
+#include <SDL_events.h>   // (not SDL.h: on Windows it renames main to SDL_main, which needs the SDL2main library)
 #include <fstream>
 
 namespace arena
