@@ -159,6 +159,15 @@ set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kronknet-static)
 # kronk3d (v0.1.0) too, and it needs nothing from vcpkg. Its example and tests are off when it is
 # not the top-level project. Built only when a target links kronk3d::static (or kronk3d::shared).
 add_subdirectory(vendor/kronk3d EXCLUDE_FROM_ALL)
+# kronk3d's logger (modules/logger) is a copy of KUGE's, with the same global names (Logger, LoggerLevel...):
+# linked together, the two define the same symbols with different layouts (a duplicate definition, or worse, an
+# object of one built and used as the other's). Its names are changed for the compiler, in its logger and in the
+# file that uses it, so that the two never meet. To be done in kronk3d: a namespace.
+foreach(target kronk3d_logger kronk3d_objects)
+    target_compile_definitions(${target} PRIVATE
+        Logger=k3Logger LoggerLevel=k3LoggerLevel ILoggerHandler=k3ILoggerHandler ALoggerHandler=k3ALoggerHandler
+        FileLoggerHandler=k3FileLoggerHandler TtyLoggerHandler=k3TtyLoggerHandler ColorToLevel=k3ColorToLevel timeToStr=k3TimeToStr)
+endforeach()
 kuge_vendor(kronkworld DEPENDS kronkflow)
 
 # ---------------------------------------------------------------------------
