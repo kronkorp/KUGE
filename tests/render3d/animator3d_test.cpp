@@ -192,3 +192,41 @@ Test(animator3d, a_replicated_clip_plays)
     tick(fx, 30);
     Assert(animator().animator.clip() == "attack", "and stays on its last pose: the state did not change");
 }
+
+Test(animator3d, cues_come_from_a_text)
+{
+    const auto cues = kuge::parseCues(
+        "# the steps of a run\n"
+        "cue run 0.42 step   # the second\n"
+        "cue run 0.12 step\n"
+        "\n"
+        "cue attack 0.25 hit\n");
+
+    AssertEq(cues.size(), 2u, "two clips");
+    AssertEq(cues.at("run").size(), 2u, "two cues for run");
+    Assert(cues.at("run")[0].time < cues.at("run")[1].time, "in the order of their times");
+    Assert(cues.at("attack")[0].name == "hit" && cues.at("attack")[0].time == 0.25f, "a cue is a name at a time");
+
+    const auto fails = [](const char* text, const char* wanted) {
+        try {
+            kuge::parseCues(text);
+        } catch (const kuge::AnimationError& error) {
+            return std::string(error.what()).find(wanted) != std::string::npos;
+        }
+        return false;
+    };
+
+    Assert(fails("cue run 0.1 step\ncue run soon step\n", "line 2"), "a bad time says its line");
+    Assert(fails("cue run -1 step\n", "line 1"), "a negative time");
+    Assert(fails("\n\nrun 0.1 step\n", "line 3"), "without the word cue");
+    Assert(fails("cue run 0.1\n", "line 1"), "without a name");
+    Assert(fails("cue run 0.1 step more\n", "line 1"), "with too much");
+    bool missing = false;
+
+    try {
+        kuge::loadCues("/nothing/here.cues");
+    } catch (const kuge::AnimationError& error) {
+        missing = std::string(error.what()).find("here.cues") != std::string::npos;
+    }
+    Assert(missing, "a file that is not there is named");
+}

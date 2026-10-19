@@ -1,6 +1,5 @@
 #include "Render3DModule.hpp"
 #include "Engine.hpp"
-#include "Log.hpp"          // kronk3d's (setLogSink)
 #include "Logger.hpp"
 #include "Ref.hpp"
 #include <algorithm>
@@ -8,11 +7,11 @@
 #include <format>
 #include <kronk3d/io/GltfLoader.hpp>
 #include <kronk3d/io/ObjLoader.hpp>
+#include <kronk3d/utils/Log.hpp>
 
 namespace
 {
-    // kronk3d's messages go to KUGE's logger: one output, one format. (They would go to its own, which is a
-    // copy of KUGE's under other names, see the CMakeLists.txt at the root.)
+    // kronk3d's messages go to KUGE's logger: one output, one format. (They would go to its own, in k3::logging.)
     void logLikeKuge(k3::LogLevel level, std::string_view message)
     {
         switch (level) {

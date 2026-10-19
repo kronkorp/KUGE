@@ -2,6 +2,7 @@ extern "C" {
     #include "kronklab/kronklab.h"
 }
 #include "Components3D.hpp"
+#include "Picking.hpp"
 #include "Transform3D.hpp"
 #include "fixture.hpp"
 #include <cmath>
@@ -12,7 +13,7 @@ namespace
 {
     using render3d::Fixture;
 
-    bool near(float a, float b) { return std::fabs(a - b) < 1e-4f; }
+    bool near(float a, float b, float tolerance = 1e-4f) { return std::fabs(a - b) < tolerance; }
 
     kw::Entity spawn(Fixture& fx, float x, float y, float z, kuge::CameraRig rig = {})
     {
@@ -168,4 +169,31 @@ Test(camera, orbit_stops_before_a_wall)
     wall = 0.1f;
     fx.engine.step(0.0);
     Assert(camera(fx).position.z > 3.0f && camera(fx).position.z < 3.2f, "a wall right behind: the camera is almost on the point: %f", camera(fx).position.z);
+
+Test(camera, the_ray_under_a_pixel)
+{
+    k3::Camera view;
+    const kuge::Vec2 screen{800.0f, 600.0f};
+
+    view.position = {1.0f, 2.0f, 3.0f};
+    view.lookAt({1.0f, 2.0f, -7.0f});               // toward -z
+    const auto middle = kuge::screenRay(view, {399.5f, 299.5f}, screen);
+
+    Assert(near(middle.origin.x, 1.0f) && near(middle.origin.z, 3.0f), "from the eye");
+    Assert(near(middle.direction.z, -1.0f) && near(middle.direction.x, 0.0f) && near(middle.direction.y, 0.0f), "the middle looks ahead");
+    const auto right = kuge::screenRay(view, {800.0f - 0.5f, 299.5f}, screen);
+    const auto top = kuge::screenRay(view, {399.5f, -0.5f}, screen);
+    const float half = std::tan(view.fovY * 0.5f);
+
+    Assert(near(right.direction.x / -right.direction.z, half * 800.0f / 600.0f, 1e-3f), "the right edge: the half of the field of view, wider by the aspect: %f", right.direction.x / -right.direction.z);
+    Assert(near(top.direction.y / -top.direction.z, half, 1e-3f) && top.direction.y > 0.0f, "the top edge is up");
+    const auto corner = kuge::screenRay(view, {0.0f, 0.0f}, screen);
+
+    Assert(near(std::sqrt(corner.direction.x * corner.direction.x + corner.direction.y * corner.direction.y + corner.direction.z * corner.direction.z), 1.0f), "a unit vector");
+    Assert(corner.direction.x < 0.0f && corner.direction.y > 0.0f, "the top left looks left and up");
+    view.projection = k3::Projection::Orthographic;
+    view.orthoHeight = 10.0f;
+    const auto flat = kuge::screenRay(view, {0.0f, 299.5f}, screen);
+
+    Assert(near(flat.direction.z, -1.0f) && near(flat.origin.x, 1.0f - 5.0f * 800.0f / 600.0f, 0.01f), "orthographic: parallel rays, starting across the view: %f", flat.origin.x);
 }
