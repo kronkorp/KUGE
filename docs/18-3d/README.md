@@ -127,6 +127,9 @@ animator a `ClipCues` (`clip name -> [{time, name}]`) and the cues crossed arriv
 resource as the 2D ones. A static glTF is drawn by an `Animator3D` with no clip (its rest pose). The pose
 changes at each tick, not at each frame.
 
+Cues can come from a text instead of code: `parseCues` and `loadCues` read lines like `cue run 0.12 step` (clip, seconds since
+the clip began, name; a bad line is an `AnimationError` that says its number).
+
 On a network, the server has no model: it says which clip an entity plays with an `AnimationState3D`
 (`{clip, loop, serial}`, replicated), and `PlayReplicatedClips` plays it on the client's `Animator3D`. A `serial`
 that moves starts the same clip again. Nothing about the pose travels: every client animates by itself.
@@ -148,6 +151,16 @@ the way the player looks. There is no roll (`k3::Camera` has none). `sensitivity
 The SDL backend looks after the mouse of a mouse look: it gives it back when the window loses the focus and takes it
 again when it gets it back, and the first move after it is taken carries no delta (the cursor is brought to the
 middle of the window). A game should let the player free the mouse (Arena: Esc gives it, a click takes it).
+
+## Picking
+
+`screenRay(camera, point, screen)` is the ray from the eye through a pixel (perspective or orthographic), the inverse of what the
+camera shows. With a physics, it is what is under the mouse:
+
+```cpp
+const kuge::Ray3D ray = kuge::screenRay(camera, input.mousePosition(), renderer.outputSize());
+if (const auto hit = physics.raycast(ray.origin, ray.direction, 100.0f)) { /* hit->entity, hit->point */ }
+```
 
 ## Physics
 
@@ -273,7 +286,7 @@ What to read in it:
 - The picture of the GPU goes through the CPU (a read back and a copy into the 2D renderer's texture). Drawing straight to
   the window would save that, but then the sprites and the text have to be drawn by the GPU rasterizer too (kronk3d has
   `draw2D`, without rotation): it is a different 2D renderer, not done.
-- Spatial audio, picking by ray from the mouse, particles (`k3::BillboardBatch`), instancing of many copies of a
-  mesh (`drawInstances`): kronk3d has the tools, KUGE has no component for them.
-- Cues have no text file (the 2D clips do); poses are not interpolated between two ticks; no roll for the camera.
+- Spatial audio, particles (`k3::BillboardBatch`), instancing of many copies of a mesh (`drawInstances`): kronk3d has
+  the tools, KUGE has no component for them.
+- Poses are not interpolated between two ticks; no roll for the camera.
 - Windows (MSVC) is built by the CI like the rest; Jolt and the 3D are not checked on a machine of ours.

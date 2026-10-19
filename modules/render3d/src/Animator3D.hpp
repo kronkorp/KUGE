@@ -1,6 +1,7 @@
 #pragma once
 
 #include <kronk3d/scene/Animator.hpp>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -20,6 +21,19 @@ namespace kuge
 
     //! The cues of each clip, by the name of the clip
     using ClipCues = std::map<std::string, std::vector<Cue3D>, std::less<>>;
+
+    //! The cues of a text, one per line (what comes after a # is a comment):
+    //!
+    //!     # cue <clip> <seconds since the clip began> <name>
+    //!     cue run    0.12 step
+    //!     cue run    0.42 step
+    //!     cue attack 0.25 hit
+    //!
+    //! The cues of a clip come in the order of their times. @throw AnimationError, with the number of the line
+    ClipCues parseCues(std::string_view text);
+
+    //! The same, from a file. @throw AnimationError
+    ClipCues loadCues(const std::filesystem::path& file);
 
     ////////////////////////////////////////////////////////////////////////////
     /**
