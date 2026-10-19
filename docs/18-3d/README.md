@@ -63,7 +63,7 @@ As in 2D, give an entity a `PreviousTransform3D` (same value) and it is drawn be
 | Resource or component | What it does |
 |---|---|
 | `k3::Camera`, `k3::Environment` (resources) | The view, the sky, the fog, the ambient light, the shadows |
-| `Model3D` | Draws a `k3::Model` at the `Transform3D` of the entity |
+| `Model3D` | Draws a `k3::Model` at the `Transform3D` of the entity (entities that share a mesh and a material are drawn together, in one call on the GPU) |
 | `Light3D` | A `k3::Light` that follows its entity (at most 8 lights light the scene, the environment's first) |
 | `Animator3D` | A glTF model that plays clips (below) |
 | `CameraRig` | Makes the camera follow an entity, first person or orbiting (below) |
@@ -248,7 +248,7 @@ What to read in it:
 
 - The OpenGL backend of kronk3d (`HardwareRasterizer`) is not wired to the client: it needs a window with a
   GL context, and text and interface drawn through kronk3d's 2D overlay.
-- Spatial audio, picking by ray from the mouse, particles (`k3::BillboardBatch`), instancing of many copies of a
-  mesh (`drawInstances`): kronk3d has the tools, KUGE has no component for them.
+- Spatial audio, picking by ray from the mouse, particles (`k3::BillboardBatch`): kronk3d has the tools, KUGE has no
+  component for them.
 - Cues have no text file (the 2D clips do); poses are not interpolated between two ticks; no roll for the camera.
 - Windows (MSVC) is built by the CI like the rest; Jolt and the 3D are not checked on a machine of ours.

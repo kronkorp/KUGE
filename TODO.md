@@ -27,7 +27,7 @@ What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet, 
   kronk3d's 2D overlay (`draw2D`) because `SDL_Renderer` and a GL context do not share a window well. Nothing
   needed from kronk3d is known to be missing.
 - [ ] **Nobody has measured a frame.** The software rasterizer at 1280x720 (the copy of the image included) is not
-  timed; `drawInstances` (many copies of a mesh) is not used by `ModelRender`.
+  timed.
 - [ ] Small things kronk3d has the tools for: spatial audio (`IAudio` takes a volume and a pan, nothing computes
   them from a position), picking by ray from the mouse, particles (`k3::BillboardBatch`), a text file for the cues
   of the 3D clips (the 2D ones have one), interpolating poses between two ticks, a camera with roll.
