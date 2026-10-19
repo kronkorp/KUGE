@@ -12,16 +12,8 @@ each with its pull request.
 
 ## 3D
 
-What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet, and what to do in kronk3d:
+What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet:
 
-- [ ] **kronk3d's `Logger` has no namespace.** It is a copy of KUGE's, with the same global names: linked together
-  they define the same symbols with other layouts (a heap overflow before the fix of #41, a link error before
-  Arena). The root `CMakeLists.txt` renames them for the compiler in kronk3d's logger and in `Log.cpp` (a macro per
-  name), which is a patch of ours over a submodule. In kronk3d: put the logger in a namespace, publish `v0.1.1`,
-  bump `vendor/kronk3d`, and take the renames out.
-- [ ] **kronk3d's `Log.hpp` (`setLogSink`) is not a public header**, though its README documents it:
-  `kuge-render3d` takes it from kronk3d's sources (include path in
-  `modules/render3d/CMakeLists.txt`). Move it to `include/kronk3d/` in kronk3d.
 - [ ] **OpenGL.** kronk3d's `HardwareRasterizer` is not wired to the client: it needs a window with a GL context
   (the SDL backend has none), a `glLoader` from `SDL_GL_GetProcAddress`, and text and interface drawn through
   kronk3d's 2D overlay (`draw2D`) because `SDL_Renderer` and a GL context do not share a window well. Nothing
