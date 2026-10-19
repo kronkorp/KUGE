@@ -184,7 +184,15 @@ bool kuge::ModelRender::handle(kw::World& world)
     if (width == 0 || height == 0) {
         return true;
     }
+    IOpenGL* gl = world.getResource<GlContext>().gl;
+
+    if (gl) {
+        gl->makeCurrent();
+    }
     if (rasterizer.width() != width || rasterizer.height() != height) {
+        if (gl) {
+            gl->resize(static_cast<int>(width), static_cast<int>(height));
+        }
         rasterizer.resize(width, height);
     }
     const float alpha = static_cast<float>(world.getResource<Time>().alpha);
