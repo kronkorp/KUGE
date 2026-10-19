@@ -1,5 +1,6 @@
 #pragma once
 
+#include "backend/IOpenGL.hpp"
 #include <kronk3d/render/Environment.hpp>
 #include <kronk3d/scene/Light.hpp>
 #include <kronk3d/scene/Model.hpp>
@@ -67,6 +68,13 @@ namespace kuge
         float  kick = 0.0f;                     //!< Meters it is pulled back (a recoil: the game moves it)
         float  fovY = 0.9f;                     //!< Radians
         bool   visible = true;
+    };
+
+    //! The OpenGL context when the GPU draws (a resource of the World, null when the CPU does): ModelRender makes it current
+    //! before it draws, since the 2D renderer may have taken the context of the thread, and gives it the size of the screen
+    struct GlContext
+    {
+        IOpenGL* gl = nullptr;
     };
 
     //! How many times a glTF model was reloaded in place (a resource of the World): an Animator3D made

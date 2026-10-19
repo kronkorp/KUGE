@@ -95,6 +95,72 @@ namespace
     };
 
     ////////////////////////////////////////////////////////////////////////////
+    // An OpenGL 3.3 core context on a window of its own that is never shown. (Not the window of the 2D renderer: SDL's
+    // renderer has its own context there, and the two would fight over it.)
+    class SdlOpenGL : public IOpenGL
+    {
+        public:
+            SdlOpenGL(std::shared_ptr<SdlContext> context, int width, int height) : m_context(std::move(context))
+            {
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+                m_window.reset(SDL_CreateWindow("KUGE OpenGL", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                    std::max(width, 1), std::max(height, 1), SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN));
+                if (m_window) {
+                    m_gl = SDL_GL_CreateContext(m_window.get());
+                }
+                SDL_GL_ResetAttributes();     // (what SDL's own renderer makes later is not ours to change)
+                if (!m_gl) {
+                    fail("no OpenGL 3.3 context");
+                }
+            }
+
+            ~SdlOpenGL(void) override
+            {
+                if (m_gl) {
+                    SDL_GL_DeleteContext(m_gl);
+                }
+            }
+
+            SdlOpenGL(const SdlOpenGL&)            = delete;
+            SdlOpenGL& operator=(const SdlOpenGL&) = delete;
+
+            void makeCurrent(void) override { SDL_GL_MakeCurrent(m_window.get(), m_gl); }
+
+            void (*procAddress(const char* name))(void) override
+            {
+                return reinterpret_cast<void (*)(void)>(SDL_GL_GetProcAddress(name));
+            }
+
+            void resize(int width, int height) override { SDL_SetWindowSize(m_window.get(), std::max(width, 1), std::max(height, 1)); }
+
+            std::string description(void) override
+            {
+                using GetString = const unsigned char* (*)(unsigned);
+                const auto getString = reinterpret_cast<GetString>(SDL_GL_GetProcAddress("glGetString"));
+
+                if (!getString) {
+                    return "OpenGL";
+                }
+                constexpr unsigned RENDERER = 0x1F01;
+                constexpr unsigned VERSION = 0x1F02;
+                const auto text = [&](unsigned what) {
+                    const unsigned char* value = getString(what);
+
+                    return value ? std::string(reinterpret_cast<const char*>(value)) : std::string("?");
+                };
+
+                return text(RENDERER) + ", OpenGL " + text(VERSION);
+            }
+
+        private:
+            std::shared_ptr<SdlContext>                m_context;   // (the video subsystem lives as long as this)
+            std::unique_ptr<SDL_Window, WindowDeleter> m_window;
+            SDL_GLContext                              m_gl = nullptr;
+    };
+
+    ////////////////////////////////////////////////////////////////////////////
     class SdlWindow : public IWindow
     {
         public:
@@ -442,6 +508,13 @@ kuge::Backend kuge::makeSdlBackend(const WindowConfig& config)
     backend.input = std::make_unique<SdlInput>(context);
     backend.renderer = std::make_unique<SdlRenderer>(context);
     backend.fonts = makeSdlFontLoader();
+    if (config.openGL) {
+        try {
+            backend.opengl = std::make_unique<SdlOpenGL>(context, config.width, config.height);
+        } catch (const BackendError& error) {
+            Logger::logger().warn("no OpenGL for the 3D: {}", error.what());
+        }
+    }
     try {
         backend.audio = makeSdlAudio();
     } catch (const AudioError& error) {

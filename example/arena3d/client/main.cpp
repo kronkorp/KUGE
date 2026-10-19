@@ -14,6 +14,7 @@
 #include "Render3DModule.hpp"
 #include "Script.hpp"
 #include "backend/SdlBackend.hpp"
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -23,7 +24,10 @@ int main(int argc, char** argv)
 {
     arena::ClientOptions options;
     int frames = 0;
+    int width = 0;
+    int height = 0;
     const char* screenshot = nullptr;
+    kuge::Rendering rendering = kuge::Rendering::Auto;      // the GPU if there is one
 
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--host") && i + 1 < argc) {
@@ -36,6 +40,12 @@ int main(int argc, char** argv)
             options.sensitivity = static_cast<float>(std::atof(argv[++i]));
         } else if (!std::strcmp(argv[i], "--day") && i + 1 < argc) {
             options.daySeconds = std::atof(argv[++i]);
+        } else if (!std::strcmp(argv[i], "--size") && i + 1 < argc) {
+            std::sscanf(argv[++i], "%dx%d", &width, &height);
+        } else if (!std::strcmp(argv[i], "--software")) {
+            rendering = kuge::Rendering::Software;
+        } else if (!std::strcmp(argv[i], "--opengl")) {
+            rendering = kuge::Rendering::OpenGL;
         } else if (!std::strcmp(argv[i], "--third-person")) {
             options.firstPerson = false;
         } else if (!std::strcmp(argv[i], "--assets") && i + 1 < argc) {
@@ -45,7 +55,7 @@ int main(int argc, char** argv)
         } else if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
             screenshot = argv[++i];
         } else {
-            Logger::logger().error("usage: arena3d_client [--host H] [--port P] [--name N] [--sensitivity DEG] [--day SECONDS] [--third-person] [--assets DIR] [--frames N [--screenshot f.ppm]]");
+            Logger::logger().error("usage: arena3d_client [--host H] [--port P] [--name N] [--sensitivity DEG] [--day SECONDS] [--size WxH] [--software | --opengl] [--third-person] [--assets DIR] [--frames N [--screenshot f.ppm]]");
             return 2;
         }
     }
@@ -53,14 +63,15 @@ int main(int argc, char** argv)
         kuge::WindowConfig window;
 
         window.title = "KUGE Arena";
-        window.width = frames > 0 ? 640 : 1280;      // (a script has a small one: it is drawn by the CPU)
-        window.height = frames > 0 ? 360 : 720;
+        window.width = width > 0 ? width : (frames > 0 ? 640 : 1280);      // (a script has a small one: it may be drawn by the CPU)
+        window.height = height > 0 ? height : (frames > 0 ? 360 : 720);
         window.resizable = true;
         kuge::Engine engine(kuge::Engine::Config{.mode = kuge::Engine::Mode::Windowed, .tickRate = 60});
+        window.openGL = rendering != kuge::Rendering::Software;
         auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend(window));
         auto report = std::make_shared<arena::ClientReport>();
 
-        engine.addModule<kuge::Render3DModule>();
+        engine.addModule<kuge::Render3DModule>(client, kuge::Render3DConfig{.rendering = rendering});
         arena::bindDefaults(client.input());
         engine.scenes().change<arena::ArenaScene>(options, report);
         if (frames == 0) {
@@ -81,11 +92,17 @@ int main(int argc, char** argv)
         for (const auto& clip : report->clips) {
             clips += clip + " ";
         }
-        Logger::logger().info("report: joined={} games={} ended={} players={} crates={} bullets={}(max {}) health={} clips=[{}] corrections={} of {} pending={} snapshots={}",
-            report->joined, report->games, report->gamesEnded, report->players, report->crates, report->bullets, report->mostBullets,
+        Logger::logger().info("report: joined={} frames={} games={} ended={} players={} crates={} bullets={}(max {}) health={} clips=[{}] corrections={} of {} pending={} snapshots={}",
+            report->joined, report->frames, report->games, report->gamesEnded, report->players, report->crates, report->bullets, report->mostBullets,
             report->health, clips, report->prediction.corrections, report->prediction.reconciliations, report->prediction.pending,
             report->replication.snapshotsApplied);
         return arena::scriptPassed(*report) ? 0 : 3;
+    } catch (const kuge::Render3DError& error) {
+        Logger::logger().error("{}", error.what());
+        return rendering == kuge::Rendering::OpenGL ? 77 : 1;      // 77: "skipped" for ctest (no GPU here)
+    } catch (const kuge::BackendError& error) {
+        Logger::logger().error("{}", error.what());
+        return rendering == kuge::Rendering::OpenGL ? 77 : 1;      // (a machine that cannot even show the offscreen window)
     } catch (const std::exception& error) {
         Logger::logger().error("{}", error.what());
         return 1;
