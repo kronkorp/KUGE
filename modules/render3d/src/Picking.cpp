@@ -1,4 +1,5 @@
 #include "Picking.hpp"
+#include <algorithm>
 #include <cmath>
 
 kuge::Ray3D kuge::screenRay(const k3::Camera& camera, Vec2 point, Vec2 screen)
