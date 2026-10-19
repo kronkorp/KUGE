@@ -144,6 +144,8 @@ world.add<kuge::CameraRig>(player, kuge::CameraRig{});                          
 world.add<kuge::CameraRig>(player, kuge::CameraRig{.mode = kuge::CameraRig::Mode::Orbit, .distance = 5.0f});
 ```
 
+From behind (`Orbit`), a camera goes through walls unless the rig can ask where they are: `rig.obstacle` is a function that gives how far along
+a ray something is (negative: nothing), usually a physics' raycast, and the camera stops `margin` meters short of it.
 `UpdateCamera` turns `yaw` and `pitch` with the mouse and places the `k3::Camera`; read the rig's `yaw` to walk
 the way the player looks. There is no roll (`k3::Camera` has none). `sensitivity` is in radians per pixel (0.0013:
 0.075 degrees), and `maxMove` is the most pixels that count in one frame (a jump of the mouse is not a hand).
