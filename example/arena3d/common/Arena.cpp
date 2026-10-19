@@ -243,7 +243,7 @@ namespace arena
             return;
         }
         fighter.cooldown = FIRE_COOLDOWN;
-        fighter.flash = 10;
+        fighter.flash = SHOT_CLIP;
         // The same clip again starts over: the serial moves
         auto& state = world.get<kuge::AnimationState3D>(shooter);
 

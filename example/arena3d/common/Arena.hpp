@@ -35,6 +35,7 @@ namespace arena
     constexpr float BULLET_SPEED = 45.0f;      // meters per second
     constexpr int   BULLET_LIFE = 120;         // ticks
     constexpr int   FIRE_COOLDOWN = 12;        // ticks between two shots
+    constexpr int   SHOT_CLIP = 26;            // ticks that a shot's clip plays (0.43 s, the length of the robot's)
     constexpr int   RESPAWN_DELAY = 150;       // ticks
     constexpr int   CORPSE_LIFE = 150;         // ticks a dead body stays
     constexpr int   FRAG_LIMIT = 8;
