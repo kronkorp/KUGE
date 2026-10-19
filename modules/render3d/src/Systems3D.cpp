@@ -156,7 +156,20 @@ bool kuge::UpdateCamera::handle(kw::World& world)
     camera.pitch = rig.pitch;
     const k3::Math::Vector3f point = at + rig.offset;
 
-    camera.position = rig.mode == CameraRig::Mode::Orbit ? point - camera.forward() * rig.distance : point;
+    if (rig.mode == CameraRig::Mode::Orbit) {
+        float distance = rig.distance;
+
+        if (rig.obstacle) {
+            const float hit = rig.obstacle(point, camera.forward() * -1.0f, rig.distance);
+
+            if (hit >= 0.0f && hit < rig.distance) {
+                distance = std::max(hit - rig.margin, 0.05f);
+            }
+        }
+        camera.position = point - camera.forward() * distance;
+    } else {
+        camera.position = point;
+    }
     return true;
 }
 

@@ -287,6 +287,15 @@ namespace arena
                     rig.pitch = m_firstPerson ? 0.0f : -0.15f;
                     rig.sensitivity = m_options.sensitivity * 3.14159265f / 180.0f;
                     rig.look = m_captured;
+                    // From behind, the camera stops at the walls of the level (the predicted world has them)
+                    rig.obstacle = [this](Vec3 from, Vec3 way, float most) {
+                        if (!m_prediction || !m_prediction->ready()) {
+                            return -1.0f;
+                        }
+                        const auto hit = m_prediction->privateWorld().getResource<kuge::Physics3D>().raycast(from, way, most, SCENERY);
+
+                        return hit ? hit->distance : -1.0f;
+                    };
                     world().add<kuge::CameraRig>(entity, rig);
                 }
                 break;

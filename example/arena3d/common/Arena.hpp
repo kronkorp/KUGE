@@ -39,6 +39,11 @@ namespace arena
     constexpr int   CORPSE_LIFE = 150;         // ticks a dead body stays
     constexpr int   FRAG_LIMIT = 8;
 
+    // The layers of the colliders: the level and the crates are layer 1 (the default), the players layer 2. A camera looks
+    // for walls among the first only: it does not stop at the player it follows.
+    constexpr std::uint32_t PLAYERS = 0b10;
+    constexpr std::uint32_t SCENERY = 0b01;
+
     // What kinds of entities the server tells the clients about
     constexpr kuge::replication::EntityType PLAYER = 1;
     constexpr kuge::replication::EntityType CRATE = 2;
