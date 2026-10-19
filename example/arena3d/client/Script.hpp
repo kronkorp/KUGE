@@ -97,11 +97,11 @@ namespace arena
         }
     }
 
-    //! What a scripted player must have seen: it stood, ran, jumped and shot (its character played each clip), and
+    //! What a scripted player must have seen: it stood, ran, jumped and shot (its character played each clip, and a shot was heard), and
     //! its bullets were drawn
     inline bool scriptPassed(const ClientReport& report)
     {
-        return report.joined && report.mostPlayers >= 1 && report.mostBullets >= 1 && report.clips.count("idle") && report.clips.count("run")
+        return report.joined && report.mostPlayers >= 1 && report.mostBullets >= 1 && report.shotsHeard >= 1 && report.clips.count("idle") && report.clips.count("run")
             && report.clips.count("jump") && (report.clips.count("shooting") || report.clips.count("shooting_standing"));
     }
 

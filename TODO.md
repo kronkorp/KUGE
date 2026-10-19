@@ -26,9 +26,9 @@ What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet, 
   milliseconds at 1280x720): a faster path draws the 3D into the window and the sprites and text with kronk3d's `draw2D`
   (no rotation), which means a 2D renderer on OpenGL. `drawInstances` (many copies of a mesh) is not used by
   `ModelRender` either.
-- [ ] Small things kronk3d has the tools for: spatial audio (`IAudio` takes a volume and a pan, nothing computes
-  them from a position), picking by ray from the mouse, particles (`k3::BillboardBatch`), a text file for the cues
-  of the 3D clips (the 2D ones have one), interpolating poses between two ticks, a camera with roll.
+- [ ] Small things: picking and the cues file (#50); interpolating poses between two ticks, a camera with roll (k3::Camera
+  has none), a third-person camera that does not go through walls (the client has no physics of the level: only the
+  predicted world has).
 - [ ] **Windows is not checked by hand.** The CI builds and runs the 3D tests' smoke programs with MSVC; Jolt and
   the 3D examples have not been seen on a Windows machine.
 

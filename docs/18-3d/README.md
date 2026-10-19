@@ -149,6 +149,21 @@ The SDL backend looks after the mouse of a mouse look: it gives it back when the
 again when it gets it back, and the first move after it is taken carries no delta (the cursor is brought to the
 middle of the window). A game should let the player free the mouse (Arena: Esc gives it, a click takes it).
 
+## Sounds and particles
+
+A sound that comes from a place in 3D: `listenerOf(camera)` gives the ears (where they are, which way is right, how far a
+sound reaches), `spatialize(source, ears)` says what is heard (the volume falls from 1 to 0 at the end of the range, the pan is
+how far to the right the source is: ahead and behind sound the same), and `playAt(audio, sound, source, ears, options)` plays
+it, or takes no voice if it is out of hearing.
+
+`Particles3D` is a resource of every scene; `ModelRender` moves its particles by the time of the frame and draws them, as soft
+round quads that face the camera (kronk3d's `BillboardBatch`), fading as they age:
+
+```cpp
+world.getResource<kuge::Particles3D>().burst({.at = hit.point, .count = 20, .speed = 4.0f, .life = 0.35f,
+                                              .color = {1.0f, 0.85f, 0.4f, 1.0f}});         // sparks that fall
+```
+
 ## Physics
 
 `kuge-physics3d` runs Jolt, on one thread (scenes already run side by side). An entity with a `Transform3D` and a
@@ -252,6 +267,9 @@ What to read in it:
   level and the player, so it would walk through a crate that the room stops it at. The client puts in it the crates
   (bodies simulated there too, put back where the server has them when they go too far) and the other players (bodies
   that stand where they are shown), and the player is stopped and pushes as on the server.
+- **Sounds and sparks** (`effects` in `client/ArenaClient.hpp`): the server sends none. The client plays a shot where a
+  player's shot clip starts (`playAt`), a crack and sparks where a bullet vanishes (it hit something), a jump, a body that
+  falls (with dust), and the player's own hurt sound; the sounds are made by `make_assets.py` too (noise and sweeps).
 - **The view** (`client/ArenaClient.hpp`): first person by default (V changes it) with a gun held as a `ViewModel3D`
   that kicks when it fires; fog; a day that goes by in 150 seconds (`--day SECONDS`) by the clock of the server, so
   that every player has the same light: the sun and the moon are two directional lights, and the sky is one picture
@@ -273,7 +291,7 @@ What to read in it:
 - The picture of the GPU goes through the CPU (a read back and a copy into the 2D renderer's texture). Drawing straight to
   the window would save that, but then the sprites and the text have to be drawn by the GPU rasterizer too (kronk3d has
   `draw2D`, without rotation): it is a different 2D renderer, not done.
-- Spatial audio, picking by ray from the mouse, particles (`k3::BillboardBatch`), instancing of many copies of a
-  mesh (`drawInstances`): kronk3d has the tools, KUGE has no component for them.
+- Picking by ray from the mouse (in #50), and instancing of many copies of a mesh (`drawInstances`): kronk3d has the tool,
+  `ModelRender` does not use it.
 - Cues have no text file (the 2D clips do); poses are not interpolated between two ticks; no roll for the camera.
 - Windows (MSVC) is built by the CI like the rest; Jolt and the 3D are not checked on a machine of ours.

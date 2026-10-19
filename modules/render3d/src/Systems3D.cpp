@@ -2,6 +2,7 @@
 #include "AnimationState3D.hpp"
 #include "Animator3D.hpp"
 #include "Components3D.hpp"
+#include "Particles3D.hpp"
 #include "animation/Animation.hpp"
 #include "input/InputMap.hpp"
 #include "Ref.hpp"
@@ -217,6 +218,11 @@ bool kuge::ModelRender::handle(kw::World& world)
             animation.animator.draw(rasterizer, shown(world, entity, alpha).matrix());
         }
     }
+    // The particles, moved by the time of the frame and drawn with the scene (they are blended: after what is opaque)
+    Particles3D& particles = world.getResource<Particles3D>();
+
+    particles.step(static_cast<float>(std::min(world.getResource<Time>().frameDt, 0.1)));
+    particles.draw(rasterizer, world.getResource<k3::Camera>());
     // What the player holds goes in a layer of its own, over the scene
     for (kw::Entity entity : world.view<ViewModel3D>()) {
         const ViewModel3D& held = world.get<ViewModel3D>(entity);

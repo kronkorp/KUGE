@@ -2,6 +2,7 @@
 #include "Engine.hpp"
 #include "Log.hpp"          // kronk3d's (setLogSink)
 #include "Logger.hpp"
+#include "Particles3D.hpp"
 #include "Ref.hpp"
 #include <algorithm>
 #include <any>
@@ -136,6 +137,7 @@ void kuge::Render3DModule::inject(kw::World& world)
     world.addResource<Ref<AssetManager<k3::AnimatedModel>>>(m_animatedModels);
     world.addResource<Ref<const ModelRevision>>(m_revision);
     world.addResource<GlContext>(GlContext{m_gl});
+    world.addResource<Particles3D>();
     world.addResource<k3::Camera>();
     world.addResource<k3::Environment>();
 }

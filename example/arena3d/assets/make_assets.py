@@ -3,16 +3,17 @@
 
     crate.obj    a crate (with crate.mtl and crate.png)
     floor.png, wall.png, platform.png    the textures of the level (the game makes the meshes)
+    shot.wav, hit.wav, hurt.wav, death.wav, jump.wav    the sounds (synthesized: noise and sweeps, 22 kHz, mono)
 
 They are made here, not drawn: the licence of every file is the one of this repository. Run it again to remake
 them (the result is always the same):  python3 make_assets.py
 
 robot.glb is not made here: it is the robot of the 3D platformer demo of Godot, see ROBOT.md.
 """
-import json
 import math
 import os
 import struct
+import wave
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -134,7 +135,44 @@ def make_crate():
         out.write('newmtl crate\nKd 1 1 1\nKs 0.05 0.05 0.05\nNs 8\nillum 2\nmap_Kd crate.png\n')
 
 
+# ----------------------------------------------------------------------------------------------------------
+# Sounds
+# ----------------------------------------------------------------------------------------------------------
+
+RATE = 22050
+
+
+def write_wav(name, seconds, sample):
+    """sample(t, i) -> a value between -1 and 1"""
+    frames = bytearray()
+    for i in range(int(seconds * RATE)):
+        value = max(-1.0, min(1.0, sample(i / RATE, i)))
+        frames.extend(struct.pack('<h', int(value * 26000)))
+    with wave.open(os.path.join(HERE, name), 'wb') as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(RATE)
+        out.writeframes(bytes(frames))
+
+
+def make_sounds():
+    def hiss(i, seed):
+        return noise(i, 0, seed) * 2.0 - 1.0
+
+    # A shot: a burst of noise, and a low thump under it
+    write_wav('shot.wav', 0.3, lambda t, i: 0.8 * hiss(i, 11) * math.exp(-t * 28) + 0.6 * math.sin(2 * math.pi * 90 * t) * math.exp(-t * 18))
+    # A bullet that hits: a short, dry crack
+    write_wav('hit.wav', 0.14, lambda t, i: 0.7 * hiss(i, 12) * math.exp(-t * 55) + 0.3 * math.sin(2 * math.pi * 700 * t) * math.exp(-t * 60))
+    # Hurt: a falling tone, rough
+    write_wav('hurt.wav', 0.28, lambda t, i: 0.5 * (1 if math.sin(2 * math.pi * (260 - 380 * t) * t) > 0 else -1) * math.exp(-t * 9) + 0.2 * hiss(i, 13) * math.exp(-t * 20))
+    # Death: a long fall in pitch and a noise that fades
+    write_wav('death.wav', 0.9, lambda t, i: 0.6 * math.sin(2 * math.pi * (220 * t - 190 * t * t / 1.8 + 0.0) * 1.0) * math.exp(-t * 3.2) + 0.25 * hiss(i, 14) * math.exp(-t * 7))
+    # A jump: a short rise in pitch
+    write_wav('jump.wav', 0.16, lambda t, i: 0.5 * math.sin(2 * math.pi * (300 * t + 1500 * t * t)) * math.exp(-t * 14))
+
+
 if __name__ == '__main__':
     make_textures()
     make_crate()
+    make_sounds()
     print('assets written to', HERE)
