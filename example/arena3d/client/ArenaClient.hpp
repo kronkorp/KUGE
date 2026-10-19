@@ -85,6 +85,7 @@ namespace arena
         std::uint32_t   networkId = 0;
         std::size_t     players = 0, crates = 0, bullets = 0, corpses = 0;                //!< Entities that exist now
         std::size_t     mostPlayers = 0, mostBullets = 0, mostCorpses = 0;                //!< At the most
+        std::uint64_t   frames = 0;                 //!< Frames drawn (a script that lasts a while says how fast the machine is)
         std::uint64_t   games = 0;                  //!< Welcomes
         std::uint64_t   gamesEnded = 0;             //!< "Room closed" heard
         int             health = 0, frags = 0;      //!< Of the player
@@ -507,6 +508,7 @@ namespace arena
             world.get<kuge::Transform2D>(m_fragSquares[i]).position = {10.0f + 14.0f * static_cast<float>(index), 10.0f + 14.0f * static_cast<float>(player)};
             world.get<kuge::Sprite>(m_fragSquares[i]).visible = index < frags[player];
         }
+        ++report.frames;
         report.players = players;
         report.crates = crates;
         report.bullets = bullets;

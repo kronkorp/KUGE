@@ -411,7 +411,9 @@ Test(arena, clips_follow_what_it_does)
     sim.ticks(20);
     sim.hold(a, Sim::steer(1, 0, 0.0f, false, true), 3);
     Assert(sim.clip(a) == "shooting", "firing while running: %s", sim.clip(a).c_str());
-    sim.hold(a, Sim::steer(0, 0), 20);
+    sim.hold(a, Sim::steer(0, 0), SHOT_CLIP - 6);
+    Assert(sim.clip(a) == "shooting_standing", "the shot's clip plays to its end (and the player stopped): %s", sim.clip(a).c_str());
+    sim.hold(a, Sim::steer(0, 0), 12);
     Assert(sim.clip(a) == "idle", "and back: %s", sim.clip(a).c_str());
 }
 

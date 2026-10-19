@@ -2,6 +2,7 @@
 
 #include "audio/IAudio.hpp"
 #include "backend/IInputSource.hpp"
+#include "backend/IOpenGL.hpp"
 #include "backend/IRenderer2D.hpp"
 #include "backend/IWindow.hpp"
 #include "ui/Font.hpp"
@@ -35,6 +36,7 @@ namespace kuge
         std::unique_ptr<IRenderer2D>  renderer;
         std::unique_ptr<IAudio>       audio;   //!< Optional: without it, the game is silent
         std::unique_ptr<IFontLoader>  fonts;   //!< Optional: without it, no text can be shown
+        std::unique_ptr<IOpenGL>      opengl;  //!< Optional: a context for a 3D game that draws with the GPU (destroyed first)
     };
 
 }
