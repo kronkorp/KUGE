@@ -249,3 +249,26 @@ Test(render3d, what_is_held_is_in_front)
     Assert(middle && middle[2] > 200 && middle[0] < 40, "the wall is there");
     Assert(hand && red(hand), "and what is held is over it, low on the right");
 }
+
+Test(render3d, many_entities_one_model)
+{
+    // Three entities that share a model (so a mesh and a material) are drawn where each is, even though they are drawn
+    // together; a fourth, of another model, goes with them
+    Fixture fx([](Scene& scene) {
+        lookAtQuad(scene);
+        const auto shared = quad();
+
+        for (const float x : {-2.0f, 0.0f, 2.0f}) {
+            const kw::Entity entity = scene.world().create();
+            kuge::Transform3D transform;
+
+            transform.translation = {x, 0.0f, 0.0f};
+            scene.world().add<kuge::Transform3D>(entity, transform);
+            scene.world().add<kuge::Model3D>(entity, kuge::Model3D{shared});
+        }
+    });
+    const auto& calls = fx.frame();
+
+    Assert(red(fx.pixel(calls, 15, 24)) && red(fx.pixel(calls, 32, 24)) && red(fx.pixel(calls, 49, 24)), "one where each entity is");
+    Assert(!red(fx.pixel(calls, 2, 24)) && !red(fx.pixel(calls, 61, 24)), "and nothing beyond them");
+}
