@@ -15,6 +15,9 @@ namespace kuge
         bool        resizable  = false;
         bool        fullscreen = false;
         bool        vsync      = true;
+        //! Also make an OpenGL 3.3 context for the game to draw 3D with (Backend::opengl). If the machine has none
+        //! the backend is given without, and says so in the log.
+        bool        openGL     = false;
     };
 
     //! The window of the game. A backend gives one (see IRenderer2D).

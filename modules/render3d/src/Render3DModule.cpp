@@ -3,6 +3,7 @@
 #include "Log.hpp"          // kronk3d's (setLogSink)
 #include "Logger.hpp"
 #include "Ref.hpp"
+#include <algorithm>
 #include <any>
 #include <format>
 #include <kronk3d/io/GltfLoader.hpp>
@@ -55,7 +56,11 @@ namespace
     }
 }
 
-kuge::Render3DModule::Render3DModule(Render3DConfig config)
+kuge::Render3DModule::Render3DModule(Render3DConfig config) : Render3DModule(nullptr, config) {}
+
+kuge::Render3DModule::Render3DModule(ClientModule& client, Render3DConfig config) : Render3DModule(&client, config) {}
+
+kuge::Render3DModule::Render3DModule(ClientModule* client, Render3DConfig config)
     : m_config(config),
       m_models([](const std::filesystem::path& path) {
           return std::make_shared<k3::Model>(readModel(path));
@@ -70,11 +75,37 @@ kuge::Render3DModule::Render3DModule(Render3DConfig config)
       })
 {
     k3::setLogSink(logLikeKuge);   // (before anything of kronk3d can log)
+    IOpenGL* gl = client ? client->opengl() : nullptr;
     k3::RasterizerConfig rasterizer;
 
     rasterizer.antiAliasing = config.antiAliasing;
     rasterizer.renderScale = config.renderScale;
     rasterizer.threads = config.threads;
+    if (config.rendering == Rendering::OpenGL && !gl) {
+        throw Render3DError("the GPU was asked for, and the backend has no OpenGL context (WindowConfig::openGL)");
+    }
+    if (gl && config.rendering != Rendering::Software) {
+        // (the size of the screen: ModelRender follows it afterwards)
+        const Vec2 screen = client->renderer().outputSize();
+
+        rasterizer.width = std::max(1u, static_cast<std::uint32_t>(screen.x));
+        rasterizer.height = std::max(1u, static_cast<std::uint32_t>(screen.y));
+        rasterizer.glLoader = [gl](const char* name) { return reinterpret_cast<k3::GLProc>(gl->procAddress(name)); };
+        gl->makeCurrent();
+        auto created = k3::createRasterizer(k3::Backend::OpenGL, rasterizer);
+
+        if (created) {
+            m_rasterizer = std::move(*created);
+            m_gl = gl;
+            m_rendererName = gl->description();
+            Logger::logger().info("3D: on the GPU, {}", m_rendererName);
+            return;
+        }
+        if (config.rendering == Rendering::OpenGL) {
+            throw Render3DError(std::string("cannot start the 3D renderer on the GPU: ") + created.error());
+        }
+        Logger::logger().warn("3D: not on the GPU ({}), on the CPU", created.error());
+    }
     // (its size is the screen's: ModelRender sets it)
     auto created = k3::createRasterizer(k3::Backend::Software, rasterizer);
 
@@ -82,6 +113,14 @@ kuge::Render3DModule::Render3DModule(Render3DConfig config)
         throw Render3DError(std::string("cannot start the 3D renderer: ") + created.error());
     }
     m_rasterizer = std::move(*created);
+}
+
+kuge::Render3DModule::~Render3DModule(void)
+{
+    if (m_gl) {
+        m_gl->makeCurrent();       // (what the GPU holds is freed with its context current)
+        m_rasterizer.reset();
+    }
 }
 
 void kuge::Render3DModule::onAttach(Engine& engine)
@@ -96,6 +135,7 @@ void kuge::Render3DModule::inject(kw::World& world)
     world.addResource<Ref<AssetManager<k3::Model>>>(m_models);
     world.addResource<Ref<AssetManager<k3::AnimatedModel>>>(m_animatedModels);
     world.addResource<Ref<const ModelRevision>>(m_revision);
+    world.addResource<GlContext>(GlContext{m_gl});
     world.addResource<k3::Camera>();
     world.addResource<k3::Environment>();
 }

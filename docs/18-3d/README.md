@@ -18,20 +18,43 @@ The best way to see it all together is `example/arena3d`, a small game with a se
 
 ## How it is drawn
 
-`Render3DModule` owns kronk3d's **software rasterizer**: the scene is drawn in memory by the CPU, then the image
-is given to the 2D renderer, which shows it on the whole screen. Two things follow:
+`Render3DModule` owns one of kronk3d's two rasterizers, which give the same picture (a test compares them: on its
+cube the difference is zero):
 
-- it works with every backend, with no OpenGL context, in the tests (the dummy backend) and on a machine with no GPU;
-- sprites and the interface are drawn **over** the 3D, with the tools you already know.
+- the **GPU** (OpenGL 3.3): used when the client has an OpenGL context, which a game asks for with
+  `makeSdlBackend({.openGL = true})`. The context lives on a window of its own that is never shown, so SDL's 2D renderer
+  and kronk3d never fight over one;
+- the **CPU** (the software rasterizer): it works anywhere, with no window and no GPU, which is what the tests of the
+  repository use.
 
-The cost is the CPU (and one copy of the image per frame). `Render3DConfig::renderScale` draws at a fraction of
-the screen and enlarges it; `antiAliasing` is kronk3d's (FXAA or SSAA). An OpenGL backend is possible, and
-kronk3d has one; it is not wired to the client yet.
+Either way the scene is drawn off screen and the image is then given to the 2D renderer, which shows it on the whole
+screen. Two things follow: sprites, text and the interface are drawn **over** the 3D with the tools you already know, and
+screenshots have the 3D in them. On the GPU the image is read back (a few milliseconds), which is what keeps all of
+that working.
 
 ```cpp
-auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend({.title = "My game", .width = 960, .height = 540}));
-engine.addModule<kuge::Render3DModule>();          // after the client: it is destroyed before it
+auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend({.title = "My game", .width = 1280, .height = 720, .openGL = true}));
+engine.addModule<kuge::Render3DModule>(client);     // after the client: it is destroyed before it
 ```
+
+`Render3DConfig::rendering` is `Auto` (the GPU if there is a context, else the CPU, and the log says which),
+`Software` or `OpenGL` (`Render3DError` if there is no context). The module without a client (`Render3DModule()`) is
+the CPU. `renderScale` draws at a fraction of the screen and enlarges it, `antiAliasing` is kronk3d's (FXAA or SSAA).
+
+What it costs, on one machine (16 threads, an RTX 4070 laptop GPU) for the whole of Arena, server in the same process
+(the loop does not go above about 250 frames a second): 
+
+| Screen | CPU | GPU |
+|---|---|---|
+| 640x360 | 199 fps | 274 fps (the cap) |
+| 1280x720 | 97 fps | 218 fps (the cap) |
+| 1920x1080 | 42 fps | 194 fps |
+
+The CPU cost grows with the number of pixels and with fewer cores; the GPU's hardly does. A game for machines with no
+GPU can keep the CPU and use `renderScale`.
+
+To try the GPU without a window, `SDL_VIDEODRIVER=offscreen` gives SDL an OpenGL context with nothing shown (the tests and
+`arena3d_smoke_gl` do that; where the machine has no OpenGL 3.3 they say so and pass).
 
 ## A scene
 
@@ -211,6 +234,7 @@ build/example/kuge_arena3d_client          # W A S D or the arrows, the mouse tu
                                            # button (or F) fires, V looks from the eyes or from behind, Esc frees the
                                            # mouse (a click takes it again)
 build/example/kuge_arena3d_host            # or: both in one process
+                                           # (drawn by the GPU when there is one: --software / --opengl, --size 1920x1080)
 ```
 
 What to read in it:
@@ -259,8 +283,9 @@ What to read in it:
 
 ## What is not there yet
 
-- The OpenGL backend of kronk3d (`HardwareRasterizer`) is not wired to the client: it needs a window with a
-  GL context, and text and interface drawn through kronk3d's 2D overlay.
+- The picture of the GPU goes through the CPU (a read back and a copy into the 2D renderer's texture). Drawing straight to
+  the window would save that, but then the sprites and the text have to be drawn by the GPU rasterizer too (kronk3d has
+  `draw2D`, without rotation): it is a different 2D renderer, not done.
 - Spatial audio, particles (`k3::BillboardBatch`), instancing of many copies of a mesh (`drawInstances`): kronk3d has
   the tools, KUGE has no component for them.
 - Poses are not interpolated between two ticks; no roll for the camera.
