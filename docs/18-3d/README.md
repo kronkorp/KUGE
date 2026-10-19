@@ -127,6 +127,9 @@ animator a `ClipCues` (`clip name -> [{time, name}]`) and the cues crossed arriv
 resource as the 2D ones. A static glTF is drawn by an `Animator3D` with no clip (its rest pose). The pose
 changes at each tick, not at each frame.
 
+Cues can come from a text instead of code: `parseCues` and `loadCues` read lines like `cue run 0.12 step` (clip, seconds since
+the clip began, name; a bad line is an `AnimationError` that says its number).
+
 On a network, the server has no model: it says which clip an entity plays with an `AnimationState3D`
 (`{clip, loop, serial}`, replicated), and `PlayReplicatedClips` plays it on the client's `Animator3D`. A `serial`
 that moves starts the same clip again. Nothing about the pose travels: every client animates by itself.
@@ -162,6 +165,16 @@ round quads that face the camera (kronk3d's `BillboardBatch`), fading as they ag
 ```cpp
 world.getResource<kuge::Particles3D>().burst({.at = hit.point, .count = 20, .speed = 4.0f, .life = 0.35f,
                                               .color = {1.0f, 0.85f, 0.4f, 1.0f}});         // sparks that fall
+```
+
+## Picking
+
+`screenRay(camera, point, screen)` is the ray from the eye through a pixel (perspective or orthographic), the inverse of what the
+camera shows. With a physics, it is what is under the mouse:
+
+```cpp
+const kuge::Ray3D ray = kuge::screenRay(camera, input.mousePosition(), renderer.outputSize());
+if (const auto hit = physics.raycast(ray.origin, ray.direction, 100.0f)) { /* hit->entity, hit->point */ }
 ```
 
 ## Physics
@@ -291,7 +304,6 @@ What to read in it:
 - The picture of the GPU goes through the CPU (a read back and a copy into the 2D renderer's texture). Drawing straight to
   the window would save that, but then the sprites and the text have to be drawn by the GPU rasterizer too (kronk3d has
   `draw2D`, without rotation): it is a different 2D renderer, not done.
-- Picking by ray from the mouse (in #50), and instancing of many copies of a mesh (`drawInstances`): kronk3d has the tool,
-  `ModelRender` does not use it.
-- Cues have no text file (the 2D clips do); poses are not interpolated between two ticks; no roll for the camera.
+- Instancing of many copies of a mesh (`drawInstances`): kronk3d has the tool, `ModelRender` does not use it.
+- Poses are not interpolated between two ticks; no roll for the camera.
 - Windows (MSVC) is built by the CI like the rest; Jolt and the 3D are not checked on a machine of ours.
