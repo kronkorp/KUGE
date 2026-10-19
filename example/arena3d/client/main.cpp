@@ -92,8 +92,8 @@ int main(int argc, char** argv)
         for (const auto& clip : report->clips) {
             clips += clip + " ";
         }
-        Logger::logger().info("report: joined={} frames={} games={} ended={} players={} crates={} bullets={}(max {}) health={} clips=[{}] corrections={} of {} pending={} snapshots={}",
-            report->joined, report->frames, report->games, report->gamesEnded, report->players, report->crates, report->bullets, report->mostBullets,
+        Logger::logger().info("report: joined={} frames={} games={} ended={} players={} crates={} bullets={}(max {}) shots={} impacts={} health={} clips=[{}] corrections={} of {} pending={} snapshots={}",
+            report->joined, report->frames, report->games, report->gamesEnded, report->players, report->crates, report->bullets, report->mostBullets, report->shotsHeard, report->impacts,
             report->health, clips, report->prediction.corrections, report->prediction.reconciliations, report->prediction.pending,
             report->replication.snapshotsApplied);
         return arena::scriptPassed(*report) ? 0 : 3;

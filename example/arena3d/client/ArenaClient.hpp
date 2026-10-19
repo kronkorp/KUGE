@@ -4,6 +4,7 @@
 // plays against a server on another machine (sockets) and against one in the same process (loopback).
 
 #include "Animator3D.hpp"
+#include "Audio3D.hpp"
 #include "Arena.hpp"
 #include "AssetManager.hpp"
 #include "ClientModule.hpp"
@@ -13,6 +14,7 @@
 #include "Matchmaking.hpp"
 #include "Models.hpp"
 #include "Net.hpp"
+#include "Particles3D.hpp"
 #include "Prediction.hpp"
 #include "ReplicationClient.hpp"
 #include "Scene3D.hpp"
@@ -89,6 +91,7 @@ namespace arena
         std::uint64_t   games = 0;                  //!< Welcomes
         std::uint64_t   gamesEnded = 0;             //!< "Room closed" heard
         int             health = 0, frags = 0;      //!< Of the player
+        std::uint64_t   shotsHeard = 0, impacts = 0, hurts = 0;   //!< The sounds that were played
         std::set<std::string> clips;                //!< The clips that the player's own character played
         kuge::replication::PredictionStats prediction;
         kuge::replication::ReplicationClientStats replication;
@@ -116,6 +119,7 @@ namespace arena
 
             void loadAssets(void);
             void capture(bool on);
+            void effects(kw::World& world);
             void applySky(double seconds);
             void makeStage(void);
             void connect(void);
@@ -136,6 +140,12 @@ namespace arena
             std::shared_ptr<const k3::AnimatedModel>              m_painted[4];
             std::shared_ptr<const k3::Model>                      m_crate;
             std::shared_ptr<const k3::Model>                      m_bullet;
+            // Sounds and sparks: what the client makes of what it is shown (the server sends none)
+            std::shared_ptr<kuge::Sound>                          m_shot, m_hit, m_hurt, m_death, m_jump;
+            struct Seen { std::uint8_t serial = 0; std::string clip; };
+            std::map<std::uint32_t, Seen>                         m_seen;       //!< By network id: the last clip of each player
+            std::map<std::uint32_t, Vec3>                         m_bullets;    //!< By network id: where each bullet was last seen
+            int                                                   m_lastHealth = HEALTH;
             kw::Entity                                            m_gun{};      //!< What the player holds
             float                                                 m_kick = 0.0f;
             std::uint8_t                                          m_shots = 0;  //!< The serial of the last shot seen
@@ -178,6 +188,13 @@ namespace arena
             m_painted[i] = makeRobot(*m_player, teamColor(i + 1));
         }
         m_crate = objects.load(m_options.assets / "crate.obj");
+        auto& sounds = *world().getResource<kuge::Ref<kuge::AssetManager<kuge::Sound>>>();
+
+        m_shot = sounds.load(m_options.assets / "shot.wav");
+        m_hit = sounds.load(m_options.assets / "hit.wav");
+        m_hurt = sounds.load(m_options.assets / "hurt.wav");
+        m_death = sounds.load(m_options.assets / "death.wav");
+        m_jump = sounds.load(m_options.assets / "jump.wav");
         m_bullet = bulletModel();
     }
 
@@ -268,6 +285,55 @@ namespace arena
         environment.fog.color = mix(mix(Color{0.02f, 0.03f, 0.07f, 1.0f}, Color{0.5f, 0.62f, 0.78f, 1.0f}, day), Color{0.85f, 0.45f, 0.3f, 1.0f}, dusk * 0.5f);
     }
 
+    // What the client makes of what it is shown: a shot is heard where it is fired, a bullet that vanishes has hit
+    // something (a crack and sparks where it was), a jump is heard, and the player hears when it is hurt
+    inline void ArenaScene::effects(kw::World& world)
+    {
+        auto& audio = *world.getResource<kuge::Ref<kuge::Audio>>();
+        auto& particles = world.getResource<kuge::Particles3D>();
+        const kuge::Listener3D ears = kuge::listenerOf(world.getResource<k3::Camera>());
+        std::set<std::uint32_t> bullets;
+
+        for (kw::Entity entity : world.view<kuge::replication::Replicated>()) {
+            const auto& info = world.get<kuge::replication::Replicated>(entity);
+
+            if (!world.has<kuge::Transform3D>(entity)) {
+                continue;
+            }
+            const Vec3 at = world.get<kuge::Transform3D>(entity).translation;
+
+            if (info.type == BULLET) {
+                bullets.insert(info.id);
+                m_bullets[info.id] = at;
+            } else if (info.type == PLAYER && world.has<kuge::AnimationState3D>(entity)) {
+                const auto& state = world.get<kuge::AnimationState3D>(entity);
+                Seen& seen = m_seen[info.id];
+
+                if (state.serial != seen.serial && state.clip.rfind("shooting", 0) == 0) {
+                    kuge::playAt(audio, *m_shot, at, ears, {.volume = 0.8f});
+                    ++m_report->shotsHeard;
+                    particles.burst({.at = {at.x, at.y + 0.5f, at.z}, .count = 5, .speed = 1.5f, .life = 0.12f, .size = 0.12f, .gravity = 0.0f,
+                        .color = {1.0f, 0.7f, 0.2f, 1.0f}});
+                }
+                if (state.clip == "jump" && seen.clip != "jump") {
+                    kuge::playAt(audio, *m_jump, at, ears, {.volume = 0.5f});
+                }
+                seen = Seen{state.serial, state.clip};
+            }
+        }
+        for (auto it = m_bullets.begin(); it != m_bullets.end();) {
+            if (bullets.count(it->first)) {
+                ++it;
+                continue;
+            }
+            particles.burst({.at = it->second, .count = 14, .speed = 4.0f, .life = 0.35f, .size = 0.1f, .gravity = 9.0f,
+                .color = {1.0f, 0.85f, 0.4f, 1.0f}});
+            kuge::playAt(audio, *m_hit, it->second, ears, {.volume = 0.7f});
+            ++m_report->impacts;
+            it = m_bullets.erase(it);
+        }
+    }
+
     // What the server does not send: how things look
     inline void ArenaScene::spawned(kw::Entity entity, const kuge::replication::SpawnInfo& info)
     {
@@ -277,6 +343,14 @@ namespace arena
                 const auto& model = m_painted[(info.owner + 3) % 4];
 
                 world().add<kuge::Animator3D>(entity, kuge::Animator3D::of(model, info.type == CORPSE ? "death" : "idle"));
+                if (info.type == CORPSE && world().has<kuge::Transform3D>(entity)) {       // (it falls with a sound and a puff of dust)
+                    const Vec3 at = world().get<kuge::Transform3D>(entity).translation;
+
+                    kuge::playAt(*world().getResource<kuge::Ref<kuge::Audio>>(), *m_death, at,
+                        kuge::listenerOf(world().getResource<k3::Camera>()));
+                    world().getResource<kuge::Particles3D>().burst({.at = {at.x, at.y - 0.5f, at.z}, .count = 24, .speed = 2.5f, .life = 0.8f,
+                        .size = 0.35f, .gravity = 1.0f, .color = {0.55f, 0.5f, 0.45f, 0.6f}});
+                }
                 if (info.type == PLAYER && info.owner == m_networkId) {
                     kuge::CameraRig rig;
                     const auto& rotation = world().get<kuge::Transform3D>(entity).rotation;
@@ -329,6 +403,9 @@ namespace arena
         m_prediction.reset();
         m_replication.reset();
         clearLastGame();
+        m_seen.clear();
+        m_bullets.clear();
+        m_lastHealth = HEALTH;
         m_networkId = welcome.networkId;
         m_replication = std::make_unique<kuge::replication::ReplicationClient>(world(), m_registry,
             kuge::replication::ReplicationClientConfig{.tickRate = welcome.tickRate});
@@ -483,6 +560,12 @@ namespace arena
                 }
             }
         }
+        if (mine && health < m_lastHealth) {
+            world.getResource<kuge::Ref<kuge::Audio>>()->play(*m_hurt, {.volume = 0.9f});
+            ++m_report->hurts;
+        }
+        m_lastHealth = mine ? health : m_lastHealth;
+        effects(world);
         // The gun is held in first person, and kicks back when its player shoots
         auto& held = world.get<kuge::ViewModel3D>(m_gun);
 
