@@ -169,6 +169,7 @@ Test(camera, orbit_stops_before_a_wall)
     wall = 0.1f;
     fx.engine.step(0.0);
     Assert(camera(fx).position.z > 3.0f && camera(fx).position.z < 3.2f, "a wall right behind: the camera is almost on the point: %f", camera(fx).position.z);
+}
 
 Test(camera, the_ray_under_a_pixel)
 {
