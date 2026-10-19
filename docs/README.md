@@ -49,5 +49,6 @@ Read them in order the first time. Each page stands alone afterwards.
 | [13 Cookbook](13-cookbook/README.md) | Short recipes for things you will want to do |
 | [14 Pitfalls](14-pitfalls/README.md) | The traps that were met while building the engine |
 | [15 Glossary](15-glossary/README.md) | Words used everywhere |
+| [19 Network protocol (RFC)](19-network-protocol-rfc/README.md) | The wire protocol as a specification: packets, channels, handshake, lobby, replication (in French) |
 
 The [README of the repository](../README.md) is the reference; these pages are the explanation.
