@@ -1124,7 +1124,7 @@ ctest --test-dir build --output-on-failure
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
-| `kuge_render3d_tests` | render3d: sounds at a place (volume, pan, range), particles that are drawn, fall and fade, a model drawn and lit, the GPU and the CPU drawing the same picture (with an offscreen OpenGL context), the transform and its interpolation, 2D over 3D, models from files (OBJ, glTF, in the background, reloaded), animation (clips, cues, the next clip, a replicated clip), mouse look and cameras |
+| `kuge_render3d_tests` | render3d: sounds at a place (volume, pan, range), particles that are drawn, fall and fade, an orbit camera that stops at walls, a model drawn and lit, the GPU and the CPU drawing the same picture (with an offscreen OpenGL context), the transform and its interpolation, 2D over 3D, models from files (OBJ, glTF, in the background, reloaded), animation (clips, cues, the next clip, a replicated clip), mouse look and cameras |
 | `kuge_physics3d_tests` | physics3d: bodies that fall and rest, kinematic bodies, triggers, layers, rays, characters that stay upright, bit-for-bit replay, and Jolt in a server with a predicting client |
 | `boundary_*` | a module cannot include what it does not link |
 | `rtype_smoke` | the real R-Type programs (server, client, host) play a scripted game and leave a picture that is checked |

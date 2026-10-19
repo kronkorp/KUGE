@@ -86,7 +86,7 @@ As in 2D, give an entity a `PreviousTransform3D` (same value) and it is drawn be
 | Resource or component | What it does |
 |---|---|
 | `k3::Camera`, `k3::Environment` (resources) | The view, the sky, the fog, the ambient light, the shadows |
-| `Model3D` | Draws a `k3::Model` at the `Transform3D` of the entity |
+| `Model3D` | Draws a `k3::Model` at the `Transform3D` of the entity (entities that share a mesh and a material are drawn together, in one call on the GPU) |
 | `Light3D` | A `k3::Light` that follows its entity (at most 8 lights light the scene, the environment's first) |
 | `Animator3D` | A glTF model that plays clips (below) |
 | `CameraRig` | Makes the camera follow an entity, first person or orbiting (below) |
@@ -144,6 +144,8 @@ world.add<kuge::CameraRig>(player, kuge::CameraRig{});                          
 world.add<kuge::CameraRig>(player, kuge::CameraRig{.mode = kuge::CameraRig::Mode::Orbit, .distance = 5.0f});
 ```
 
+From behind (`Orbit`), a camera goes through walls unless the rig can ask where they are: `rig.obstacle` is a function that gives how far along
+a ray something is (negative: nothing), usually a physics' raycast, and the camera stops `margin` meters short of it.
 `UpdateCamera` turns `yaw` and `pitch` with the mouse and places the `k3::Camera`; read the rig's `yaw` to walk
 the way the player looks. There is no roll (`k3::Camera` has none). `sensitivity` is in radians per pixel (0.0013:
 0.075 degrees), and `maxMove` is the most pixels that count in one frame (a jump of the mouse is not a hand).
@@ -304,6 +306,5 @@ What to read in it:
 - The picture of the GPU goes through the CPU (a read back and a copy into the 2D renderer's texture). Drawing straight to
   the window would save that, but then the sprites and the text have to be drawn by the GPU rasterizer too (kronk3d has
   `draw2D`, without rotation): it is a different 2D renderer, not done.
-- Instancing of many copies of a mesh (`drawInstances`): kronk3d has the tool, `ModelRender` does not use it.
 - Poses are not interpolated between two ticks; no roll for the camera.
 - Windows (MSVC) is built by the CI like the rest; Jolt and the 3D are not checked on a machine of ours.

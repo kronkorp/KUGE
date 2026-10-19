@@ -302,6 +302,23 @@ Test(arena, a_client_predicts_crates)
     Assert(walk(false) > 0.7f, "without it, it walks through the crate (this is what the proxies are for): %f m", walk(false));
 }
 
+Test(arena, a_camera_sees_walls_not_players)
+{
+    Sim sim;
+    const kw::Entity me = sim.player(1, {-18.5f, 1.0f, 10.0f});
+    const kw::Entity other = sim.player(2, {-18.5f, 1.0f, 15.0f});
+
+    (void)me;
+    sim.ticks(30);
+    const Vec3 eye{-18.5f, 1.6f, 10.6f};      // (just behind the body: a camera is not inside it)
+    const auto wall = sim.physics().raycast(eye, {0.0f, 0.0f, 1.0f}, 30.0f, SCENERY);
+
+    Assert(wall && near(wall->distance, 9.4f, 0.1f) && !sim.world().has<Owned>(wall->entity), "a camera looking back finds the wall, 9.4 m away: %f", wall ? wall->distance : -1.0f);
+    const auto anything = sim.physics().raycast(eye, {0.0f, 0.0f, 1.0f}, 30.0f);
+
+    Assert(anything && anything->entity == other && anything->distance < 5.0f, "(a shot finds the player in between)");
+}
+
 Test(arena, shots_hurt_and_kill)
 {
     Sim sim;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backend/IOpenGL.hpp"
+#include <functional>
 #include <kronk3d/render/Environment.hpp>
 #include <kronk3d/scene/Light.hpp>
 #include <kronk3d/scene/Model.hpp>
@@ -56,6 +57,11 @@ namespace kuge
         float minPitch = -1.5f;                        //!< (a little less than a quarter turn: not straight down)
         float maxPitch = 1.5f;
         bool  look = true;                             //!< Follows the mouse (false: the game sets yaw and pitch)
+        //! Orbit only: how far along a ray the camera could go before it meets a wall (negative: nothing is there), so that it
+        //! stops short of it (`margin` meters before) instead of going through. A physics' raycast does that:
+        //!     rig.obstacle = [&](Vec3 from, Vec3 way, float most) { auto hit = physics.raycast(from, way, most); return hit ? hit->distance : -1.0f; };
+        std::function<float(k3::Math::Vector3f from, k3::Math::Vector3f direction, float maxDistance)> obstacle;
+        float margin = 0.25f;
     };
 
     //! What a first-person player holds (a component, on an entity of its own: it has no Transform3D): a model

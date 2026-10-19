@@ -140,6 +140,37 @@ Test(camera, it_follows_between_ticks)
     Assert(camera(fx).position.x > 0.0f && camera(fx).position.x < 10.0f, "drawn between the two, so is the view: %f", camera(fx).position.x);
 }
 
+Test(camera, orbit_stops_before_a_wall)
+{
+    Fixture fx;
+    kuge::CameraRig rig;
+    float askedFrom = 0.0f, askedMost = 0.0f, askedWay = 0.0f;
+    float wall = 2.0f;                      // how far the wall is along the way (negative: none)
+
+    rig.mode = kuge::CameraRig::Mode::Orbit;
+    rig.offset = {0.0f, 0.0f, 0.0f};
+    rig.distance = 5.0f;
+    rig.obstacle = [&](k3::Math::Vector3f from, k3::Math::Vector3f way, float most) {
+        askedFrom = from.z;
+        askedWay = way.z;
+        askedMost = most;
+        return wall;
+    };
+    spawn(fx, 1.0f, 2.0f, 3.0f, rig);
+    fx.engine.step(0.0);
+    Assert(near(askedFrom, 3.0f) && near(askedWay, 1.0f) && near(askedMost, 5.0f), "the way back is asked about, from the point looked at");
+    Assert(near(camera(fx).position.z, 3.0f + 1.75f), "the camera stops a quarter of a meter before the wall: %f", camera(fx).position.z);
+    wall = -1.0f;
+    fx.engine.step(0.0);
+    Assert(near(camera(fx).position.z, 8.0f), "no wall: all the way back: %f", camera(fx).position.z);
+    wall = 9.0f;
+    fx.engine.step(0.0);
+    Assert(near(camera(fx).position.z, 8.0f), "a wall farther than the camera: no change");
+    wall = 0.1f;
+    fx.engine.step(0.0);
+    Assert(camera(fx).position.z > 3.0f && camera(fx).position.z < 3.2f, "a wall right behind: the camera is almost on the point: %f", camera(fx).position.z);
+}
+
 Test(camera, the_ray_under_a_pixel)
 {
     k3::Camera view;

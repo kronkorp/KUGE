@@ -75,7 +75,7 @@ namespace arena
         body.lockRotation = true;
         body.mass = 70.0f;
         world.add<kuge::Transform3D>(player, transform);
-        world.add<kuge::Collider3D>(player, kuge::Collider3D::capsule(PLAYER_RADIUS, PLAYER_HEIGHT));
+        world.add<kuge::Collider3D>(player, kuge::Collider3D::capsule(PLAYER_RADIUS, PLAYER_HEIGHT).onLayer(PLAYERS));
         world.add<kuge::Body3D>(player, body);
         return player;
     }
@@ -166,7 +166,7 @@ namespace arena
                     body.lockRotation = true;
                     proxy = predicted.create();
                     predicted.add<kuge::Transform3D>(proxy, at);
-                    predicted.add<kuge::Collider3D>(proxy, kuge::Collider3D::capsule(PLAYER_RADIUS, PLAYER_HEIGHT));
+                    predicted.add<kuge::Collider3D>(proxy, kuge::Collider3D::capsule(PLAYER_RADIUS, PLAYER_HEIGHT).onLayer(PLAYERS));
                     predicted.add<kuge::Body3D>(proxy, body);
                 }
                 proxies.bodies.emplace(info.id, proxy);

@@ -9,6 +9,7 @@
 #include "Time.hpp"
 #include "Transform3D.hpp"
 #include <algorithm>
+#include <map>
 #include <kronk3d/render/IRasterizer.hpp>
 
 bool kuge::SnapshotTransforms3D::handle(kw::World& world)
@@ -157,7 +158,20 @@ bool kuge::UpdateCamera::handle(kw::World& world)
     camera.pitch = rig.pitch;
     const k3::Math::Vector3f point = at + rig.offset;
 
-    camera.position = rig.mode == CameraRig::Mode::Orbit ? point - camera.forward() * rig.distance : point;
+    if (rig.mode == CameraRig::Mode::Orbit) {
+        float distance = rig.distance;
+
+        if (rig.obstacle) {
+            const float hit = rig.obstacle(point, camera.forward() * -1.0f, rig.distance);
+
+            if (hit >= 0.0f && hit < rig.distance) {
+                distance = std::max(hit - rig.margin, 0.05f);
+            }
+        }
+        camera.position = point - camera.forward() * distance;
+    } else {
+        camera.position = point;
+    }
     return true;
 }
 
@@ -204,11 +218,40 @@ bool kuge::ModelRender::handle(kw::World& world)
         environment.lights.push_back(light);
     }
     rasterizer.beginFrame(world.getResource<k3::Camera>(), environment);
+    // The models, a mesh with its material at a time: what many entities share (the crates of a level, the trees of a forest)
+    // is drawn once with all its places, which the GPU does in a single call
+    struct Instances
+    {
+        std::shared_ptr<const k3::Mesh>     mesh;
+        std::shared_ptr<const k3::Material> material;
+        std::vector<k3::Math::Matrix4>      places;
+    };
+    std::vector<Instances> groups;
+    std::map<std::pair<const k3::Mesh*, const k3::Material*>, std::size_t> found;
+
     for (kw::Entity entity : world.view<Transform3D, Model3D>()) {
         const Model3D& model = world.get<Model3D>(entity);
 
-        if (model.visible && model.model) {
-            rasterizer.draw(*model.model, shown(world, entity, alpha).matrix());
+        if (!model.visible || !model.model) {
+            continue;
+        }
+        const k3::Math::Matrix4 place = shown(world, entity, alpha).matrix();
+
+        for (const k3::Primitive& primitive : model.model->primitives) {
+            const auto key = std::make_pair(primitive.mesh.get(), primitive.material.get());
+            const auto [at, isNew] = found.try_emplace(key, groups.size());
+
+            if (isNew) {
+                groups.push_back({primitive.mesh, primitive.material, {}});
+            }
+            groups[at->second].places.push_back(place);
+        }
+    }
+    for (const Instances& group : groups) {
+        if (group.places.size() == 1) {
+            rasterizer.draw(group.mesh, group.material, group.places.front());
+        } else {
+            rasterizer.drawInstances(group.mesh, group.material, group.places);
         }
     }
     for (kw::Entity entity : world.view<Transform3D, Animator3D>()) {
