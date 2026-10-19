@@ -64,6 +64,9 @@ namespace kuge
             AssetManager<Music>&      musics(void) noexcept { return m_musics; }
             TextRenderer&             text(void) noexcept { return m_text; }
 
+            //! The OpenGL context of the backend, null if it has none (see WindowConfig::openGL)
+            IOpenGL*                  opengl(void) noexcept { return m_backend.opengl.get(); }
+
             //! A font of the backend at a size, shared while somebody holds it
             //! @throw FontError if the backend has no fonts, or the file is not one
             std::shared_ptr<IFont> loadFont(const std::filesystem::path& file, int pointSize);

@@ -6,9 +6,13 @@
 # bullets are seen: the exit code says so), and leave a picture with the game in it.
 #
 #     RunArena3D.sh <server> <client> <host> <outdir>
+#
+# The environment can change how: SDL_VIDEODRIVER (dummy by default; "offscreen" gives an OpenGL context with no window)
+# and ARENA_ARGS (more arguments for the client and the host, such as --opengl). A client that asks for the GPU and
+# cannot have it exits with 77, which makes this script exit with 77: "skipped" for ctest.
 
 SERVER="$1"; CLIENT="$2"; HOST="$3"; OUT="$4"
-export SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy
+export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-dummy}" SDL_RENDER_DRIVER=software SDL_AUDIODRIVER=dummy
 PORT=$((20000 + $$ % 20000))
 mkdir -p "$OUT"
 rm -f "$OUT/stop"
@@ -45,13 +49,20 @@ else
 fi
 SPID=$!
 sleep 1
-"$CLIENT" --port "$PORT" --frames 420 --screenshot "$OUT/client.ppm" > "$OUT/client.log" 2>&1 || { cat "$OUT/client.log"; fail "the client did not join a game, run, jump and shoot"; }
+"$CLIENT" --port "$PORT" $ARENA_ARGS --frames 420 --screenshot "$OUT/client.ppm" > "$OUT/client.log" 2>&1
+status=$?
+if [ "$status" -eq 77 ]; then
+    stop_server; wait "$SPID"; SPID=""
+    echo "arena smoke: skipped (the GPU was asked for and this machine has none)"
+    exit 77
+fi
+[ "$status" -eq 0 ] || { cat "$OUT/client.log"; fail "the client did not join a game, run, jump and shoot"; }
 stop_server
 wait "$SPID" || fail "the server did not stop cleanly"
 SPID=""
 grep -q "room 1 is closed" "$OUT/server.log" || fail "the room was not left when the server stopped"
 check_picture "$OUT/client.ppm"
 
-"$HOST" --frames 420 --screenshot "$OUT/host.ppm" > "$OUT/host.log" 2>&1 || { cat "$OUT/host.log"; fail "the host did not join its own game, run, jump and shoot"; }
+"$HOST" $ARENA_ARGS --frames 420 --screenshot "$OUT/host.ppm" > "$OUT/host.log" 2>&1 || { cat "$OUT/host.log"; fail "the host did not join its own game, run, jump and shoot"; }
 check_picture "$OUT/host.ppm"
 echo "arena smoke: ok"
