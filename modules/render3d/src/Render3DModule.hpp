@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetManager.hpp"
+#include "ClientModule.hpp"
 #include "Components3D.hpp"
 #include "Module.hpp"
 #include <chrono>
@@ -27,8 +28,16 @@ namespace kuge
             using std::runtime_error::runtime_error;
     };
 
+    //! What draws the 3D: kronk3d's rasterizer on the CPU or on the GPU (OpenGL 3.3)
+    enum class Rendering {
+        Auto,       //!< The GPU if the client has an OpenGL context (WindowConfig::openGL), else the CPU
+        Software,   //!< The CPU: it works anywhere, with no window and no GPU (the tests, a server with a screen shot)
+        OpenGL,     //!< The GPU: Render3DError if there is no context
+    };
+
     struct Render3DConfig
     {
+        Rendering        rendering = Rendering::Auto;
         k3::AntiAliasing antiAliasing = k3::AntiAliasing::None;
         float            renderScale = 1.0f;   //!< The scene is drawn at this fraction of the screen, then enlarged
         unsigned         threads = 0;          //!< Worker threads of the rasterizer (0: one per hardware thread)
@@ -39,15 +48,17 @@ namespace kuge
 
     ////////////////////////////////////////////////////////////////////////////
     /**
-     * @brief  What makes a client able to show a 3D scene: kronk3d's software rasterizer
+     * @brief  What makes a client able to show a 3D scene: kronk3d's rasterizer, on the CPU or on the GPU
      *
      * Add it after the ClientModule (it is destroyed before it):
      *
-     *     auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend({}));
-     *     engine.addModule<kuge::Render3DModule>();
+     *     auto& client = engine.addModule<kuge::ClientModule>(kuge::makeSdlBackend({.openGL = true}));
+     *     engine.addModule<kuge::Render3DModule>(client);        // the GPU if there is one, else the CPU
      *
-     * It draws in memory, the image is then given to the 2D renderer: it works with any backend,
-     * with no OpenGL context, and the sprites and the interface can be drawn over it. Each scene gets,
+     * Either way the scene is drawn off screen, and the image is then given to the 2D renderer: it works with
+     * any backend, and the sprites, the text and the interface are drawn **over** it as for a 2D game. On the GPU
+     * the image is read back (a few milliseconds at 1280x720), which is what keeps all of that working. Without
+     * the client (the first constructor) it is the CPU. Each scene gets,
      * as resources of its World, Ref<k3::IRasterizer>, k3::Camera and k3::Environment, and the
      * models of files: Ref<AssetManager<k3::Model>> (.obj, with its .mtl and pictures) and
      * Ref<AssetManager<k3::AnimatedModel>> (.glb and .gltf). See Scene3D for the systems that draw.
@@ -56,8 +67,18 @@ namespace kuge
     class Render3DModule : public Module
     {
         public:
-            //! @throw Render3DError
+            //! On the CPU. @throw Render3DError (if the GPU was asked for)
             explicit Render3DModule(Render3DConfig config = {});
+
+            //! On the GPU if the client has an OpenGL context and the config does not say otherwise.
+            //! @throw Render3DError
+            explicit Render3DModule(ClientModule& client, Render3DConfig config = {});
+
+            ~Render3DModule(void) override;
+
+            //! Is the GPU drawing? And what is drawing ("software", or the name of the graphics card)
+            bool                usesOpenGL(void) const noexcept { return m_gl != nullptr; }
+            const std::string&  rendererName(void) const noexcept { return m_rendererName; }
 
             k3::IRasterizer& rasterizer(void) noexcept { return *m_rasterizer; }
 
@@ -80,6 +101,10 @@ namespace kuge
             void beginFrame(Engine& engine) override;
 
         private:
+            Render3DModule(ClientModule* client, Render3DConfig config);
+
+            IOpenGL*                         m_gl = nullptr;     //!< When the GPU draws
+            std::string                      m_rendererName = "software";
             Render3DConfig                   m_config;
             std::unique_ptr<k3::IRasterizer> m_rasterizer;
             AssetManager<k3::Model>          m_models;

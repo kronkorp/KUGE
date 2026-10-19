@@ -14,12 +14,10 @@ each with its pull request.
 
 What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet:
 
-- [ ] **OpenGL.** kronk3d's `HardwareRasterizer` is not wired to the client: it needs a window with a GL context
-  (the SDL backend has none), a `glLoader` from `SDL_GL_GetProcAddress`, and text and interface drawn through
-  kronk3d's 2D overlay (`draw2D`) because `SDL_Renderer` and a GL context do not share a window well. Nothing
-  needed from kronk3d is known to be missing.
-- [ ] **Nobody has measured a frame.** The software rasterizer at 1280x720 (the copy of the image included) is not
-  timed; `drawInstances` (many copies of a mesh) is not used by `ModelRender`.
+- [ ] **Drawing straight to the window.** The GPU's picture is read back and shown by the 2D renderer (a few
+  milliseconds at 1280x720): a faster path draws the 3D into the window and the sprites and text with kronk3d's `draw2D`
+  (no rotation), which means a 2D renderer on OpenGL. `drawInstances` (many copies of a mesh) is not used by
+  `ModelRender` either.
 - [ ] Small things kronk3d has the tools for: spatial audio (`IAudio` takes a volume and a pan, nothing computes
   them from a position), picking by ray from the mouse, particles (`k3::BillboardBatch`), a text file for the cues
   of the 3D clips (the 2D ones have one), interpolating poses between two ticks, a camera with roll.

@@ -35,8 +35,16 @@ if(TARGET kuge_arena3d_server AND TARGET kuge_arena3d_client AND TARGET kuge_are
             COMMAND ${KUGE_SH} ${PROJECT_SOURCE_DIR}/cmake/RunArena3D.sh
                     $<TARGET_FILE:kuge_arena3d_server> $<TARGET_FILE:kuge_arena3d_client> $<TARGET_FILE:kuge_arena3d_host>
                     ${CMAKE_CURRENT_BINARY_DIR}/arena3d)
+        # The same on the GPU, with SDL's offscreen video driver (an OpenGL context and no window): skipped (77) where
+        # there is no OpenGL 3.3
+        add_test(NAME arena3d_smoke_gl
+            COMMAND ${KUGE_SH} ${PROJECT_SOURCE_DIR}/cmake/RunArena3D.sh
+                    $<TARGET_FILE:kuge_arena3d_server> $<TARGET_FILE:kuge_arena3d_client> $<TARGET_FILE:kuge_arena3d_host>
+                    ${CMAKE_CURRENT_BINARY_DIR}/arena3d_gl)
+        set_tests_properties(arena3d_smoke_gl PROPERTIES
+            ENVIRONMENT "SDL_VIDEODRIVER=offscreen;ARENA_ARGS=--opengl" SKIP_RETURN_CODE 77)
     else()
-        message(STATUS "No sh found: the Arena smoke test (cmake/RunArena3D.sh) is not run")
+        message(STATUS "No sh found: the Arena smoke tests (cmake/RunArena3D.sh) are not run")
     endif()
 endif()
 
@@ -166,7 +174,7 @@ if(TARGET kuge-client)
 endif()
 
 if(TARGET kuge-render3d)
-    add_executable(kuge_render3d_tests render3d/animator3d_test.cpp render3d/camera_test.cpp render3d/models_test.cpp render3d/render3d_test.cpp)
+    add_executable(kuge_render3d_tests render3d/animator3d_test.cpp render3d/camera_test.cpp render3d/gl_test.cpp render3d/models_test.cpp render3d/render3d_test.cpp)
     target_link_libraries(kuge_render3d_tests PRIVATE kuge-render3d kronklab-static)
     target_include_directories(kuge_render3d_tests PRIVATE render3d)
     target_compile_options(kuge_render3d_tests PRIVATE ${KUGE_WARNINGS})
