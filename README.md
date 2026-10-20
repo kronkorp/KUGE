@@ -568,6 +568,7 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiPanel` | A background and a border. |
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
+| `UiCheckbox` | A box that is ticked or not, with its `text` after it: `checked`, `enabled`; `hovered` / `focused` are filled in by the interaction. Focused and pressed like a button, it flips `checked` and says `Changed`. |
 | `UiProgress` | A bar filled for `value / max` (from the left, or from the bottom if `vertical`): `fill`, `back`, `border`. Its size is the node's, else `UiTheme::progressWidth` x `progressHeight`. |
 | `UiTextField` | A line of text that the player types: `text`, `placeholder`, `maxLength` (in characters), `caret`, `columns` (its width if the node has no size), `enabled`; `hovered` / `focused` are filled in by the interaction. |
 
@@ -621,6 +622,17 @@ and a bar whose `max` is 0, or whose `value` is negative or NaN, is empty:
 world.add<kuge::UiNode>(bar, kuge::UiNode{.parent = hud, .hasParent = true, .size = {240.0f, 24.0f}});
 world.add<kuge::UiProgress>(bar, kuge::UiProgress{.value = 42.0f, .max = 100.0f});
 world.get<kuge::UiProgress>(bar).value = hp;      // every frame, if it changes
+```
+
+**Check box.** `UiCheckbox` is a choice that is on or off. It is focused like a button, and Enter (your `accept`) or a
+click flips `checked` and puts a `Changed` (not `Activated`) in `UiEvents`; read the value in the component. The tick is a
+filled square in the box, so it does not rely on a colour (`UiTheme::checkMark`):
+
+```cpp
+world.add<kuge::UiNode>(hurry, kuge::UiNode{.parent = form, .hasParent = true});
+world.add<kuge::UiCheckbox>(hurry, kuge::UiCheckbox{.text = "Hurry mode"});
+// ... in a system: Changed, then
+const bool on = world.get<kuge::UiCheckbox>(event.entity).checked;
 ```
 
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus

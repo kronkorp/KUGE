@@ -134,7 +134,8 @@ audio.playMusic(*theme, {.fadeIn = 2.0f});
 
 `client.loadFont("font.ttf", 14)` gives a font; `Ref<TextRenderer>` draws text in screen pixels. Menus, HUD
 and options are **entities in screen pixels** made of `UiNode` (a rectangle placed by an anchor or a stack),
-`UiPanel`, `UiLabel`, `UiButton`, `UiTextField` and `UiProgress` (a bar for health or XP, filled for `value / max`). `installUi(setup(), actions)` adds the systems: layout, focus
+`UiPanel`, `UiLabel`, `UiButton`, `UiTextField`, `UiProgress` (a bar for health or XP, filled for `value / max`) and `UiCheckbox` (on or off:
+`checked`, and `Changed` in `UiEvents` when it is flipped). `installUi(setup(), actions)` adds the systems: layout, focus
 navigation with the keyboard or gamepad (nearest neighbour), mouse hover and click, and drawing. The platformer's
 `MenuScene` and `PauseScene` are complete examples.
 

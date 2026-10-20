@@ -18,6 +18,8 @@ namespace
 {
     using namespace kuge;
 
+    constexpr float CHECK_GAP = 8.0f;   // between the box of a check box and its text
+
     Rect rectAt(Vec2 position, Vec2 size) { return {position.x, position.y, size.x, size.y}; }
 
     Vec2 measureText(const IFont* font, const std::string& text, int wrap)
@@ -132,6 +134,12 @@ namespace
                     const Vec2 letter = measureText(fieldFont(field, m_theme), "n", 0);
 
                     return {letter.x * static_cast<float>(std::max(field.columns, 1)) + 2.0f * m_theme.padding, letter.y + 2.0f * m_theme.padding};
+                }
+                if (m_world.has<UiCheckbox>(entity)) {
+                    const Vec2 text = measureText(m_theme.font.get(), m_world.get<UiCheckbox>(entity).text, 0);
+                    const float line = m_theme.font ? static_cast<float>(m_theme.font->lineHeight()) : 0.0f;
+
+                    return {line + CHECK_GAP + text.x, line};   // (the box is a square of the height of a line)
                 }
                 if (m_world.has<UiProgress>(entity)) {
                     const Vec2 bar{m_theme.progressWidth, m_theme.progressHeight};
@@ -499,7 +507,7 @@ bool kuge::UiInteract::handle(kw::World& world)
     InputMap& inputMap = *world.getResource<Ref<InputMap>>();
     const Vec2 mouse = inputMap.mousePosition();
     std::vector<kw::Entity> all;
-    std::vector<kw::Entity> usable;   // what can take the focus: buttons and text fields, shown and enabled
+    std::vector<kw::Entity> usable;   // what can take the focus: buttons, check boxes and text fields, shown and enabled
 
     events.clear();
     // What was typed since the last tick. Taken even if nothing reads it, so that it does not wait for a field
@@ -514,6 +522,10 @@ bool kuge::UiInteract::handle(kw::World& world)
     for (kw::Entity entity : fields) {
         all.push_back(entity);
     }
+    auto boxes = world.view<UiNode, UiCheckbox>();
+    for (kw::Entity entity : boxes) {
+        all.push_back(entity);
+    }
     std::sort(all.begin(), all.end());   // (the order of the entities: the order of Tab)
     for (kw::Entity entity : all) {
         bool enabled = false;
@@ -523,6 +535,11 @@ bool kuge::UiInteract::handle(kw::World& world)
 
             button.hovered = button.focused = button.pressed = false;
             enabled = button.enabled;
+        } else if (world.has<UiCheckbox>(entity)) {
+            UiCheckbox& box = world.get<UiCheckbox>(entity);
+
+            box.hovered = box.focused = false;
+            enabled = box.enabled;
         } else {
             UiTextField& field = world.get<UiTextField>(entity);
 
@@ -581,6 +598,18 @@ bool kuge::UiInteract::handle(kw::World& world)
             }
         }
     }
+    // A button was pressed; a check box flips instead
+    const auto activate = [&](kw::Entity entity) {
+        if (world.has<UiCheckbox>(entity)) {
+            UiCheckbox& box = world.get<UiCheckbox>(entity);
+
+            box.checked = !box.checked;
+            events.push_back({UiEvent::Kind::Changed, entity, true});
+        } else {
+            events.push_back({UiEvent::Kind::Activated, entity, true});
+        }
+    };
+
     if (pressed(input, actions.click) && hovered) {
         focusOn(*hovered);
         if (world.has<UiTextField>(*hovered)) {
@@ -592,11 +621,11 @@ bool kuge::UiInteract::handle(kw::World& world)
             settleCaret(field);
             field.caret = caretAt(fieldFont(field, theme), field, room, mouse.x - (rect.x + theme.padding));
         } else {
-            events.push_back({UiEvent::Kind::Activated, *hovered, true});
+            activate(*hovered);
         }
     }
     if (pressed(input, actions.accept) && !onField()) {
-        events.push_back({UiEvent::Kind::Activated, state.focus, true});
+        activate(state.focus);
     }
     if (cancelled) {
         events.push_back({UiEvent::Kind::Cancelled, state.focus, state.hasFocus});
@@ -646,6 +675,11 @@ bool kuge::UiInteract::handle(kw::World& world)
             button.focused = focused;
             button.hovered = over;
             button.pressed = (button.focused && held(input, actions.accept)) || (button.hovered && held(input, actions.click));
+        } else if (world.has<UiCheckbox>(entity)) {
+            UiCheckbox& box = world.get<UiCheckbox>(entity);
+
+            box.focused = focused;
+            box.hovered = over;
         } else {
             UiTextField& field = world.get<UiTextField>(entity);
 
@@ -704,6 +738,30 @@ bool kuge::UiRender::handle(kw::World& world)
 
                 text.draw(*theme.font, button.text, {std::round(rect.x + (rect.w - size.x) / 2.0f), std::round(rect.y + (rect.h - size.y) / 2.0f)},
                     button.enabled ? theme.buttonText : theme.disabledText);
+            }
+        }
+        if (world.has<UiCheckbox>(entity)) {
+            const UiCheckbox& box = world.get<UiCheckbox>(entity);
+            const Rect square{rect.x, rect.y, rect.h, rect.h};
+            const float inset = std::round(rect.h / 4.0f);
+
+            if (box.enabled && (box.hovered || box.focused)) {
+                renderer.fillRect(rect, theme.buttonHover);
+            }
+            renderer.fillRect(square, box.enabled ? theme.fieldFill : theme.buttonDisabled);
+            border(renderer, square, theme.fieldBorder, 2.0f);
+            if (box.checked) {
+                renderer.fillRect({square.x + inset, square.y + inset, square.w - 2.0f * inset, square.h - 2.0f * inset},
+                    box.enabled ? theme.checkMark : theme.disabledText);
+            }
+            if (box.focused) {
+                border(renderer, rect, theme.focusRing, theme.focusWidth);
+            }
+            if (theme.font) {
+                const Vec2 size = theme.font->measure(box.text, 0);
+
+                text.draw(*theme.font, box.text, {std::round(rect.x + rect.h + CHECK_GAP), std::round(rect.y + (rect.h - size.y) / 2.0f)},
+                    box.enabled ? theme.buttonText : theme.disabledText);
             }
         }
         if (world.has<UiTextField>(entity)) {
