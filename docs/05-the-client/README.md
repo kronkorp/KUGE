@@ -269,6 +269,55 @@ is still drawn but stands still while the console has the keyboard). Its command
   a given frame). `AnimateSprites` runs in the Fixed schedule so animations are as reproducible as the rest.
   `Animator::loop(sheet, fps)` plays every cell of a sheet in turn, without a file.
 
+## Cinematics
+
+An intro, a boss entrance, a tutorial that moves the camera: a **timeline** is a JSON file, one per cinematic (its id is the file name), and
+`CinematicScene` plays it over a stage that the game builds.
+
+```json
+{ "duration": 6, "tracks": [
+  { "kind": "transform", "keys": [ { "t": 0.5, "duration": 2, "ease": "outQuad", "target": "boss", "to": { "position": [400, 120] } } ] },
+  { "kind": "camera",    "keys": [ { "t": 2.5, "duration": 0.6, "shake": { "amplitude": 6 } } ] },
+  { "kind": "text",      "keys": [ { "t": 1, "duration": 3, "speaker": "Boss", "text": "You came." } ] },
+  { "kind": "event",     "keys": [ { "t": 5.5, "name": "open_gate" } ] } ] }
+```
+
+```cpp
+kuge::CinematicScene::Config config;
+
+config.timeline = std::make_shared<const kuge::Timeline>(kuge::Timeline::load("data/timelines/boss_entrance.json"));   // @throw TimelineError, naming the file and the key
+config.font = font;
+config.setup = [](kuge::CinematicScene& scene) { /* create the entities, scene.name("boss", boss) */ };
+config.onEvent = [](const std::string& name, const kuge::Json& key) { /* "open_gate": the game does it */ };
+config.onDone = [](kuge::SceneContext& ctx, bool skipped) { ctx.scenes().change<Level>(); };
+ctx().scenes().change<kuge::CinematicScene>(config);
+```
+
+| Track | A key needs | What it does |
+|---|---|---|
+| `transform` | `target`, `to` {field: value}, [`component`, default `Transform2D`] | the fields go from what they are to their values (any described component, see [03](../03-scenes-systems-and-the-ecs/README.md)); a text, a bool or an enum jumps at the end |
+| `animation` | `target`, `clip` | `Animator::play(clip, restart)` |
+| `camera` | `position` [x, y] and/or `zoom`; or `shake` {amplitude} with a `duration` | the camera moves; a shake is random, fades out and leaves the camera exactly where it was |
+| `fade` | `color` [r, g, b, a] in 0..1 | the colour over the screen goes to it (it covers the world, not the subtitle) |
+| `audio` | `sound` [`volume`, `bus`: "dialogue"] or `music` [`loop`, `fadeIn`] or `stopMusic` (seconds) | plays through `Audio`; the loaders are the client's asset managers |
+| `text` | `text`, [`speaker`] | a subtitle for the `duration` of the key (none: until the next text key; an empty text clears) |
+| `event` | `name`, [`data`] | `onEvent`: what a cinematic does to the game (open a door, spawn a boss) is the game's |
+
+Every key has `t` (seconds), may have `duration` (a tween), `ease` (`linear`, `inQuad`, `outQuad`, `inOutQuad`) and must end before the
+`duration` of the file. The loader refuses a file with an unknown kind, a negative time, a missing field...; the message begins with the
+file name and says `tracks[1].keys[0]`.
+
+- **Time** comes from the fixed tick, never from a clock: the same timeline played twice gives the same positions, and the size of the frames
+  does not matter (a tween always ends exactly at its value). A shake draws from a generator of its own with a fixed seed.
+- **Skip** (Escape, or the `skipAction` of the game): every key that was left starts and every tween ends, in order of time, so the world is
+  as if it had played to the end and the events were fired. The sounds of the skipped keys are not played; the music that should be playing is.
+- `TimelinePlayer` (core) alone gives `play`, `pause`, `seek`, `restart`, `skip`, `setSpeed`; `Cinematic` (client) applies a timeline to a
+  World, and can run inside any scene for a short effect: call `update(dt)` from a system.
+- A key that cannot work (a `target` that is not named in the scene, a field that is not described) is logged with the name of the file
+  and ignored: the cinematic goes on.
+- **Multiplayer**: a cinematic that changes nothing of the game is played by the client alone. One that stops the game is started by the
+  room ([09](../09-the-server/README.md#a-cinematic-that-stops-the-game)): the client pushes the scene when it hears `CinematicStart` and sends `CinematicDone` from `onDone`.
+
 ## Testing a client without a screen
 
 ```cpp

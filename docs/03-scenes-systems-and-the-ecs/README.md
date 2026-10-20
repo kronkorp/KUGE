@@ -174,6 +174,33 @@ void Level::onEnter()
 Each adds resources to the World and systems to the right stages. The order you install them in
 is the order their systems run within a stage.
 
+## Components by name: reflection
+
+A script, an editor, a prefab or a timeline needs to say "set `points` of `Health` to 50" without knowing `Health`.
+A `ComponentRegistry` (an object of the game, not a global) lists the components you describe, field by field:
+
+```cpp
+kuge::ComponentRegistry registry;
+registry.describe<Health>("Health", {
+    kuge::field<Health>("points", &Health::points, {.min = 0, .max = 1000}),
+    kuge::field<Health>("mood", &Health::mood, {.names = {"Calm", "Angry"}}),   // an enum: say its names
+    kuge::entityField<Health>("target", &Health::target),
+});
+kuge::describeCore(registry);          // Transform2D/3D, Collider3D, Body3D, Character3D
+kuge::describePhysics(registry);       // Collider, Body (2D)
+kuge::describeClient(registry);        // Sprite, Camera2D
+
+registry.set(world, e, "Health", "points", std::int64_t(50));     // {ok, message}: the message names the field and why
+registry.fromJson(world, e, "Health", kuge::Json::parse(R"({"points": 80})"));
+kuge::Json prefab = registry.entityToJson(world, e);                // {"Health": {...}, "Transform2D": {...}}
+```
+
+- Fields are a bool, an integer, a float, a `std::string`, an enum, a `Vec2`/`Vec3`/`Vec4` or an entity. JSON writes a vector as `[x, y, z]` and an enum as its name.
+- A refused value (wrong type, outside `min`/`max`, an unknown enum name, an unknown field) **changes nothing**, and the message says which one.
+- `fromJson` keeps the fields the JSON does not mention; `entityFromJson` adds none of the components if one is wrong.
+- Describing the same component twice, or two fields with one name, throws `std::invalid_argument` when the game starts.
+- The replication registry still lists the components for the network on its own: making it read these descriptions is a later step.
+
 ## Resources that modules give you
 
 `Ref<T>` is a resource that points to a service that lives outside the World (the renderer, the input

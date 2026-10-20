@@ -189,6 +189,21 @@ no longer keeps the place), so that ids cannot be tried.
 rounds with a buy phase: all of that is the game's. (A phase machine for rounds is not in the engine on purpose: a timer in a `Fixed`
 system is a few lines, and the phases are the rules of the game.)
 
+## A cinematic that stops the game
+
+A boss that enters, a round that ends: every player must see it before the game goes on.
+
+```cpp
+if (playCinematic("boss_entrance", 20.0)) { m_paused = true; }     // the game decides what "stopped" is
+void onCinematicEnded(const std::string& id, bool completed) override { m_paused = false; }
+```
+
+The players there get `net::CinematicStart{id}`; the client plays the timeline (`CinematicScene`, see [05](../05-the-client/README.md#cinematics))
+and answers `net::CinematicDone{id}` when it ends or the player skips it. The room waits for everybody, for at most `timeLimit` seconds (the
+ones still playing get `net::CinematicStop{id}` and skip it): then `onCinematicEnded(id, completed)`. A player who leaves, or whose connection
+is lost, is no longer waited for. One at a time (`playCinematic` returns false while one runs). KUGE does not stop anything: the room goes on
+simulating, and not ticking the game, not reading the inputs, is the game's (`cinematicRunning()` tells).
+
 ## A room that starts
 
 A game with a start (a match, a round, a race) is open, then closed. When it starts, the room calls

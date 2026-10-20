@@ -147,9 +147,9 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 
 | Message | Sens | Champs, dans l'ordre | Rôle |
 | --- | --- | --- | --- |
-| `JoinRoom` | C→L | roomType (chaîne), playerName (chaîne), protocol (u16) | demande une salle d'un type, que le lobby choisit |
-| `CreateRoom` | C→L | roomType, roomName, playerName (chaînes), isPrivate (bool), options (chaîne), protocol (u16) | crée une salle nommée, avec des options que KUGE ne lit pas, et y place le client |
-| `JoinNamedRoom` | C→L | roomId (u32), roomName, playerName (chaînes), protocol (u16) | entre dans la salle dont l'id et le nom correspondent |
+| `JoinRoom` | C→L | roomType (chaîne), playerName (chaîne), protocol (u16), mods (u64) | demande une salle d'un type, que le lobby choisit |
+| `CreateRoom` | C→L | roomType, roomName, playerName (chaînes), isPrivate (bool), options (chaîne), protocol (u16), mods (u64) | crée une salle nommée, avec des options que KUGE ne lit pas, et y place le client |
+| `JoinNamedRoom` | C→L | roomId (u32), roomName, playerName (chaînes), protocol (u16), mods (u64) | entre dans la salle dont l'id et le nom correspondent |
 | `ListRooms` | C→L | roomType (chaîne, vide pour tous) | demande les salles publiques |
 | `RoomList` | L→C | total (u32), rooms (vecteur de `RoomInfo`) | réponse : 64 salles au plus, `total` les compte toutes |
 | `RoomInfo` | dans `RoomList` | roomId (u32), roomType, name (chaînes), players (u32), maxPlayers (u32), options (chaîne), open (bool) | décrit une salle publique ; `open` est faux quand la salle est fermée aux nouveaux venus |
@@ -180,11 +180,11 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 
 | Énumération | Valeurs |
 | --- | --- |
-| `JoinError` | 0 UnknownRoomType, 1 Full, 2 AlreadyJoined, 3 RoomFailed, 4 Protocol, 5 InvalidName, 6 UnknownRoom, 7 InvalidOptions, 8 Started |
+| `JoinError` | 0 UnknownRoomType, 1 Full, 2 AlreadyJoined, 3 RoomFailed, 4 Protocol, 5 InvalidName, 6 UnknownRoom, 7 InvalidOptions, 8 Started, 9 Mods |
 | `HelloError` | 0 UnknownToken, 1 Closing |
 | `RoomEnd` | 0 GameOver, 1 Idle, 2 ServerStopping, 3 Kicked, 4 Error, 5 Victory |
 
-Un nom de salle est valide s'il fait de 1 à 32 octets d'UTF-8 correct (RFC 3629), sans caractère de contrôle (U+0000 à U+001F, U+007F à U+009F) et sans espace ni tabulation à ses extrémités. Le lobby refuse les autres avec `JoinError::InvalidName`. Les `options` d'une salle font au plus 128 octets d'UTF-8 correct, sans caractère de contrôle ; le lobby refuse les autres avec `JoinError::InvalidOptions`.
+Un nom de salle est valide s'il fait de 1 à 32 octets d'UTF-8 correct (RFC 3629), sans caractère de contrôle (U+0000 à U+001F, U+007F à U+009F) et sans espace ni tabulation à ses extrémités. Le lobby refuse les autres avec `JoinError::InvalidName`. `mods` est l'empreinte (`Mods::fingerprint()`, 0 : aucun mod) des mods du joueur ; si elle n'est pas celle du serveur (`ServerConfig::mods`), le lobby répond `JoinError::Mods`. Les `options` d'une salle font au plus 128 octets d'UTF-8 correct, sans caractère de contrôle ; le lobby refuse les autres avec `JoinError::InvalidOptions`.
 
 ## 6. Cycle de vie d'une connexion
 
@@ -353,7 +353,7 @@ Une donnée invalide est jetée et comptée dans les statistiques de l'endpoint 
 | Version | Où | Valeur | Contrôle |
 | --- | --- | --- | --- |
 | `protocol` | `Connect` (u16) | 2 | égalité exacte, sinon `Reject` |
-| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom`, `RejoinRoom` (u16) | 3 | égalité exacte, sinon `JoinRefused(Protocol)` |
+| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom`, `RejoinRoom` (u16) | 4 | égalité exacte, sinon `JoinRefused(Protocol)` |
 | `schema` | `SnapshotPacket` (u32) | hash du registre | égalité, sinon instantané ignoré |
 
 Les messages n'ont pas de version propre : ajouter, retirer ou réordonner un champ d'un `KUGE_MESSAGE` casse la lecture, et le message est jeté comme malformé. Un tel changement dans le lobby ou la salle MUST s'accompagner d'une hausse de `protocol`. Le `schema` change quand les noms, les modes ou l'ordre des composants changent ; il ne change pas quand le format d'octets d'un composant change, et ce cas n'est pas détecté.

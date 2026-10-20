@@ -70,11 +70,14 @@ add_executable(kuge_tests
     core/cvars_test.cpp
     core/engine_test.cpp
     core/fixed_timestep_test.cpp
+    core/json_test.cpp
     core/mailbox_test.cpp
     core/profiler_test.cpp
     core/random_test.cpp
     core/math2d_test.cpp
     core/module_test.cpp
+    core/mods_test.cpp
+    core/reflect_test.cpp
     core/save_test.cpp
     core/scene_test.cpp
     core/serializer_test.cpp
@@ -82,6 +85,7 @@ add_executable(kuge_tests
     core/spawn_test.cpp
     core/tilemap_test.cpp
     core/time_control_test.cpp
+    core/timeline_test.cpp
     core/transform3d_test.cpp
     core/world_history_test.cpp
 )
@@ -126,7 +130,7 @@ target_link_libraries(kuge_replication_tests PRIVATE kuge-replication kuge-serve
 target_compile_options(kuge_replication_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_replication_tests kuge_replication_tests)
 
-add_executable(kuge_server_tests server/server_test.cpp server/stdin_commands_test.cpp server/chat_test.cpp server/rejoin_test.cpp)
+add_executable(kuge_server_tests server/server_test.cpp server/stdin_commands_test.cpp server/chat_test.cpp server/mods_test.cpp server/rejoin_test.cpp server/cinematic_test.cpp)
 target_link_libraries(kuge_server_tests PRIVATE kuge-server kronklab-static)
 target_compile_options(kuge_server_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_server_tests kuge_server_tests)
@@ -178,6 +182,7 @@ if(TARGET kuge-client)
         client/audio_test.cpp
         client/camera_test.cpp
         client/chat_log_test.cpp
+        client/cinematic_test.cpp
         client/client_module_test.cpp
         client/debug_test.cpp
         client/console_test.cpp

@@ -53,6 +53,8 @@ namespace kuge::server
         double                  closeDelay     = 0.1;                  //!< A room that finishes runs this long before it tells its players (0: at once), so that the last snapshots leave first
         double                  linger         = 0.3;                  //!< Then it waits this long for its last messages to leave
 
+        std::uint64_t           mods           = 0;                    //!< Mods::fingerprint() of the server: a client whose mods are not these is refused (JoinError::Mods). 0: no mods.
+
         double                  statsEvery     = 5.0;                  //!< A room logs its network numbers this often (INFO, category "server"; 0: never)
 
         net::EndpointConfig     endpoint;                              //!< Timeouts, and the clock, for the lobby and the rooms

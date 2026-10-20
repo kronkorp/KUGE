@@ -63,6 +63,7 @@ namespace kuge::server
             want.type = join.roomType;
             want.playerName = join.playerName;
             want.protocol = join.protocol;
+            want.mods = join.mods;
             request(from, std::move(want));
         });
         m_endpoint->on<net::CreateRoom>([this](net::ConnectionId from, const net::CreateRoom& create) {
@@ -75,6 +76,7 @@ namespace kuge::server
             want.isPrivate = create.isPrivate;
             want.options = create.options;
             want.protocol = create.protocol;
+            want.mods = create.mods;
             request(from, std::move(want));
         });
         m_endpoint->on<net::JoinNamedRoom>([this](net::ConnectionId from, const net::JoinNamedRoom& join) {
@@ -85,6 +87,7 @@ namespace kuge::server
             want.roomName = join.roomName;
             want.playerName = join.playerName;
             want.protocol = join.protocol;
+            want.mods = join.mods;
             request(from, std::move(want));
         });
         m_endpoint->on<net::ListRooms>([this](net::ConnectionId from, const net::ListRooms& list) { handleList(from, list); });
@@ -263,6 +266,10 @@ namespace kuge::server
     {
         if (want.protocol != net::MATCHMAKING_VERSION) {
             refuse(from, net::JoinError::Protocol);
+            return true;
+        }
+        if (want.mods != m_state->config.mods) {
+            refuse(from, net::JoinError::Mods);   // the server decides what is played
             return true;
         }
         const ServerState::RoomType* kind = nullptr;

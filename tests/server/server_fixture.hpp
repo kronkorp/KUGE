@@ -25,6 +25,7 @@ struct SetTeam { KUGE_MESSAGE(SetTeam, team) std::uint32_t team = 0; };
 struct TeamSay { KUGE_MESSAGE(TeamSay, text) std::string text; };
 struct WinNow { KUGE_MESSAGE(WinNow) };
 struct SetDoor { KUGE_MESSAGE(SetDoor, open) bool open = true; };
+struct StartCine { KUGE_MESSAGE(StartCine, id, limit) std::string id; double limit = 30.0; };
 
 // What the rooms of the tests did (they run on other threads: everything is under the mutex)
 struct RoomLog
@@ -42,11 +43,13 @@ struct RoomLog
     int                                                    exited = 0;
     std::atomic<int>                                       roomsListening{0};
     std::atomic<int>                                       finished{0};   //!< Rooms that were told to finish
+    std::vector<std::pair<std::string, bool>>              cinematics;    //!< Cinematics that ended: the id, and whether all players finished it
 
     std::size_t joinedCount(void) { std::lock_guard lock(mutex); return joined.size(); }
     std::size_t leftCount(void) { std::lock_guard lock(mutex); return left.size(); }
     std::size_t awayCount(void) { std::lock_guard lock(mutex); return away.size(); }
     std::size_t rejoinedCount(void) { std::lock_guard lock(mutex); return rejoined.size(); }
+    std::size_t cinematicCount(void) { std::lock_guard lock(mutex); return cinematics.size(); }
 };
 
 inline RoomLog& roomLog(void)
@@ -77,6 +80,7 @@ class TestRoom : public kuge::server::RoomScene
             on<SetDoor>([this](const Player&, const SetDoor& door) { setOpen(door.open); });
             on<SetTeam>([this](const Player& who, const SetTeam& team) { setTeam(who.networkId, team.team); });
             on<TeamSay>([this](const Player& who, const TeamSay& say) { broadcastTeam(who.team, Echo{who.name + " (team): " + say.text}); });
+            on<StartCine>([this](const Player&, const StartCine& start) { playCinematic(start.id, start.limit); });
             on<WinNow>([this](const Player&, const WinNow&) { finish(kuge::net::RoomEnd::Victory); ++roomLog().finished; });
             on<FinishNow>([this](const Player&, const FinishNow&) { finish(kuge::net::RoomEnd::GameOver); ++roomLog().finished; });
         }
@@ -92,6 +96,12 @@ class TestRoom : public kuge::server::RoomScene
             std::lock_guard lock(roomLog().mutex);
             roomLog().joined.push_back(player.name);
             roomLog().networkIds.push_back(player.networkId);
+        }
+
+        void onCinematicEnded(const std::string& id, bool completed) override
+        {
+            std::lock_guard lock(roomLog().mutex);
+            roomLog().cinematics.emplace_back(id, completed);
         }
 
         void onPlayerAway(const Player& player, kuge::net::DisconnectReason) override
@@ -183,6 +193,8 @@ struct TestClient
     std::vector<kuge::net::ChatLine> chats;
     std::vector<kuge::net::RoomEnd> closed;
     std::vector<std::string>        failures;
+    std::vector<std::string>        cinematicsStarted;
+    std::vector<std::string>        cinematicsStopped;
     std::vector<kuge::net::RoomList> lists;   //!< What the lobby said when asked for the rooms
     int                             joined = 0;
 
@@ -194,6 +206,8 @@ struct TestClient
             roomId = welcome.roomId;
             networkId = welcome.networkId;
             room.on<Echo>([this](kuge::net::ConnectionId, const Echo& echo) { echoes.push_back(echo.text); });
+            room.on<kuge::net::CinematicStart>([this](kuge::net::ConnectionId, const kuge::net::CinematicStart& m) { cinematicsStarted.push_back(m.id); });
+            room.on<kuge::net::CinematicStop>([this](kuge::net::ConnectionId, const kuge::net::CinematicStop& m) { cinematicsStopped.push_back(m.id); });
             room.on<kuge::net::ChatLine>([this](kuge::net::ConnectionId, const kuge::net::ChatLine& line) { chats.push_back(line); });
         });
         matchmaking.onRoomClosed([this](kuge::net::RoomEnd why) { closed.push_back(why); });
