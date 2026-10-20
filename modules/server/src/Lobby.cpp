@@ -92,6 +92,16 @@ namespace kuge::server
 
     void LobbyScene::onExit(void)
     {
+        // The players still in a room are told why they are leaving, before their connection goes (the room tells
+        // them too: whichever arrives first is heard, the other finds the client already in the lobby)
+        if (m_endpoint) {
+            for (const auto& [playerId, member] : m_members) {
+                const auto room = m_rooms.find(member.roomId);
+                const bool closing = room != m_rooms.end() && room->second.closing;
+
+                m_endpoint->send(member.connection, net::RoomClosed{closing ? room->second.endReason : net::RoomEnd::ServerStopping});
+            }
+        }
         // The rooms are the server's: they end with it (the engine stops every spawned scene)
         for (auto& [id, room] : m_rooms) {
             room.handle.stop();
@@ -438,6 +448,7 @@ namespace kuge::server
 
             if (room != m_rooms.end()) {
                 room->second.closing = true;
+                room->second.endReason = closing->reason;
             }
         } else if (const auto* ended = message.as<detail::RoomEnded>()) {
             endRoom(ended->roomId, ended->reason);

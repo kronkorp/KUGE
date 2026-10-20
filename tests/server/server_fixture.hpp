@@ -33,6 +33,7 @@ struct RoomLog
     int                                                    entered = 0;
     int                                                    exited = 0;
     std::atomic<int>                                       roomsListening{0};
+    std::atomic<int>                                       finished{0};   //!< Rooms that were told to finish
 
     std::size_t joinedCount(void) { std::lock_guard lock(mutex); return joined.size(); }
     std::size_t leftCount(void) { std::lock_guard lock(mutex); return left.size(); }
@@ -61,7 +62,7 @@ class TestRoom : public kuge::server::RoomScene
                 roomLog().roomNames.emplace_back(init().roomName, init().isPrivate);
             }
             on<Echo>([this](const Player& who, const Echo& echo) { send(who.networkId, Echo{who.name + ": " + echo.text}); });
-            on<FinishNow>([this](const Player&, const FinishNow&) { finish(kuge::net::RoomEnd::GameOver); });
+            on<FinishNow>([this](const Player&, const FinishNow&) { finish(kuge::net::RoomEnd::GameOver); ++roomLog().finished; });
         }
 
         void onRoomExit(void) override
@@ -116,6 +117,7 @@ struct Harness
         roomLog().threads.clear();
         roomLog().roomNames.clear();
         roomLog().entered = roomLog().exited = 0;
+        roomLog().finished = 0;
         config.transport = kuge::server::Transport::Loopback;
         config.loopback = &network;
         config.tickRate = 200;

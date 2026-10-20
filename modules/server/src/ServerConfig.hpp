@@ -88,7 +88,7 @@ namespace kuge::server
         struct ExpectPlayer  { std::uint32_t playerId; std::string name; std::uint64_t token; };
         struct KickPlayer    { std::uint32_t playerId; net::RoomEnd reason; };
         struct RoomReady     { std::uint32_t roomId; };
-        struct RoomClosing   { std::uint32_t roomId; };      //!< The game ended: no more players, and the ones it has may join again
+        struct RoomClosing   { std::uint32_t roomId; net::RoomEnd reason; };   //!< The game ended: no more players, and the ones it has may join again
         struct RoomFailed    { std::uint32_t roomId; std::string why; };
         struct PlayerJoined  { std::uint32_t roomId; std::uint32_t playerId; };
         struct PlayerLeft    { std::uint32_t roomId; std::uint32_t playerId; };

@@ -762,3 +762,41 @@ Test(server, a_silent_lobby)
     AssertEq(static_cast<int>(ana.matchmaking.lastReason()), static_cast<int>(net::DisconnectReason::Timeout), "it timed out");
     AssertStrEq(ana.matchmaking.error().c_str(), "the server does not answer", "and the text says it");
 }
+
+// -- The server stops (ticket 040) ---------------------------------------------------------------
+Test(server, stopping_says_why)
+{
+    for (int round = 0; round < 10; ++round) {
+        auto harness = std::make_unique<Harness>();
+        TestClient ana("Ana"), ben("Ben");
+
+        ana.connect(*harness);
+        ben.connect(*harness);
+        ana.join();
+        ben.join();
+        Assert(ana.until([&] { ben.poll(); return ana.inRoom() && ben.inRoom(); }), "round %d: in the room", round);
+        harness.reset();     // the server stops with two players in a room
+        Assert(ana.until([&] { ben.poll(); return !ana.closed.empty() && !ben.closed.empty(); }, 5.0), "round %d: both hear that the room closed", round);
+        AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::ServerStopping), "round %d: because the server stopped", round);
+        AssertEq(static_cast<int>(ben.closed[0]), static_cast<int>(net::RoomEnd::ServerStopping), "round %d: for both", round);
+        Assert(ana.until([&] { ben.poll(); return ana.matchmaking.state() == State::Failed && ben.matchmaking.state() == State::Failed; }, 5.0), "round %d: then the lobby is lost", round);
+        AssertEq(ana.closed.size(), 1, "round %d: and the room was not reported twice", round);
+    }
+}
+
+Test(server, stopping_a_finishing_room)
+{
+    // A room that is finishing, with its players not told yet (closeDelay), keeps the reason of its game
+    auto harness = std::make_unique<Harness>([](ServerConfig& c) { c.closeDelay = 30.0; });
+    TestClient ana("Ana");
+
+    ana.connect(*harness);
+    ana.join();
+    Assert(ana.until([&] { return ana.inRoom(); }), "in the room");
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, FinishNow{});
+    Assert(waitUntil([] { return roomLog().finished == 1; }), "the room is finishing, its players not told yet");
+    Assert(ana.until([&] { const auto* list = ana.list(); return list && list->total == 0; }), "and the lobby knows (a room that ends is not listed)");
+    harness.reset();
+    Assert(ana.until([&] { return !ana.closed.empty(); }, 5.0), "the player hears the end");
+    AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::GameOver), "with the reason of the game, not the server's");
+}

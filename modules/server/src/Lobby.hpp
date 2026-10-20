@@ -47,6 +47,7 @@ namespace kuge::server
                 std::size_t              maxPlayers;
                 bool                     ready = false;
                 bool                     closing = false;   //!< The game ended: it takes no one more
+                net::RoomEnd             endReason = net::RoomEnd::GameOver;   //!< Why, once it is closing
                 std::set<std::uint32_t>  members;      //!< Player ids: joined, or on their way
                 std::vector<std::uint32_t> waiting;    //!< Told where the room is once it is ready
             };

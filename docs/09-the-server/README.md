@@ -143,6 +143,12 @@ its `Hello` is **never given to your game**: your `on<T>` handlers only see play
 (`RoomClosed`), the last messages get a moment to leave (`linger`), and the scene is left. The clients are back
 in the lobby and can ask for another game.
 
+When the **server stops** (Ctrl+C, `GameServer::stop()`), the players hear `RoomEnd::ServerStopping`, not
+`RoomEnd::Error`: the lobby tells the players that are in a room, and the room tells its own, before their
+connections go (a room that was finishing keeps the reason of its game). A client that was only in the lobby has
+nothing to be told and sees the lobby lost. Both messages are sent once, with no wait for an ack: over UDP the room's
+may be lost, and the client then hears the lobby's.
+
 After `finish()` the room keeps running for `closeDelay` (0.1 s by default) before it sends `RoomClosed`. A client
 lets go of the room's replication when it hears `RoomClosed`, and the snapshots are not ordered with it: without the
 delay, what the game did in the tick it ended (a result, a last state) would leave *after* the message that makes the
