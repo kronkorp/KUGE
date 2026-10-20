@@ -66,6 +66,7 @@ add_executable(kuge_tests
     core/asset_manager_test.cpp
     core/asset_reload_test.cpp
     core/config_file_test.cpp
+    core/cvars_test.cpp
     core/engine_test.cpp
     core/fixed_timestep_test.cpp
     core/mailbox_test.cpp
@@ -117,7 +118,7 @@ target_link_libraries(kuge_replication_tests PRIVATE kuge-replication kuge-serve
 target_compile_options(kuge_replication_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_replication_tests kuge_replication_tests)
 
-add_executable(kuge_server_tests server/server_test.cpp)
+add_executable(kuge_server_tests server/server_test.cpp server/stdin_commands_test.cpp)
 target_link_libraries(kuge_server_tests PRIVATE kuge-server kronklab-static)
 target_compile_options(kuge_server_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_server_tests kuge_server_tests)
