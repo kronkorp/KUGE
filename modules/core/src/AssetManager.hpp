@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AssetRoots.hpp"
 #include "ThreadPool.hpp"
 #include <any>
 #include <atomic>
@@ -98,10 +99,20 @@ namespace kuge
             AssetManager(const AssetManager&)            = delete;
             AssetManager& operator=(const AssetManager&) = delete;
 
-            std::shared_ptr<T> load(const std::filesystem::path& path)
+            //! Looks for the relative paths given to load() in these folders, in order (the game's and its mods: see AssetRoots and Mods). A path that
+            //! no root has is used as it is, so the loader says what is wrong with it. Set it before loading; what is loaded is not moved.
+            void setRoots(std::shared_ptr<const AssetRoots> roots)
             {
                 std::lock_guard lock(m_mutex);
-                const std::string key = path.lexically_normal().string();
+
+                m_roots = std::move(roots);
+            }
+
+            std::shared_ptr<T> load(const std::filesystem::path& requested)
+            {
+                std::lock_guard lock(m_mutex);
+                const std::string key = requested.lexically_normal().string();
+                const std::filesystem::path path = placed(requested);
                 auto found = m_cache.find(key);
 
                 if (found != m_cache.end()) {
@@ -127,15 +138,16 @@ namespace kuge
             //! Like load(), without waiting: the file is read on a worker, and the asset is made
             //! by the next pump(). Asking again for a file that is on its way shares its load.
             //! @throw std::logic_error without enableAsync()
-            std::shared_ptr<Ticket> loadAsync(const std::filesystem::path& path)
+            std::shared_ptr<Ticket> loadAsync(const std::filesystem::path& requested)
             {
                 std::lock_guard lock(m_mutex);
                 auto ticket = std::make_shared<Ticket>();
+                const std::filesystem::path path = placed(requested);
 
                 if (!m_async) {
                     throw std::logic_error("AssetManager::loadAsync() needs enableAsync()");
                 }
-                const std::string key = path.lexically_normal().string();
+                const std::string key = requested.lexically_normal().string();
                 auto found = m_cache.find(key);
 
                 if (found != m_cache.end()) {
@@ -299,6 +311,17 @@ namespace kuge
                 Stamp                  stamp;
             };
 
+            // The file that a request means: in the roots if it is relative and one has it, else as it is (under the lock)
+            std::filesystem::path placed(const std::filesystem::path& requested) const
+            {
+                if (m_roots && requested.is_relative()) {
+                    if (const auto found = m_roots->find(requested)) {
+                        return *found;
+                    }
+                }
+                return requested;
+            }
+
             static Stamp stampOf(const std::filesystem::path& path)
             {
                 std::error_code error;
@@ -347,6 +370,7 @@ namespace kuge
             Loader                                     m_loader;
             Reloader                                   m_reloader;
             mutable std::mutex                         m_mutex;
+            std::shared_ptr<const AssetRoots>          m_roots;
             std::unordered_map<std::string, Entry>     m_cache;
             std::optional<Async>                       m_async;
             std::shared_ptr<Shared>                    m_shared = std::make_shared<Shared>();   // (what workers use: it outlives the manager)

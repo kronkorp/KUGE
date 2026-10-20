@@ -71,6 +71,7 @@ namespace kuge::server
                 bool          isPrivate = false;
                 std::string   options;         //!< Create
                 std::uint16_t protocol = net::MATCHMAKING_VERSION;
+                std::uint64_t mods = 0;
             };
 
             void request(net::ConnectionId from, Want want);
