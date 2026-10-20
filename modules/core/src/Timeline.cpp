@@ -82,6 +82,9 @@ namespace
                 if (shake && at.member(*shake, "amplitude", Type::Number).number() <= 0.0) {
                     at.fail("'shake.amplitude' must be above 0");
                 }
+                if (shake && (!key.find("duration") || (*key.find("duration")).number() <= 0.0)) {
+                    at.fail("a 'shake' lasts: it needs a 'duration' above 0");
+                }
                 at.maybe(key, "target", Type::String);
                 break;
             }
@@ -228,44 +231,53 @@ void kuge::TimelinePlayer::fire(Step::Phase phase, std::size_t track, std::size_
 
 void kuge::TimelinePlayer::advanceTo(double target)
 {
-    struct Due { double t; std::size_t track; std::size_t key; };
-    std::vector<Due> due;
+    // What happens between the last time and this one, in order of time; at the same time a tween ends before a key starts (a fade that
+    // ends as the next begins), then by track, then by place in the track
+    struct Event { double t; int order; std::size_t track; std::size_t key; };   // order: 0 End, 1 Start
+    std::vector<Event> events;
+    std::vector<Running> started;
 
     m_time = target;
     for (std::size_t track = 0; track < m_next.size(); ++track) {
         const auto& keys = m_timeline->tracks[track].keys;
 
         for (; m_next[track] < keys.size() && keys[m_next[track]].t <= target; ++m_next[track]) {
-            due.push_back({keys[m_next[track]].t, track, m_next[track]});
+            events.push_back({keys[m_next[track]].t, 1, track, m_next[track]});
+            started.push_back({track, m_next[track]});
         }
     }
-    std::sort(due.begin(), due.end(), [](const Due& a, const Due& b) {
-        return a.t != b.t ? a.t < b.t : a.track != b.track ? a.track < b.track : a.key < b.key;
-    });
-    for (const Due& one : due) {
-        fire(Step::Phase::Start, one.track, one.key, 0.0);
-        if (m_timeline->tracks[one.track].keys[one.key].duration > 0.0) {
-            m_running.push_back({one.track, one.key});
-        }
-    }
-    std::vector<Running> still;
-    const std::vector<Running> running = std::move(m_running);
+    std::vector<Running> candidates = m_running;
 
-    m_running.clear();
-    for (const Running& one : running) {
+    candidates.insert(candidates.end(), started.begin(), started.end());
+    for (const Running& one : candidates) {
+        const TimelineKey& key = m_timeline->tracks[one.track].keys[one.key];
+
+        if (key.duration > 0.0 && key.t + key.duration <= target) {
+            events.push_back({key.t + key.duration, 0, one.track, one.key});
+        }
+    }
+    std::sort(events.begin(), events.end(), [](const Event& a, const Event& b) {
+        return a.t != b.t ? a.t < b.t : a.order != b.order ? a.order < b.order : a.track != b.track ? a.track < b.track : a.key < b.key;
+    });
+    for (const Event& event : events) {
+        if (event.order == 1) {
+            fire(Step::Phase::Start, event.track, event.key, 0.0);
+            if (m_timeline->tracks[event.track].keys[event.key].duration > 0.0) {
+                m_running.push_back({event.track, event.key});
+            }
+        } else {
+            std::erase_if(m_running, [&](const Running& one) { return one.track == event.track && one.key == event.key; });
+            fire(Step::Phase::End, event.track, event.key, 1.0);
+        }
+    }
+    for (const Running& one : std::vector<Running>(m_running)) {
         const TimelineKey& key = m_timeline->tracks[one.track].keys[one.key];
         const double progress = (m_time - key.t) / key.duration;
 
-        if (progress >= 1.0) {
-            fire(Step::Phase::End, one.track, one.key, 1.0);
-        } else {
-            if (progress > 0.0) {
-                fire(Step::Phase::Tween, one.track, one.key, progress);
-            }
-            still.push_back(one);
+        if (progress > 0.0) {
+            fire(Step::Phase::Tween, one.track, one.key, progress);
         }
     }
-    m_running.insert(m_running.begin(), still.begin(), still.end());
     m_finished = m_time >= m_timeline->duration && m_running.empty();
 }
 

@@ -2,6 +2,7 @@
 
 #include "Chat.hpp"
 #include "ChatRelay.hpp"
+#include "Cinematic.hpp"
 #include "Net.hpp"
 #include "NetMeter.hpp"
 #include "Scene.hpp"
@@ -9,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -167,6 +169,17 @@ namespace kuge::server
             //! command) or change it (a name, a filter of words). By default it goes as it is.
             virtual std::optional<std::string> onChatLine(const Player&, std::string text) { return text; }
 
+            //! Stops the game for a cinematic that every client plays (a boss that enters, a round that ends): the players there get
+            //! `net::CinematicStart{id}` and answer `net::CinematicDone{id}` when it ends or they skip it. The cinematic is over when all
+            //! have answered, or after `timeLimit` seconds (the ones still playing get `net::CinematicStop`): onCinematicEnded() follows.
+            //! A player that leaves or is away is no longer waited for. The room keeps simulating: what "stops the game" means is the
+            //! game's (do not tick, do not take the inputs...). One at a time.
+            //! @return  false if one is running already, or the room is finishing
+            bool playCinematic(const std::string& id, double timeLimit);
+            bool cinematicRunning(void) const noexcept { return m_cinematic.has_value(); }
+            //! `completed` is false when the time limit cut it
+            virtual void onCinematicEnded(const std::string& id, bool completed) { (void)id; (void)completed; }
+
             //! Ends the game: the players are told, then the room is left. Only the first call counts.
             //! The players are told `ServerConfig::closeDelay` later, not at once: the room goes on running, and
             //! what the game does as it ends (a result, a last state) is in the snapshots that leave first. A client
@@ -177,6 +190,7 @@ namespace kuge::server
         private:
             friend class RoomHousekeeping;
 
+            struct ActiveCinematic { std::string id; std::set<std::uint32_t> waiting; double deadline; };
             struct Expected { std::string name; std::uint32_t playerId; double expires; bool rejoin = false; };
             struct WaitingHello { net::ConnectionId connection; std::uint64_t token; double since; };
 
@@ -194,12 +208,15 @@ namespace kuge::server
             void completeFinish(void);
             void playerGone(net::ConnectionId connection, net::DisconnectReason reason);
             void letGo(std::uint32_t networkId, net::DisconnectReason reason);   //!< A player is out for good
+            void cinematicDone(std::uint32_t networkId, const std::string& id);
+            void endCinematic(bool completed);
 
             RoomInit                                 m_init;
             net::Endpoint*                           m_endpoint = nullptr;
             std::map<std::uint32_t, Player>          m_players;
             std::map<std::uint64_t, Expected>        m_expected;
             std::unique_ptr<ChatRelay>               m_chat;
+            std::optional<ActiveCinematic>           m_cinematic;
             net::NetMeter                            m_meter{5.0};
             double                                   m_nextStats = 0.0;
             std::map<net::ConnectionId, double>      m_unknown;      //!< Connected, no hello yet: since when

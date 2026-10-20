@@ -55,7 +55,7 @@ namespace kuge
      * Kinds and what a key needs (the others are optional):
      *   transform  target (name of an entity), to ({field: value}, of `component`, default "Transform2D")
      *   animation  target, clip
-     *   camera     position [x, y] and/or zoom and/or shake {amplitude, [frequency]}; target (default: the entity "camera")
+     *   camera     position [x, y] and/or zoom (tweens) and/or shake {amplitude} (the `duration` of the key; it fades out)
      *   fade       color [r, g, b, a] (0..1): the colour of the screen goes to it
      *   audio      sound (file) [volume, bus "effects"/"dialogue"] or music (file) [loop, fadeIn] or stopMusic [fadeOut]
      *   text       text, speaker (a subtitle for `duration`; the empty text clears)

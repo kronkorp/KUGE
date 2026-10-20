@@ -62,6 +62,7 @@ namespace kuge::server
         m_endpoint->onDisconnected([this](net::ConnectionId id, net::DisconnectReason reason) { playerGone(id, reason); });
         m_endpoint->on<net::Hello>([this](net::ConnectionId from, const net::Hello& hello) { handleHello(from, hello.token); });
         addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<RoomHousekeeping>(*this));
+        on<net::CinematicDone>([this](const Player& who, const net::CinematicDone& done) { cinematicDone(who.networkId, done.id); });
         onRoomEnter();
         tellLobby(detail::RoomReady{m_init.roomId});
         Logger::logger().category("server").info("room {} ({}) is open", m_init.roomId, m_init.roomType);
@@ -198,6 +199,43 @@ namespace kuge::server
         });
     }
 
+    bool RoomScene::playCinematic(const std::string& id, double timeLimit)
+    {
+        if (m_cinematic || m_finishing) {
+            return false;
+        }
+        m_cinematic = ActiveCinematic{id, {}, now() + timeLimit};
+        for (const auto& [networkId, who] : m_players) {
+            if (!who.away) {
+                m_cinematic->waiting.insert(networkId);
+            }
+        }
+        broadcast(net::CinematicStart{id});
+        if (m_cinematic->waiting.empty()) {
+            endCinematic(true);
+        }
+        return true;
+    }
+
+    // A player said it is done, or is gone
+    void RoomScene::cinematicDone(std::uint32_t networkId, const std::string& id)
+    {
+        if (m_cinematic && (id.empty() || m_cinematic->id == id) && m_cinematic->waiting.erase(networkId) && m_cinematic->waiting.empty()) {
+            endCinematic(true);
+        }
+    }
+
+    void RoomScene::endCinematic(bool completed)
+    {
+        const ActiveCinematic over = std::move(*m_cinematic);
+
+        m_cinematic.reset();
+        for (const std::uint32_t networkId : over.waiting) {
+            send(networkId, net::CinematicStop{over.id});
+        }
+        onCinematicEnded(over.id, completed);
+    }
+
     void RoomScene::playerGone(net::ConnectionId connection, net::DisconnectReason reason)
     {
         if (m_chat) {
@@ -207,6 +245,7 @@ namespace kuge::server
         std::erase_if(m_waiting, [connection](const WaitingHello& hello) { return hello.connection == connection; });
         for (auto it = m_players.begin(); it != m_players.end(); ++it) {
             if (it->second.connection == connection && !it->second.away) {
+                cinematicDone(it->first, {});
                 // A lost connection (not one the player ended, or that the room did) is kept for a while if the room type asks
                 const bool lost = reason == net::DisconnectReason::Timeout || reason == net::DisconnectReason::Unreachable;
 
@@ -342,6 +381,11 @@ namespace kuge::server
             m_nextStats = time + m_init.server.statsEvery;
         }
 
+        if (m_cinematic && time >= m_cinematic->deadline) {
+            Logger::logger().category("server").warn("room {}: cinematic '{}' cut after its time limit ({} players still playing)", m_init.roomId, m_cinematic->id,
+                m_cinematic->waiting.size());
+            endCinematic(false);
+        }
         if (m_finishing) {
             if (time >= m_announceAt) {
                 announceEnd();

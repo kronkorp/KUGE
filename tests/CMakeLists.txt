@@ -130,7 +130,7 @@ target_link_libraries(kuge_replication_tests PRIVATE kuge-replication kuge-serve
 target_compile_options(kuge_replication_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_replication_tests kuge_replication_tests)
 
-add_executable(kuge_server_tests server/server_test.cpp server/stdin_commands_test.cpp server/chat_test.cpp server/mods_test.cpp server/rejoin_test.cpp)
+add_executable(kuge_server_tests server/server_test.cpp server/stdin_commands_test.cpp server/chat_test.cpp server/mods_test.cpp server/rejoin_test.cpp server/cinematic_test.cpp)
 target_link_libraries(kuge_server_tests PRIVATE kuge-server kronklab-static)
 target_compile_options(kuge_server_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_server_tests kuge_server_tests)
@@ -182,6 +182,7 @@ if(TARGET kuge-client)
         client/audio_test.cpp
         client/camera_test.cpp
         client/chat_log_test.cpp
+        client/cinematic_test.cpp
         client/client_module_test.cpp
         client/debug_test.cpp
         client/console_test.cpp

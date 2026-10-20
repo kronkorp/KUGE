@@ -130,8 +130,8 @@ Test(timeline, skip_gives_the_same_end)
     skipped.lines.clear();
     b.skip();
     Assert(b.finished(), "skip finishes it");
-    Assert(skipped.joined() == "start event/early; start event/also_early; start text; start event/late; end transform; end text; ",
-        "what was left starts in order, then what runs ends: %s", skipped.joined().c_str());
+    Assert(skipped.joined() == "start event/early; start event/also_early; start text; end transform; end text; start event/late; ",
+        "what was left happens in order of time: %s", skipped.joined().c_str());
     Log all;
     kuge::TimelinePlayer c(boss(), all.callback());
 
@@ -140,6 +140,17 @@ Test(timeline, skip_gives_the_same_end)
         "even from the very start: every event once and every tween ended");
     b.skip();
     AssertEq(skipped.count("start event/late"), 1u, "a second skip does nothing");
+}
+
+Test(timeline, an_end_comes_before_a_start)
+{
+    Log log;
+    const auto timeline = std::make_shared<kuge::Timeline>(kuge::Timeline::fromJson(kuge::Json::parse(R"({ "duration": 4, "tracks": [
+        { "kind": "fade", "keys": [ { "t": 0, "duration": 2, "color": [1, 0, 0, 1] }, { "t": 2, "color": [0, 0, 0, 0] } ] } ] })"), "fade.json"));
+    kuge::TimelinePlayer player(timeline, log.callback());
+
+    player.update(2.5);
+    Assert(log.joined() == "start fade; end fade; start fade; ", "the first fade ends before the second starts, though they are in one update: %s", log.joined().c_str());
 }
 
 Test(timeline, pause_speed_and_seek)
