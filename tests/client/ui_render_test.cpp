@@ -252,3 +252,72 @@ Test(uirender, the_ui_is_over_the_game)
     AssertEq(calls.size(), 2, "a sprite and a panel");
     Assert(calls[0].destination.w == 10.0f && calls[1].destination.w == 50.0f, "the panel is drawn last: over the world");
 }
+
+// -- A progress bar ------------------------------------------------------------------------------------------
+namespace
+{
+    // What a bar draws, frame after frame (the bar is borderless so that the calls are the back and the fill)
+    std::vector<Call> drawBar(kuge::UiProgress bar, kuge::UiNode node = {.size = {200.0f, 20.0f}})
+    {
+        FontFile font;
+        Fixture fx([&](TestScene& scene) {
+            withUi(scene, font, [&](kw::World& w) {
+                bar.borderWidth = 0.0f;
+                w.add<kuge::UiProgress>(uiNode(w, node), bar);
+            });
+        });
+
+        return fx.frame();
+    }
+}
+
+Test(uirender, a_progress_bar)
+{
+    const auto calls = drawBar({.value = 25.0f, .max = 100.0f, .fill = {1, 2, 3, 255}, .back = {4, 5, 6, 255}});
+
+    AssertEq(calls.size(), 2, "the back, then the fill, got %zu", calls.size());
+    Assert(calls[0].destination == kuge::Rect(0.0f, 0.0f, 200.0f, 20.0f) && calls[0].color == kuge::Color(4, 5, 6, 255), "the back is the whole bar");
+    Assert(calls[1].destination == kuge::Rect(0.0f, 0.0f, 50.0f, 20.0f) && calls[1].color == kuge::Color(1, 2, 3, 255), "a quarter is filled");
+}
+
+Test(uirender, a_progress_bar_is_clamped)
+{
+    AssertEq(drawBar({.value = 250.0f, .max = 100.0f})[1].destination.w, 200.0f, "above the max: full");
+    AssertEq(drawBar({.value = 100.0f, .max = 100.0f})[1].destination.w, 200.0f, "at the max: full");
+    AssertEq(drawBar({.value = -5.0f, .max = 100.0f}).size(), 1, "below 0: empty, only the back");
+    AssertEq(drawBar({.value = 0.0f, .max = 100.0f}).size(), 1, "0: empty");
+    AssertEq(drawBar({.value = 5.0f, .max = 0.0f}).size(), 1, "no max: empty");
+    AssertEq(drawBar({.value = 5.0f, .max = -1.0f}).size(), 1, "negative max: empty");
+    AssertEq(drawBar({.value = std::nanf(""), .max = 100.0f}).size(), 1, "NaN: empty");
+}
+
+Test(uirender, a_vertical_progress_bar)
+{
+    const auto calls = drawBar({.value = 1.0f, .max = 4.0f, .vertical = true}, {.size = {20.0f, 100.0f}});
+
+    AssertEq(calls.size(), 2, "");
+    Assert(calls[1].destination == kuge::Rect(0.0f, 75.0f, 20.0f, 25.0f), "a quarter from the bottom");
+}
+
+Test(uirender, a_progress_bar_has_a_size)
+{
+    const auto calls = drawBar({.value = 1.0f, .max = 2.0f}, {});
+    const kuge::UiTheme theme;
+
+    Assert(calls[0].destination == kuge::Rect(0.0f, 0.0f, theme.progressWidth, theme.progressHeight), "the theme's size when the node has none");
+    AssertEq(calls[1].destination.w, theme.progressWidth / 2.0f, "and half of it is filled");
+}
+
+Test(uirender, a_progress_bar_border)
+{
+    FontFile font;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            w.add<kuge::UiProgress>(uiNode(w, {.size = {200.0f, 20.0f}}), kuge::UiProgress{.value = 1.0f, .max = 2.0f, .border = {9, 8, 7, 255}});
+        });
+    });
+    const auto& calls = fx.frame();
+
+    AssertEq(calls.size(), 6, "the back, the fill and four sides of border, got %zu", calls.size());
+    Assert(calls[1].destination.w == 100.0f && calls[2].color == kuge::Color(9, 8, 7, 255), "the border is over the fill");
+}

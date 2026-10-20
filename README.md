@@ -568,6 +568,7 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiPanel` | A background and a border. |
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
+| `UiProgress` | A bar filled for `value / max` (from the left, or from the bottom if `vertical`): `fill`, `back`, `border`. Its size is the node's, else `UiTheme::progressWidth` x `progressHeight`. |
 | `UiTextField` | A line of text that the player types: `text`, `placeholder`, `maxLength` (in characters), `caret`, `columns` (its width if the node has no size), `enabled`; `hovered` / `focused` are filled in by the interaction. |
 
 Resources: `UiTheme` (font and colors, change it for your game), `UiActions` (which of *your*
@@ -612,6 +613,15 @@ dummy one, so a test can set it and read it) and a game reaches it through `Ref<
 Not there yet: selection, a masked field for a password, several lines, and showing the
 composition of an input method editor (what the OS *commits* arrives as a `TextEvent`; the text being
 composed, `SDL_TEXTEDITING`, is not handled, and this was not tried with one).
+
+**Progress bar.** `UiProgress` shows a ratio (health, XP, loading). The number on it is a `UiLabel` child,
+and a bar whose `max` is 0, or whose `value` is negative or NaN, is empty:
+
+```cpp
+world.add<kuge::UiNode>(bar, kuge::UiNode{.parent = hud, .hasParent = true, .size = {240.0f, 24.0f}});
+world.add<kuge::UiProgress>(bar, kuge::UiProgress{.value = 42.0f, .max = 100.0f});
+world.get<kuge::UiProgress>(bar).value = hp;      // every frame, if it changes
+```
 
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus
 navigation with the keyboard or gamepad, mouse hover and click) and drawing (Frame, `Render`,

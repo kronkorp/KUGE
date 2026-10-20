@@ -133,6 +133,11 @@ namespace
 
                     return {letter.x * static_cast<float>(std::max(field.columns, 1)) + 2.0f * m_theme.padding, letter.y + 2.0f * m_theme.padding};
                 }
+                if (m_world.has<UiProgress>(entity)) {
+                    const Vec2 bar{m_theme.progressWidth, m_theme.progressHeight};
+
+                    return m_world.get<UiProgress>(entity).vertical ? Vec2{bar.y, bar.x} : bar;
+                }
                 if (m_world.has<UiLabel>(entity)) {
                     const UiLabel& label = m_world.get<UiLabel>(entity);
 
@@ -666,6 +671,18 @@ bool kuge::UiRender::handle(kw::World& world)
 
             renderer.fillRect(rect, panel.fill);
             border(renderer, rect, panel.border, panel.borderWidth);
+        }
+        if (world.has<UiProgress>(entity)) {
+            const UiProgress& bar = world.get<UiProgress>(entity);
+            float ratio = bar.max > 0.0f ? bar.value / bar.max : 0.0f;
+
+            ratio = ratio > 0.0f ? std::min(ratio, 1.0f) : 0.0f;   // (a NaN is not above 0: empty)
+            renderer.fillRect(rect, bar.back);
+            if (ratio > 0.0f) {
+                renderer.fillRect(bar.vertical ? Rect{rect.x, rect.bottom() - rect.h * ratio, rect.w, rect.h * ratio}
+                                               : Rect{rect.x, rect.y, rect.w * ratio, rect.h}, bar.fill);
+            }
+            border(renderer, rect, bar.border, bar.borderWidth);
         }
         if (world.has<UiButton>(entity)) {
             const UiButton& button = world.get<UiButton>(entity);

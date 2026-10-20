@@ -23,7 +23,7 @@ namespace kuge
      * parent (or in the screen, if it has none), or by the **stack** of its
      * parent (UiStack: a column or a row). What it shows is another component of
      * the same entity: UiPanel (a background), UiLabel (text), UiButton (a
-     * button with its text), UiTextField (a line of text that the player types).
+     * button with its text), UiTextField (a line of text that the player types), UiProgress (a bar).
      *
      *     kuge::installUi(setup(), {.up = kuge::actionId(Action::Up), .down = kuge::actionId(Action::Down),
      *                               .accept = kuge::actionId(Action::Confirm), .click = kuge::actionId(Action::Click)});
@@ -95,6 +95,19 @@ namespace kuge
         float borderWidth = 2.0f;
     };
 
+    //! A bar that is filled for `value / max` of its width (or of its height, from the bottom). The size of its node
+    //! is the whole bar, `UiTheme::progressWidth` x `progressHeight` if it has none. The number is a `UiLabel` child.
+    struct UiProgress
+    {
+        float value = 0.0f;
+        float max   = 1.0f;              //!< <= 0, or a value that is NaN or negative: an empty bar
+        Color fill{90, 200, 110, 255};
+        Color back{30, 32, 44, 235};
+        Color border{170, 175, 200, 255};
+        float borderWidth = 2.0f;
+        bool  vertical = false;          //!< Fills from the bottom instead of from the left
+    };
+
     struct UiLabel
     {
         std::string                text;
@@ -153,6 +166,10 @@ namespace kuge
         Color fieldText{240, 240, 245, 255};
         Color fieldPlaceholder{120, 122, 135, 255};
         Color fieldCaret{255, 214, 90, 255};
+        // Progress bars (the size of a bar whose node has none)
+        float progressWidth = 200.0f;
+        float progressHeight = 20.0f;
+
         std::uint32_t caretBlinkTicks = 30;   //!< The caret is shown this many fixed ticks, then hidden as many. 0: always shown.
     };
 
