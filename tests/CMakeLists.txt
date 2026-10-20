@@ -72,6 +72,7 @@ add_executable(kuge_tests
     core/fixed_timestep_test.cpp
     core/mailbox_test.cpp
     core/profiler_test.cpp
+    core/random_test.cpp
     core/math2d_test.cpp
     core/module_test.cpp
     core/save_test.cpp
@@ -117,6 +118,7 @@ add_executable(kuge_replication_tests
     replication/replication3d_test.cpp
     replication/replication_test.cpp
     replication/room_test.cpp
+    replication/shooting_test.cpp
     replication/visibility_test.cpp
 )
 target_link_libraries(kuge_replication_tests PRIVATE kuge-replication kuge-server kronklab-static)

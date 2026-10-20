@@ -3,6 +3,7 @@
 #include "CommonComponents.hpp"
 #include "Endpoint.hpp"
 #include "Loopback.hpp"
+#include "PredictedSpawns.hpp"
 #include "ReplicationClient.hpp"
 #include "ReplicationServer.hpp"
 #include <memory>
@@ -28,6 +29,7 @@ inline kuge::replication::ReplicationRegistry makeRegistry(void)
     registry.component<Team>("Team", Replicate::OnSpawn,
         [](kuge::ByteWriter& out, const Team& t) { out.write(t.id); },
         [](kuge::ByteReader& in) { return Team{in.read<std::uint8_t>()}; });
+    registerPredictionKey(registry);
     return registry;
 }
 
