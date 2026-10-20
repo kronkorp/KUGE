@@ -130,6 +130,27 @@ engine.scenes().push<PauseMenu>(shared);     // pauses the top scene and enters 
 engine.scenes().pop();                        // leaves the top one, resumes the one below
 ```
 
+A scene pushed over another one can leave it **visible** (a pause menu, a choice drawn over the game, a
+warning). It says so with `overlay()`:
+
+```cpp
+class PauseMenu : public kuge::ClientScene
+{
+    public:
+        kuge::OverlayMode overlay() const override { return kuge::OverlayMode::Transparent; }
+};
+```
+
+| `overlay()` | The scene under |
+|---|---|
+| `Opaque` (default) | Paused: `onPause()`, and nothing of it runs |
+| `Transparent` | Not paused (no `onPause()`). It keeps its **frame** (drawn first, so the top scene is drawn over it) and its `Network` and `Replication` stages: the picture stays alive and the snapshots are still read. Its `Input`, `Simulation`, `Physics` and `Late` stages stand still, so no keyboard focus or game rule reaches it. |
+
+Each scene has its own World, so the overlay has its own UI and its own focus: it reaches the game with
+`SceneHandle` messages (04), not with a shared World. Only the top scene reads its messages; the one under
+reads them when it is on top again. A scene that is made first says what it is: `onPause()` of the scene under is
+called **after** the new scene's constructor.
+
 These calls are **deferred**: a scene is never destroyed while it runs, so it is always safe to call
 them from inside a system. They happen between two loops, in the order they were asked.
 
