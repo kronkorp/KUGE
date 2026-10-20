@@ -31,6 +31,9 @@ namespace kuge::replication
         std::uint64_t bytesSent = 0;         //!< Of the changes (without the headers)
         std::uint64_t fullSnapshots = 0;     //!< Sent from nothing (a new client, or one that asked)
         std::uint64_t acksReceived = 0;
+        std::uint64_t entitiesSent = 0;      //!< Records that were let through to a client at a snapshot (the filter said yes)
+        std::uint64_t entitiesFiltered = 0;  //!< Records that the filter kept from a client at a snapshot
+        std::uint64_t entitiesSkipped = 0;   //!< Records not refreshed at a snapshot because of their rate (setRate)
         std::uint64_t oversized = 0;         //!< Records over maxPartBytes: not sent
         std::uint64_t multipartSnapshots = 0;   //!< Snapshots that went in several parts
         std::uint64_t maxParts = 0;          //!< The most parts one snapshot took
@@ -88,6 +91,12 @@ namespace kuge::replication
             //! What a client may see (interest management): everything if not set
             void setFilter(Filter filter) { m_filter = std::move(filter); }
 
+            //! How often an entity that a client may see is refreshed: every `n`th snapshot (1: every one; 2 or 4 for what is far).
+            //! At the other snapshots the client keeps the record it has, as if the entity had not changed, and a cheap
+            //! snapshot results. An entity the client does not have yet is sent at once.
+            using Rate = std::function<std::uint32_t(net::ConnectionId, NetworkId, const EntityRecord&)>;
+            void setRate(Rate rate) { m_rate = std::move(rate); }
+
             //! Once per tick, with the number of the tick: sends what is due
             void update(std::uint32_t tick);
 
@@ -118,6 +127,7 @@ namespace kuge::replication
             NetworkId                                  m_nextId = 1;
             std::map<net::ConnectionId, ClientState>   m_clients;
             Filter                                     m_filter;
+            Rate                                       m_rate;
             ReplicationServerStats                     m_stats;
             std::shared_ptr<bool>                      m_alive = std::make_shared<bool>(true);
     };

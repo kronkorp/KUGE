@@ -183,16 +183,35 @@ namespace kuge::replication
         for (const net::ConnectionId connection : due) {
             ClientState& client = m_clients[connection];
 
-            if (!m_filter) {
+            if (!m_filter && !m_rate) {
                 send(connection, client, tick, current);
                 continue;
             }
             auto seen = std::make_shared<WorldState>();
+            const std::uint32_t snapshot = tick / m_interval;   // the number of this snapshot
 
             for (const auto& [id, record] : *current) {
-                if (m_filter(connection, id, record)) {
-                    seen->emplace(id, record);
+                if (m_filter && !m_filter(connection, id, record)) {
+                    ++m_stats.entitiesFiltered;
+                    continue;
                 }
+                ++m_stats.entitiesSent;
+                if (m_rate) {
+                    const std::uint32_t every = m_rate(connection, id, record);
+                    const EntityRecord* known = nullptr;
+
+                    if (client.baseline) {
+                        const auto had = client.baseline->find(id);
+
+                        known = had == client.baseline->end() ? nullptr : &had->second;
+                    }
+                    if (every > 1 && known && snapshot % every != 0) {
+                        seen->emplace(id, *known);   // not refreshed now: what the client has stays as it is
+                        ++m_stats.entitiesSkipped;
+                        continue;
+                    }
+                }
+                seen->emplace(id, record);
             }
             send(connection, client, tick, seen);
         }

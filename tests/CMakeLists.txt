@@ -117,6 +117,7 @@ add_executable(kuge_replication_tests
     replication/replication3d_test.cpp
     replication/replication_test.cpp
     replication/room_test.cpp
+    replication/visibility_test.cpp
 )
 target_link_libraries(kuge_replication_tests PRIVATE kuge-replication kuge-server kronklab-static)
 target_compile_options(kuge_replication_tests PRIVATE ${KUGE_WARNINGS})
