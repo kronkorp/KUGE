@@ -2,6 +2,7 @@ extern "C" {
     #include "kronklab/kronklab.h"
 }
 #include "Loopback.hpp"
+#include <algorithm>
 #include <set>
 #include <stdexcept>
 
