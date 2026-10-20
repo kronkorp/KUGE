@@ -4,7 +4,7 @@ KUGE makes 3D games out of the same parts as 2D ones, with three more modules an
 
 | Piece | What it is |
 |---|---|
-| [kronk3d](https://github.com/kronkorp/kronk3d) (`vendor/kronk3d`, v0.1.0) | The renderer: meshes, materials, lights, shadows, sky, fog, glTF and OBJ loading, skeletal animation. KUGE uses it as it is |
+| [kronk3d](https://github.com/kronkorp/kronk3d) (`vendor/kronk3d`, v0.1.1) | The renderer: meshes, materials, lights, shadows, sky, fog, glTF and OBJ loading, skeletal animation. KUGE uses it as it is |
 | `kuge-render3d` | A 3D scene in a client: `Render3DModule`, `Model3D`, `Light3D`, `Animator3D`, `CameraRig` |
 | `kuge-animation` | Poses, layered blends, state machines read from a file, with no window: the room samples them too |
 | `kuge-physics3d` | Rigid bodies with [Jolt](https://github.com/jrouwe/JoltPhysics): `Physics3D`, `Collider3D`, `Body3D` |
