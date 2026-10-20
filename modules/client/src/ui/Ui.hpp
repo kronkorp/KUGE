@@ -233,6 +233,24 @@ namespace kuge
         std::uint32_t caretBlinkTicks = 30;   //!< The caret is shown this many fixed ticks, then hidden as many. 0: always shown.
     };
 
+    //! How big the interface is drawn (a resource). It is built for one size of window, 1280 x 720 say, and this makes it
+    //! bigger on a bigger screen: the layout multiplies by `value` every pixel number of the components (`offset`,
+    //! `size`, `spacing`, `padding`, `borderWidth`, `wrapWidth`, `UiScroll::offset` and `notch`) and of the theme
+    //! (`padding`, `focusWidth`, `progressWidth`, `progressHeight`), and draws the text with the same font at `value`
+    //! times its size (IFont::scaled(), so it stays sharp). The components keep the numbers you gave them. See
+    //! uiScaleFor(): a game sets `value` from the size of its window when it changes.
+    struct UiScale
+    {
+        float value = 1.0f;   //!< 1: as built. Zero, negative or not a number: 1.
+
+        Vec2 toUi(Vec2 screen) const { return value > 0.0f ? screen / value : screen; }   //!< A pixel of the window, in the units you built the UI in
+        Vec2 toScreen(Vec2 ui) const { return value > 0.0f ? ui * value : ui; }
+    };
+
+    //! The scale that makes an interface built for `base` fill a window as well as it can without being cut
+    //! (the smaller of the two ratios)
+    float uiScaleFor(Vec2 window, Vec2 base = {1280.0f, 720.0f});
+
     //! Which actions of the game the interface uses. -1: none. They are the
     //! numbers of the game's own actions (its enum), see InputMap.
     struct UiActions

@@ -677,6 +677,24 @@ world.add<kuge::UiScroll>(list, kuge::UiScroll{});
 // ... then the buttons, as children of `list`: ten of them show four, the wheel shows the others
 ```
 
+**The UI at any resolution.** Build the interface for one size, 1280 x 720 say, and let `UiScale` (a resource)
+stretch it to the window. The layout multiplies by `UiScale::value` every pixel number of the components (`offset`,
+`size`, `spacing`, `padding`, `borderWidth`, `wrapWidth`, the `UiScroll` offset and notch) and of the theme (`padding`,
+`focusWidth`, `progressWidth`, `progressHeight`); the components **keep the numbers you gave them**, so the scale can
+change at any time (the next frame takes it) and nothing needs rebuilding. Text stays sharp: a font is not stretched,
+`IFont::scaled(factor)` gives the same font at `factor` times its size (SDL_ttf opens the file again; kept by the font,
+so asking each frame is free). `UiLayoutResult::rects` and the mouse are in pixels of the window, so a click at the
+doubled button presses it; `UiScale::toUi()` gives a mouse position in the units you built in.
+
+```cpp
+const auto window = world.getResource<kuge::Ref<kuge::IWindow>>()->size();
+world.getResource<kuge::UiScale>().value = kuge::uiScaleFor(window);   // min(width / 1280, height / 720); uiScaleFor(window, {640, 360}) for another base
+```
+
+A system that sets a size every frame by itself (an animated panel) writes it in the units it was built in, not
+multiplied. A zero, negative or NaN scale is 1. The scale is not chosen for you (a game may want 1 on a small window,
+or whole numbers only).
+
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus
 navigation with the keyboard or gamepad, mouse hover and click) and drawing (Frame, `Render`,
 after the sprites). A menu is therefore: build the entities, then a system that reads

@@ -169,3 +169,21 @@ Test(sdlfont, text_on_the_screen)
     Assert(red > 40, "the text shows on the screen, in red: %d pixels", red);
     AssertEq(stray, 0, "and only in red");
 }
+
+// The interface drawn at another scale asks for the same font at another size
+Test(sdlfont, scaled_is_the_same_font)
+{
+    const auto file = systemFont();
+
+    if (skipped(file)) { return; }
+    auto loader = kuge::makeSdlFontLoader();
+    auto font = loader->load(file, 16);
+    const auto twice = font->scaled(2.0f);
+    const auto direct = loader->load(file, 32);
+
+    Assert(twice != nullptr, "an SDL font can be made again at another size");
+    Assert(twice.get() == font->scaled(2.0f).get(), "once: the second ask gives the same");
+    Assert(twice->measure("Hello") == direct->measure("Hello"), "the same as loading it at 32 (twice 16)");
+    Assert(twice->lineHeight() == direct->lineHeight(), "");
+    Assert(twice->id() != font->id(), "a font of its own");
+}

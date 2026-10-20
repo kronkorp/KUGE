@@ -3,6 +3,7 @@
 #include <SDL.h>
 #include <SDL_ttf.h>
 #include <algorithm>
+#include <cmath>
 #include <format>
 
 namespace
@@ -42,7 +43,8 @@ namespace
     class SdlFont : public IFont
     {
         public:
-            SdlFont(std::shared_ptr<TtfLibrary> library, TTF_Font* font) : m_library(std::move(library)), m_font(font) {}
+            SdlFont(std::shared_ptr<TtfLibrary> library, TTF_Font* font, std::filesystem::path file, int pointSize)
+                : m_file(std::move(file)), m_pointSize(pointSize), m_library(std::move(library)), m_font(font) {}
 
             ~SdlFont(void) override { TTF_CloseFont(m_font); }
 
@@ -101,7 +103,18 @@ namespace
 
             int lineHeight(void) const override { return TTF_FontLineSkip(m_font); }
 
+        protected:
+            std::shared_ptr<const IFont> resized(float factor) const override
+            {
+                const int size = std::max(1, static_cast<int>(std::lround(static_cast<float>(m_pointSize) * factor)));
+                TTF_Font* font = TTF_OpenFont(sdlPath(m_file).c_str(), size);
+
+                return font ? std::make_shared<SdlFont>(m_library, font, m_file, size) : nullptr;   // (the file went: the same size then)
+            }
+
         private:
+            std::filesystem::path       m_file;
+            int                         m_pointSize;
             std::shared_ptr<TtfLibrary> m_library;   // last: closed after the font
             TTF_Font*                   m_font;
     };
@@ -122,7 +135,7 @@ namespace
                 if (!font) {
                     throw FontError(std::format("cannot load the font '{}': {}", file.string(), TTF_GetError()));
                 }
-                return std::make_shared<SdlFont>(std::move(library), font);
+                return std::make_shared<SdlFont>(std::move(library), font, file, pointSize);
             }
 
         private:

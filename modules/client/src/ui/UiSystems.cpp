@@ -37,21 +37,55 @@ namespace
         return font ? font->measure(text, wrap) : Vec2{};
     }
 
-    const IFont* fontOf(const UiLabel& label, const UiTheme& theme)
+    // The font of a text at the scale of the interface (the theme's is already: see scaledTheme())
+    const IFont* scaledFont(const std::shared_ptr<const IFont>& font, float scale)
     {
-        return label.font ? label.font.get() : theme.font.get();
+        if (!font || scale == 1.0f) {
+            return font.get();
+        }
+        const auto bigger = font->scaled(scale);   // (kept by the font: the pointer lives as long as it does)
+
+        return bigger ? bigger.get() : font.get();
     }
 
-    const IFont* fieldFont(const UiTextField& field, const UiTheme& theme)
+    const IFont* fontOf(const UiLabel& label, const UiTheme& theme, float scale)
     {
-        return field.font ? field.font.get() : theme.font.get();
+        return label.font ? scaledFont(label.font, scale) : theme.font.get();
+    }
+
+    const IFont* fieldFont(const UiTextField& field, const UiTheme& theme, float scale)
+    {
+        return field.font ? scaledFont(field.font, scale) : theme.font.get();
+    }
+
+    float scaleOf(kw::World& world)
+    {
+        const float value = world.getResource<UiScale>().value;
+
+        return value > 0.0f && std::isfinite(value) ? value : 1.0f;
+    }
+
+    // The theme with its pixel numbers and its font multiplied by the scale
+    UiTheme scaledTheme(const UiTheme& theme, float scale)
+    {
+        UiTheme scaled = theme;
+
+        if (scale != 1.0f) {
+            scaled.padding *= scale;
+            scaled.focusWidth *= scale;
+            scaled.progressWidth *= scale;
+            scaled.progressHeight *= scale;
+            scaled.font = std::shared_ptr<const IFont>(theme.font, scaledFont(theme.font, scale));   // (aliasing: the original keeps it alive)
+        }
+        return scaled;
     }
 
     // -- Layout -----------------------------------------------------------------------------------
     class Layouter
     {
         public:
-            Layouter(kw::World& world, const UiTheme& theme, UiLayoutResult& result) : m_world(world), m_theme(theme), m_result(result) {}
+            Layouter(kw::World& world, const UiTheme& theme, UiLayoutResult& result, float scale)
+                : m_world(world), m_theme(theme), m_result(result), m_scale(scale) {}
 
             void build(const std::vector<kw::Entity>& nodes)
             {
@@ -81,7 +115,7 @@ namespace
                     }
                     const Vec2 size = fit(root);
 
-                    place(root, rectAt(anchoredPosition(node.anchor, screen, size) + node.offset, size), node.layer, 0, std::nullopt);
+                    place(root, rectAt(anchoredPosition(node.anchor, screen, size) + node.offset * m_scale, size), node.layer, 0, std::nullopt);
                 }
                 std::stable_sort(m_order.begin(), m_order.end(), [](const Drawn& a, const Drawn& b) {
                     if (a.layer != b.layer) { return a.layer < b.layer; }
@@ -129,8 +163,8 @@ namespace
                         across = std::max(across, column ? size.x : size.y);
                         ++shown;
                     }
-                    along += stack.spacing * static_cast<float>(std::max(shown - 1, 0)) + 2.0f * stack.padding;
-                    across += 2.0f * stack.padding;
+                    along += stack.spacing * m_scale * static_cast<float>(std::max(shown - 1, 0)) + 2.0f * stack.padding * m_scale;
+                    across += 2.0f * stack.padding * m_scale;
                     return column ? Vec2{across, along} : Vec2{along, across};
                 }
                 if (m_world.has<UiButton>(entity)) {
@@ -141,7 +175,7 @@ namespace
                 }
                 if (m_world.has<UiTextField>(entity)) {
                     const UiTextField& field = m_world.get<UiTextField>(entity);
-                    const Vec2 letter = measureText(fieldFont(field, m_theme), "n", 0);
+                    const Vec2 letter = measureText(fieldFont(field, m_theme, m_scale), "n", 0);
 
                     return {letter.x * static_cast<float>(std::max(field.columns, 1)) + 2.0f * m_theme.padding, letter.y + 2.0f * m_theme.padding};
                 }
@@ -151,7 +185,7 @@ namespace
                     if (!image.texture) {
                         return {};
                     }
-                    return image.source.w > 0.0f && image.source.h > 0.0f ? Vec2{image.source.w, image.source.h} : image.texture->size();
+                    return (image.source.w > 0.0f && image.source.h > 0.0f ? Vec2{image.source.w, image.source.h} : image.texture->size()) * m_scale;
                 }
                 if (m_world.has<UiSlider>(entity)) {
                     const Vec2 letter = measureText(m_theme.font.get(), "n", 0);
@@ -163,7 +197,7 @@ namespace
                     const Vec2 text = measureText(m_theme.font.get(), m_world.get<UiCheckbox>(entity).text, 0);
                     const float line = m_theme.font ? static_cast<float>(m_theme.font->lineHeight()) : 0.0f;
 
-                    return {line + CHECK_GAP + text.x, line};   // (the box is a square of the height of a line)
+                    return {line + CHECK_GAP * m_scale + text.x, line};   // (the box is a square of the height of a line)
                 }
                 if (m_world.has<UiProgress>(entity)) {
                     const Vec2 bar{m_theme.progressWidth, m_theme.progressHeight};
@@ -173,7 +207,7 @@ namespace
                 if (m_world.has<UiLabel>(entity)) {
                     const UiLabel& label = m_world.get<UiLabel>(entity);
 
-                    return measureText(fontOf(label, m_theme), label.text, label.wrapWidth);
+                    return measureText(fontOf(label, m_theme, m_scale), label.text, static_cast<int>(static_cast<float>(label.wrapWidth) * m_scale));
                 }
                 return {};
             }
@@ -187,7 +221,7 @@ namespace
                     return known->second;
                 }
                 const UiNode& node = m_world.get<UiNode>(entity);
-                Vec2 size = node.size;
+                Vec2 size = node.size * m_scale;
 
                 if (size.x <= 0.0f || size.y <= 0.0f) {
                     const Vec2 inside = content(entity);
@@ -221,7 +255,7 @@ namespace
                     if (node.visible) {
                         const Vec2 size = fit(child);
 
-                        place(child, rectAt(anchoredPosition(node.anchor, rect, size) + node.offset, size), std::max(node.layer, layer), depth + 1, inner);
+                        place(child, rectAt(anchoredPosition(node.anchor, rect, size) + node.offset * m_scale, size), std::max(node.layer, layer), depth + 1, inner);
                     }
                 }
             }
@@ -230,16 +264,19 @@ namespace
             {
                 const UiStack& stack = m_world.get<UiStack>(entity);
                 const bool column = stack.direction == Direction::Vertical;
-                const float room = (column ? rect.w : rect.h) - 2.0f * stack.padding;
-                float cursor = (column ? rect.y : rect.x) + stack.padding;
+                const float padding = stack.padding * m_scale;
+                const float spacing = stack.spacing * m_scale;
+                const float room = (column ? rect.w : rect.h) - 2.0f * padding;
+                float cursor = (column ? rect.y : rect.x) + padding;
 
                 if (m_world.has<UiScroll>(entity)) {
                     UiScroll& scroll = m_world.get<UiScroll>(entity);
                     const Vec2 whole = content(entity);
 
-                    scroll.extent = column ? whole.y : whole.x;
-                    scroll.offset = std::isfinite(scroll.offset) ? std::clamp(scroll.offset, 0.0f, std::max(scroll.extent - (column ? rect.h : rect.w), 0.0f)) : 0.0f;
-                    cursor -= scroll.offset;
+                    // (in the units of the components, not of the screen: they keep their numbers when the scale changes)
+                    scroll.extent = (column ? whole.y : whole.x) / m_scale;
+                    scroll.offset = std::isfinite(scroll.offset) ? std::clamp(scroll.offset, 0.0f, std::max(scroll.extent - (column ? rect.h : rect.w) / m_scale, 0.0f)) : 0.0f;
+                    cursor -= scroll.offset * m_scale;
                 }
 
                 for (kw::Entity child : childrenOf(entity)) {
@@ -255,7 +292,7 @@ namespace
                     if (stack.align == Align::Stretch && !sized) {
                         across = std::max(room, 0.0f);
                     }
-                    float sideways = (column ? rect.x : rect.y) + stack.padding;
+                    float sideways = (column ? rect.x : rect.y) + padding;
 
                     if (stack.align == Align::Center) {
                         sideways += (room - across) / 2.0f;
@@ -264,7 +301,7 @@ namespace
                     }
                     place(child, column ? Rect{sideways, cursor, size.x, size.y} : Rect{cursor, sideways, size.x, size.y},
                         std::max(node.layer, layer), depth + 1, clip);
-                    cursor += (column ? size.y : size.x) + stack.spacing;
+                    cursor += (column ? size.y : size.x) + spacing;
                 }
             }
 
@@ -275,6 +312,7 @@ namespace
             std::vector<kw::Entity>                           m_roots;
             std::map<kw::Entity, Vec2>                        m_sizes;
             std::vector<Drawn>                                m_order;
+            float                                             m_scale;
     };
 
     // -- Text fields: the text is UTF-8, and the caret goes from one character to the next -------------------
@@ -462,7 +500,7 @@ namespace
 
     // -- Interaction ------------------------------------------------------------------------------
     // The scroll node under the mouse (the one drawn last, so the innermost) takes the wheel
-    void scrollBy(kw::World& world, const UiLayoutResult& layout, Vec2 mouse, float notches)
+    void scrollBy(kw::World& world, const UiLayoutResult& layout, Vec2 mouse, float notches, float scale)
     {
         for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend(); ++it) {
             if (!world.has<UiScroll>(*it) || !layout.rects.at(*it).contains(mouse)) {
@@ -472,13 +510,13 @@ namespace
             const Rect& rect = layout.rects.at(*it);
             const bool column = !world.has<UiStack>(*it) || world.get<UiStack>(*it).direction == Direction::Vertical;
 
-            scroll.offset = std::clamp(scroll.offset - notches * scroll.notch, 0.0f, std::max(scroll.extent - (column ? rect.h : rect.w), 0.0f));
+            scroll.offset = std::clamp(scroll.offset - notches * scroll.notch, 0.0f, std::max(scroll.extent - (column ? rect.h : rect.w) / scale, 0.0f));
             return;
         }
     }
 
     // The focus went to `target`: the scroll nodes around it move so that it is seen
-    void reveal(kw::World& world, const UiLayoutResult& layout, kw::Entity target)
+    void reveal(kw::World& world, const UiLayoutResult& layout, kw::Entity target, float scale)
     {
         const auto found = layout.rects.find(target);
 
@@ -502,7 +540,7 @@ namespace
             const float before = column ? inside.y - view.y : inside.x - view.x;
             const float after = column ? inside.bottom() - view.bottom() : inside.right() - view.right();
 
-            world.get<UiScroll>(at).offset += before < 0.0f ? before : std::max(after, 0.0f);
+            world.get<UiScroll>(at).offset += (before < 0.0f ? before : std::max(after, 0.0f)) / scale;
         }
     }
 
@@ -585,7 +623,9 @@ bool kuge::UiLayout::handle(kw::World& world)
     }
     std::sort(m_nodes.begin(), m_nodes.end());
 
-    Layouter layouter(world, world.getResource<UiTheme>(), result);
+    const float scale = scaleOf(world);
+    const UiTheme theme = scaledTheme(world.getResource<UiTheme>(), scale);
+    Layouter layouter(world, theme, result, scale);
 
     layouter.build(m_nodes);
     layouter.run({0.0f, 0.0f, screen.x, screen.y});
@@ -599,7 +639,8 @@ bool kuge::UiInteract::handle(kw::World& world)
     const auto& layout = world.getResource<UiLayoutResult>();
     const auto& actions = world.getResource<UiActions>();
     const auto& input = world.getResource<ActionState>();
-    const auto& theme = world.getResource<UiTheme>();
+    const float scale = scaleOf(world);
+    const UiTheme theme = scaledTheme(world.getResource<UiTheme>(), scale);
     InputMap& inputMap = *world.getResource<Ref<InputMap>>();
     const Vec2 mouse = inputMap.mousePosition();
     std::vector<kw::Entity> all;
@@ -611,7 +652,7 @@ bool kuge::UiInteract::handle(kw::World& world)
     const std::string typed = inputMap.takeTyped();
     const std::vector<Key> keys = inputMap.takeEditKeys();
     if (const float wheel = inputMap.takeWheel(); wheel != 0.0f) {
-        scrollBy(world, layout, mouse, wheel);
+        scrollBy(world, layout, mouse, wheel, scale);
     }
     auto buttons = world.view<UiNode, UiButton>();
     for (kw::Entity entity : buttons) {
@@ -768,10 +809,10 @@ bool kuge::UiInteract::handle(kw::World& world)
             // Only focused, and the caret goes where the click is
             UiTextField& field = world.get<UiTextField>(*hovered);
             const Rect& rect = layout.rects.at(*hovered);
-            const float room = rect.w - 2.0f * theme.padding - CARET_WIDTH;
+            const float room = rect.w - 2.0f * theme.padding - CARET_WIDTH * scale;
 
             settleCaret(field);
-            field.caret = caretAt(fieldFont(field, theme), field, room, mouse.x - (rect.x + theme.padding));
+            field.caret = caretAt(fieldFont(field, theme, scale), field, room, mouse.x - (rect.x + theme.padding));
         } else if (world.has<UiSlider>(*hovered)) {
             world.get<UiSlider>(*hovered).dragging = true;   // the handle goes to the mouse, and follows it while it is held
         } else {
@@ -827,7 +868,7 @@ bool kuge::UiInteract::handle(kw::World& world)
     // The focus came to a child of a scroll: bring it into view (not when the mouse did it: it is under the mouse)
     if (state.hasFocus && !(moved && hovered && *hovered == state.focus)
         && std::any_of(events.begin(), events.end(), [](const UiEvent& e) { return e.kind == UiEvent::Kind::Focused; })) {
-        reveal(world, layout, state.focus);
+        reveal(world, layout, state.focus, scale);
     }
     for (kw::Entity entity : usable) {
         const bool focused = state.hasFocus && entity == state.focus;
@@ -863,7 +904,8 @@ bool kuge::UiRender::handle(kw::World& world)
 {
     IRenderer2D& renderer = *world.getResource<Ref<IRenderer2D>>();
     TextRenderer& text = *world.getResource<Ref<TextRenderer>>();
-    const auto& theme = world.getResource<UiTheme>();
+    const float scale = scaleOf(world);
+    const UiTheme theme = scaledTheme(world.getResource<UiTheme>(), scale);
     const auto& layout = world.getResource<UiLayoutResult>();
 
     std::optional<Rect> clip;   // what the renderer is cutting to now
@@ -882,7 +924,7 @@ bool kuge::UiRender::handle(kw::World& world)
             const UiPanel& panel = world.get<UiPanel>(entity);
 
             renderer.fillRect(rect, panel.fill);
-            border(renderer, rect, panel.border, panel.borderWidth);
+            border(renderer, rect, panel.border, panel.borderWidth * scale);
         }
         if (world.has<UiProgress>(entity)) {
             const UiProgress& bar = world.get<UiProgress>(entity);
@@ -894,7 +936,7 @@ bool kuge::UiRender::handle(kw::World& world)
                 renderer.fillRect(bar.vertical ? Rect{rect.x, rect.bottom() - rect.h * ratio, rect.w, rect.h * ratio}
                                                : Rect{rect.x, rect.y, rect.w * ratio, rect.h}, bar.fill);
             }
-            border(renderer, rect, bar.border, bar.borderWidth);
+            border(renderer, rect, bar.border, bar.borderWidth * scale);
         }
         if (world.has<UiButton>(entity)) {
             const UiButton& button = world.get<UiButton>(entity);
@@ -928,7 +970,8 @@ bool kuge::UiRender::handle(kw::World& world)
         if (world.has<UiSlider>(entity)) {
             const UiSlider& slider = world.get<UiSlider>(entity);
             const float centre = rect.x + slidRatio(slider) * rect.w;
-            const Rect handle{std::clamp(centre - HANDLE_WIDTH / 2.0f, rect.x, std::max(rect.x, rect.right() - HANDLE_WIDTH)), rect.y, HANDLE_WIDTH, rect.h};
+            const float grabWidth = HANDLE_WIDTH * scale;
+            const Rect handle{std::clamp(centre - grabWidth / 2.0f, rect.x, std::max(rect.x, rect.right() - grabWidth)), rect.y, grabWidth, rect.h};
             const Rect track{rect.x, std::round(rect.y + rect.h / 4.0f), rect.w, std::round(rect.h / 2.0f)};
             Color grip = theme.buttonFill;
 
@@ -943,9 +986,9 @@ bool kuge::UiRender::handle(kw::World& world)
             if (centre > track.x) {
                 renderer.fillRect({track.x, track.y, std::min(centre - track.x, track.w), track.h}, slider.enabled ? theme.sliderFill : theme.disabledText);
             }
-            border(renderer, track, theme.fieldBorder, 1.0f);
+            border(renderer, track, theme.fieldBorder, scale);
             renderer.fillRect(handle, grip);
-            border(renderer, handle, slider.enabled ? theme.fieldBorder : theme.disabledText, 1.0f);
+            border(renderer, handle, slider.enabled ? theme.fieldBorder : theme.disabledText, scale);
             if (slider.focused) {
                 border(renderer, rect, theme.focusRing, theme.focusWidth);
             }
@@ -959,7 +1002,7 @@ bool kuge::UiRender::handle(kw::World& world)
                 renderer.fillRect(rect, theme.buttonHover);
             }
             renderer.fillRect(square, box.enabled ? theme.fieldFill : theme.buttonDisabled);
-            border(renderer, square, theme.fieldBorder, 2.0f);
+            border(renderer, square, theme.fieldBorder, 2.0f * scale);
             if (box.checked) {
                 renderer.fillRect({square.x + inset, square.y + inset, square.w - 2.0f * inset, square.h - 2.0f * inset},
                     box.enabled ? theme.checkMark : theme.disabledText);
@@ -970,18 +1013,18 @@ bool kuge::UiRender::handle(kw::World& world)
             if (theme.font) {
                 const Vec2 size = theme.font->measure(box.text, 0);
 
-                text.draw(*theme.font, box.text, {std::round(rect.x + rect.h + CHECK_GAP), std::round(rect.y + (rect.h - size.y) / 2.0f)},
+                text.draw(*theme.font, box.text, {std::round(rect.x + rect.h + CHECK_GAP * scale), std::round(rect.y + (rect.h - size.y) / 2.0f)},
                     box.enabled ? theme.buttonText : theme.disabledText);
             }
         }
         if (world.has<UiTextField>(entity)) {
             const UiTextField& field = world.get<UiTextField>(entity);
-            const IFont* font = fieldFont(field, theme);
+            const IFont* font = fieldFont(field, theme, scale);
 
             renderer.fillRect(rect, field.enabled ? theme.fieldFill : theme.buttonDisabled);
-            border(renderer, rect, field.focused ? theme.focusRing : theme.fieldBorder, field.focused ? theme.focusWidth : 2.0f);
+            border(renderer, rect, field.focused ? theme.focusRing : theme.fieldBorder, field.focused ? theme.focusWidth : 2.0f * scale);
             if (font) {
-                const float room = rect.w - 2.0f * theme.padding - CARET_WIDTH;
+                const float room = rect.w - 2.0f * theme.padding - CARET_WIDTH * scale;
                 const float lineHeight = static_cast<float>(font->lineHeight());
                 const float top = std::round(rect.y + (rect.h - lineHeight) / 2.0f);
                 const float left = rect.x + theme.padding;
@@ -1004,16 +1047,17 @@ bool kuge::UiRender::handle(kw::World& world)
                     const std::size_t caret = std::min(field.caret, field.text.size());
                     const float before = caret > shown.first ? font->measure(std::string_view(field.text).substr(shown.first, caret - shown.first)).x : 0.0f;
 
-                    renderer.fillRect({std::round(left + before), top, CARET_WIDTH, lineHeight}, theme.fieldCaret);
+                    renderer.fillRect({std::round(left + before), top, CARET_WIDTH * scale, lineHeight}, theme.fieldCaret);
                 }
             }
         }
         if (world.has<UiLabel>(entity)) {
             const UiLabel& label = world.get<UiLabel>(entity);
-            const IFont* font = fontOf(label, theme);
+            const IFont* font = fontOf(label, theme, scale);
+            const int wrap = static_cast<int>(static_cast<float>(label.wrapWidth) * scale);
 
             if (font && !label.text.empty()) {
-                const Vec2 size = font->measure(label.text, label.wrapWidth);
+                const Vec2 size = font->measure(label.text, wrap);
                 float x = rect.x;
 
                 if (label.align == TextAlign::Center) {
@@ -1021,7 +1065,7 @@ bool kuge::UiRender::handle(kw::World& world)
                 } else if (label.align == TextAlign::Right) {
                     x += rect.w - size.x;
                 }
-                text.draw(*font, label.text, {std::round(x), std::round(rect.y)}, label.color, label.wrapWidth);
+                text.draw(*font, label.text, {std::round(x), std::round(rect.y)}, label.color, wrap);
             }
         }
     }
@@ -1031,11 +1075,20 @@ bool kuge::UiRender::handle(kw::World& world)
     return true;
 }
 
+float kuge::uiScaleFor(Vec2 window, Vec2 base)
+{
+    if (base.x <= 0.0f || base.y <= 0.0f || window.x <= 0.0f || window.y <= 0.0f) {
+        return 1.0f;
+    }
+    return std::min(window.x / base.x, window.y / base.y);
+}
+
 void kuge::installUi(SceneSetup scene, UiActions actions)
 {
     auto& world = scene.world();
 
     world.addResource<UiTheme>();
+    world.addResource<UiScale>();
     world.addResource<UiState>();
     world.addResource<UiLayoutResult>();
     world.addResource<UiEvents>();

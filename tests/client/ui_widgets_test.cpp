@@ -585,3 +585,177 @@ Test(uiimage, without_a_texture)
 
     AssertEq(fx.frame().size(), 0, "nothing to draw, and nothing breaks");
 }
+
+// -- Scale: an interface built for one size, drawn at another ------------------------------------------------------
+namespace
+{
+    // A button of 200 x 40 at (10, 20) and a label, built the same whatever the scale
+    struct Scaled
+    {
+        FontFile                 font;
+        kw::Entity               button = 0;
+        kw::Entity               label = 0;
+        std::unique_ptr<Fixture> fx;
+
+        explicit Scaled(float scale)
+        {
+            fx = std::make_unique<Fixture>([&](TestScene& scene) {
+                withUi(scene, font, [&](kw::World& w) {
+                    w.getResource<kuge::UiScale>().value = scale;
+                    button = uiNode(w, {.offset = {10.0f, 20.0f}, .size = {200.0f, 40.0f}});
+                    w.add<kuge::UiButton>(button, kuge::UiButton{.text = "Play"});
+                    label = uiLabel(w, "Score", {.offset = {0.0f, 100.0f}});
+                });
+            });
+            bindUiKeys(fx->client->input());
+        }
+
+        kw::World& world(void) { return fx->scene->world(); }
+        kuge::Rect rectOf(kw::Entity entity) { return world().getResource<kuge::UiLayoutResult>().rects.at(entity); }
+        const std::vector<Call>& tick(void) { return fx->frame(1.0 / 60.0); }
+    };
+}
+
+Test(uiscale, rectangles_follow_the_scale)
+{
+    Scaled one(1.0f);
+    Scaled two(2.0f);
+
+    one.tick();
+    two.tick();
+    Assert(sameRect(one.rectOf(one.button), {10.0f, 20.0f, 200.0f, 40.0f}), "at 1: as built");
+    Assert(sameRect(two.rectOf(two.button), {20.0f, 40.0f, 400.0f, 80.0f}), "at 2: place and size doubled");
+    const auto labelOne = one.rectOf(one.label);
+    const auto labelTwo = two.rectOf(two.label);
+
+    AssertEq(labelOne.w, 40.0f, "a text of 5 letters at 1");
+    AssertEq(labelTwo.w, 80.0f, "twice as wide at 2: the font is made again, not stretched");
+    AssertEq(labelTwo.h, 24.0f, "and twice as high");
+    AssertEq(labelTwo.y, 200.0f, "at the doubled place");
+}
+
+Test(uiscale, components_keep_their_numbers)
+{
+    Scaled ui(2.0f);
+
+    ui.tick();
+    ui.tick();
+    const auto& node = ui.world().get<kuge::UiNode>(ui.button);
+
+    Assert(node.size == kuge::Vec2(200.0f, 40.0f) && node.offset == kuge::Vec2(10.0f, 20.0f), "the node is as it was built");
+}
+
+Test(uiscale, text_is_drawn_bigger)
+{
+    Scaled ui(2.0f);
+    const auto texts = textureCalls(ui.tick());
+
+    AssertEq(texts.size(), 2, "the button's text and the label");
+    Assert(texts[0].destination.w == 64.0f && texts[0].destination.h == 24.0f, "\"Play\" at twice its size");
+    Assert(texts[1].destination.w == 80.0f, "\"Score\" too");
+}
+
+Test(uiscale, a_click_at_the_scaled_place)
+{
+    Scaled ui(2.0f);
+
+    ui.tick();
+    const kuge::Vec2 inside{20.0f + 390.0f, 40.0f + 70.0f};   // in the doubled button, outside the button as built
+    auto& input = *ui.fx->dummy.input;
+
+    input.push(kuge::MouseMoveEvent{inside, {}});
+    input.push(kuge::MouseButtonEvent{kuge::MouseButton::Left, true, inside});
+    ui.tick();
+    const auto& events = ui.world().getResource<kuge::UiEvents>().list;
+
+    Assert(std::any_of(events.begin(), events.end(), [&](const auto& e) { return e.kind == Kind::Activated && e.entity == ui.button; }),
+        "it presses the button");
+}
+
+Test(uiscale, stacks_and_themes_scale)
+{
+    kw::Entity first = 0;
+    kw::Entity second = 0;
+    kw::Entity field = 0;
+    kw::Entity column = 0;
+    FontFile font;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            w.getResource<kuge::UiScale>().value = 2.0f;
+            column = uiNode(w, {});
+            w.add<kuge::UiStack>(column, kuge::UiStack{.spacing = 4.0f, .padding = 8.0f, .align = kuge::Align::Start});
+            first = uiButton(w, "OK", column);                       // no size: its text and the theme's padding
+            second = uiChild(w, column, {.size = {50.0f, 20.0f}});
+            field = uiChild(w, column);
+            w.add<kuge::UiTextField>(field, kuge::UiTextField{.columns = 4});
+        });
+    });
+    fx.frame(1.0 / 60.0);
+    const auto rect = [&](kw::Entity e) { return fx.scene->world().getResource<kuge::UiLayoutResult>().rects.at(e); };
+
+    Assert(sameRect(rect(first), {16.0f, 16.0f, 2.0f * 16.0f + 2.0f * 20.0f, 2.0f * 12.0f + 2.0f * 20.0f}),
+        "the padding of the stack (8 -> 16), and a button: its text at 2x (32 x 24) and the theme's padding (10 -> 20)");
+    Assert(sameRect(rect(second), {16.0f, 16.0f + 64.0f + 8.0f, 100.0f, 40.0f}), "the spacing (4 -> 8) and a size (50 x 20 -> 100 x 40)");
+    AssertEq(rect(field).w, 4.0f * 16.0f + 40.0f, "a text field: four letters of 16 and the padding");
+}
+
+Test(uiscale, a_bad_scale_is_one)
+{
+    Scaled ui(1.0f);
+
+    ui.tick();
+    ui.world().getResource<kuge::UiScale>().value = 3.0f;
+    ui.tick();
+    AssertEq(ui.rectOf(ui.button).w, 600.0f, "a scale that changes is taken at the next frame");
+    ui.world().getResource<kuge::UiScale>().value = 0.0f;
+    ui.tick();
+    AssertEq(ui.rectOf(ui.button).w, 200.0f, "zero is one");
+    ui.world().getResource<kuge::UiScale>().value = std::nanf("");
+    ui.tick();
+    AssertEq(ui.rectOf(ui.button).w, 200.0f, "a number that is not one is one");
+    ui.world().getResource<kuge::UiScale>().value = -2.0f;
+    ui.tick();
+    AssertEq(ui.rectOf(ui.button).w, 200.0f, "and so is a negative one");
+}
+
+Test(uiscale, the_scale_of_a_window)
+{
+    AssertEq(kuge::uiScaleFor({1280.0f, 720.0f}), 1.0f, "the size it was built for");
+    AssertEq(kuge::uiScaleFor({2560.0f, 1440.0f}), 2.0f, "twice");
+    AssertEq(kuge::uiScaleFor({1920.0f, 1080.0f}), 1.5f, "full HD");
+    AssertEq(kuge::uiScaleFor({1280.0f, 1440.0f}), 1.0f, "a tall window: the smaller ratio, so nothing is cut");
+    AssertEq(kuge::uiScaleFor({640.0f, 360.0f}, {320.0f, 180.0f}), 2.0f, "for another base");
+    AssertEq(kuge::uiScaleFor({0.0f, 0.0f}), 1.0f, "a window without a size (minimised): one");
+    const kuge::UiScale scale{.value = 2.0f};
+
+    Assert(scale.toUi({100.0f, 50.0f}) == kuge::Vec2(50.0f, 25.0f) && scale.toScreen({50.0f, 25.0f}) == kuge::Vec2(100.0f, 50.0f), "to the UI and back");
+}
+
+Test(uiscale, a_font_is_made_once)
+{
+    kuge::DummyFont font;
+    const auto big = font.scaled(2.0f);
+
+    Assert(big && big.get() == font.scaled(2.0f).get(), "asking again gives the same one");
+    Assert(big->lineHeight() == 24 && big->measure("ab").x == 32.0f, "twice as big");
+    Assert(font.scaled(3.0f).get() != big.get(), "another size, another font");
+    Assert(font.scaled(0.0f) == nullptr && font.scaled(-1.0f) == nullptr, "no font at no size");
+}
+
+Test(uiscale, a_scroll_in_ui_units)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        w.getResource<kuge::UiScale>().value = 2.0f;
+        list = scrollList(w, 10, false);
+    });
+
+    ui.mouseTo({100.0f, 100.0f});   // (inside the node, which is 200 x 200 on the screen)
+    ui.tick();
+    AssertEq(ui.get<kuge::UiScroll>(list.scroll).extent, 300.0f, "the length is in the units it was built in");
+    ui.wheel(-1.0f);
+    AssertEq(ui.get<kuge::UiScroll>(list.scroll).offset, 40.0f, "a notch is 40 of them");
+    Assert(drawnTops(ui.tick()).front() == -20.0f, "which are 80 pixels: the second item (60 .. 120) is cut at -20");
+    ui.wheel(-100.0f);
+    AssertEq(ui.get<kuge::UiScroll>(list.scroll).offset, 200.0f, "the end is 300 - 100 as at scale 1");
+}
