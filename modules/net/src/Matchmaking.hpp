@@ -55,10 +55,11 @@ namespace kuge::net
     constexpr std::size_t MAX_LISTED_ROOMS = 64;
 
     //! Can a player name a room that? 1 to MAX_ROOM_NAME bytes of valid UTF-8, no control character, and no
-    //! space at either end (see trimRoomName())
+    //! blank at either end (see trimRoomName())
     bool validRoomName(std::string_view name);
 
-    //! The name without the spaces and tabs at its ends
+    //! The name without the blanks at its ends (space, tab, line breaks, vertical tab, form feed: a code pasted from a
+    //! chat ends with a line break)
     std::string trimRoomName(std::string_view name);
 
     enum class HelloError : std::uint8_t {

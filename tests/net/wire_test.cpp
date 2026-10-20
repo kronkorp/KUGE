@@ -210,3 +210,21 @@ Test(wire, a_room_name)
     AssertStrEq(trimRoomName("a b").c_str(), "a b", "not the middle");
     AssertStrEq(trimRoomName("   ").c_str(), "", "nothing left of blanks");
 }
+
+// Ticket 002: a code pasted from a chat ends with a line break
+Test(wire, room_names_and_line_breaks)
+{
+    using kuge::net::validRoomName;
+    using kuge::net::trimRoomName;
+
+    AssertStrEq(trimRoomName("code\n").c_str(), "code", "a pasted code loses its line break");
+    AssertStrEq(trimRoomName("\r\n code \n").c_str(), "code", "and the ones before it");
+    AssertStrEq(trimRoomName("\v\f code\r").c_str(), "code", "vertical tab, form feed and return too");
+    AssertStrEq(trimRoomName("a\nb").c_str(), "a\nb", "not the middle");
+    Assert(!validRoomName("a\n"), "a name that ends with a line break is not one");
+    Assert(!validRoomName("\ra"), "or that starts with a return");
+    Assert(!validRoomName("a\v"), "or a vertical tab");
+    Assert(!validRoomName("a\f"), "or a form feed");
+    Assert(!validRoomName("a\nb"), "and a line break inside is still refused");
+    Assert(validRoomName(trimRoomName("Les copains\r\n")), "what is trimmed is a name");
+}

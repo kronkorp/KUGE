@@ -120,7 +120,7 @@ matchmaking.createRoom("deathmatch", "Secret", "Ana", true);         // private:
 matchmaking.joinRoom(12, "Secret", "Ben");                           // the id AND the name must be the room's
 ```
 
-- A name is **1 to 32 bytes of UTF-8, with no control character**. The blanks at its ends are dropped. The lobby
+- A name is **1 to 32 bytes of UTF-8, with no control character**. The blanks at its ends (space, tab, line break, vertical tab, form feed: a code pasted from a chat ends with one) are dropped. The lobby
   refuses another name with `JoinError::InvalidName`; `validRoomName()` and `trimRoomName()` let a UI check it first.
 - **A private room** is in no list and `join()` never puts anyone in it. The only way in is its name and its id
   (`JoinNamedRoom`). Every way to be wrong (no such room, another name, a room that is ending) gets the same

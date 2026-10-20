@@ -32,6 +32,12 @@ namespace kuge::net
             return otherwise;
         }
 
+        // std::isspace of the "C" locale, by hand: a name must not depend on the machine's locale
+        bool blank(char c)
+        {
+            return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+        }
+
         // The length of the UTF-8 character that starts at text[i] (0: it is not one), as RFC 3629 has them:
         // no overlong form, no surrogate, nothing past U+10FFFF
         std::size_t characterLength(std::string_view text, std::size_t i)
@@ -76,8 +82,6 @@ namespace kuge::net
 
     std::string trimRoomName(std::string_view name)
     {
-        const auto blank = [](char c) { return c == ' ' || c == '\t'; };
-
         while (!name.empty() && blank(name.front())) {
             name.remove_prefix(1);
         }
@@ -89,7 +93,7 @@ namespace kuge::net
 
     bool validRoomName(std::string_view name)
     {
-        if (name.empty() || name.size() > MAX_ROOM_NAME || name.front() == ' ' || name.front() == '\t' || name.back() == ' ' || name.back() == '\t') {
+        if (name.empty() || name.size() > MAX_ROOM_NAME || blank(name.front()) || blank(name.back())) {
             return false;
         }
         for (std::size_t i = 0; i < name.size();) {
