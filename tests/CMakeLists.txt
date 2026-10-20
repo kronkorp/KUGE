@@ -117,6 +117,7 @@ add_executable(kuge_replication_tests
     replication/rates_test.cpp
     replication/replication3d_test.cpp
     replication/replication_test.cpp
+    replication/replay_test.cpp
     replication/room_test.cpp
     replication/shooting_test.cpp
     replication/visibility_test.cpp

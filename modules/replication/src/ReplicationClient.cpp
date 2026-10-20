@@ -43,6 +43,23 @@ namespace kuge::replication
         }
     }
 
+    void ReplicationClient::reset(void)
+    {
+        applyToWorld(WorldState{}, m_lastApplied, 0);   // everything is gone, with the hooks
+        m_current.clear();
+        m_states.clear();
+        m_pending.clear();
+        m_gaps.clear();
+        m_lastApplied = 0;
+        m_inputAck = 0;
+        m_started = false;
+        m_renderTick = 0.0;
+        m_sinceLatest = 0.0;
+        m_extra = 0.0;
+        m_starved = false;
+        m_interval = std::max<std::uint32_t>(1, m_config.snapshotInterval);
+    }
+
     // -- Receiving --------------------------------------------------------------------------------------
     void ReplicationClient::onPacket(const SnapshotPacket& packet)
     {
@@ -126,6 +143,9 @@ namespace kuge::replication
             m_interval = *std::min_element(m_gaps.begin(), m_gaps.end());
         }
         applyToWorld(next, tick, inputAck);
+        if (m_tap) {
+            m_tap(tick, inputAck, next);
+        }
         m_states[tick] = std::move(next);
         while (m_states.size() > m_config.maxStates) {
             m_states.erase(m_states.begin());
