@@ -1,4 +1,7 @@
 #include "ReplicationServer.hpp"
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
 
 namespace kuge::replication
 {
@@ -6,6 +9,14 @@ namespace kuge::replication
     ReplicationServer::ReplicationServer(kw::World& world, const ReplicationRegistry& registry, net::Endpoint& endpoint, ReplicationServerConfig config)
         : m_world(world), m_registry(registry), m_endpoint(endpoint), m_config(config)
     {
+        if (config.sendRate > 0.0) {
+            if (config.tickRate == 0) {
+                throw std::invalid_argument("ReplicationServer: sendRate is a part of the tick rate: say it in tickRate");
+            }
+            m_interval = static_cast<std::uint32_t>(std::max(1.0, std::round(config.tickRate / config.sendRate)));
+        } else {
+            m_interval = std::max<std::uint32_t>(1, config.sendInterval);
+        }
         // (The endpoint may outlive this: its handler checks that this is still there)
         m_endpoint.on<SnapshotAck>([this, alive = m_alive](net::ConnectionId from, const SnapshotAck& ack) {
             if (*alive) {
@@ -154,7 +165,7 @@ namespace kuge::replication
         std::vector<net::ConnectionId> due;
 
         for (const auto& [connection, client] : m_clients) {
-            if (!client.sentOnce || tick - client.lastSent >= m_config.sendInterval) {
+            if (!client.sentOnce || tick - client.lastSent >= m_interval) {
                 due.push_back(connection);
             }
         }

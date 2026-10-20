@@ -13,6 +13,8 @@ namespace kuge::replication
     struct ReplicationServerConfig
     {
         std::uint32_t sendInterval = 2;      //!< A snapshot every this many ticks (2 at 60 Hz: 30 snapshots per second)
+        double        sendRate     = 0.0;    //!< Snapshots per second, instead of sendInterval when above 0 (30, 64...). Needs tickRate.
+        std::uint32_t tickRate     = 0;      //!< Of the room (`init().server.tickRate`): what sendRate is a fraction of
         std::size_t   maxHistory   = 64;     //!< Snapshots kept for a client that has not acknowledged them yet
         std::size_t   maxPartBytes = 6000;   //!< A snapshot that is bigger goes in several packets
     };
@@ -79,6 +81,8 @@ namespace kuge::replication
             //! Once per tick, with the number of the tick: sends what is due
             void update(std::uint32_t tick);
 
+            //! Ticks between two snapshots (sendInterval, or what sendRate comes to)
+            std::uint32_t                 interval(void) const noexcept { return m_interval; }
             const ReplicationServerStats& stats(void) const noexcept { return m_stats; }
             std::size_t                   tracked(void);
 
@@ -100,6 +104,7 @@ namespace kuge::replication
             const ReplicationRegistry&                 m_registry;
             net::Endpoint&                             m_endpoint;
             ReplicationServerConfig                    m_config;
+            std::uint32_t                              m_interval = 2;
             NetworkId                                  m_nextId = 1;
             std::map<net::ConnectionId, ClientState>   m_clients;
             Filter                                     m_filter;

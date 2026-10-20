@@ -15,9 +15,9 @@ Three tools fix three different things:
 ## Interpolation (already there)
 
 `ReplicationClient::update(frameDt)` places every *interpolated* component (the `Transform2D` of other ships,
-bullets and enemies) **a little in the past**, `interpolationDelay` = 0.1 s behind the newest snapshot, between the
+bullets and enemies) **a little in the past**, two snapshot intervals (67 ms at 30 snapshots a second) behind the newest snapshot, between the
 last two values received. Snapshots come 30 times a second, so there are always two to draw between. The other
-ships move smoothly on any screen, at the price of being drawn ~100 ms late, which nobody can notice on an object
+ships move smoothly on any screen, at the price of being drawn ~70 ms late, which nobody can notice on an object
 they do not control.
 
 Nothing to write: you called `update(frameDt)` in step 6.
@@ -102,8 +102,8 @@ What to do about it:
 
 | What | Where | Trade-off |
 |---|---|---|
-| Snapshots per second | `ReplicationServerConfig::sendInterval` (default 2 ticks) | fewer: less bandwidth, choppier others |
-| How far in the past others are drawn | `ReplicationClientConfig::interpolationDelay` (0.1 s) | less: more responsive, but a lost snapshot shows |
+| Snapshots per second | `ReplicationServerConfig::sendInterval` (default 2 ticks) or `sendRate` (Hz) | fewer: less bandwidth, choppier others |
+| How far in the past others are drawn | `ReplicationClientConfig::interpolationIntervals` (2 snapshot intervals), or `interpolationDelay` in seconds | less: more responsive, but a lost snapshot shows (`adaptiveDelay` and `maxExtrapolation` help) |
 | How long a correction takes | `PredictionConfig::smoothing` (0.1 s) | longer: smoother, but the ship is "wrong" for longer |
 | When to snap instead of smooth | `PredictionConfig::snapDistance` (64 px) | |
 | Room's input margin | `InputServerConfig::jitter` | more: safer against jitter, more delay |

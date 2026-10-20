@@ -99,6 +99,7 @@ endif()
 
 add_executable(kuge_replication_tests
     replication/prediction_test.cpp
+    replication/rates_test.cpp
     replication/replication3d_test.cpp
     replication/replication_test.cpp
     replication/room_test.cpp

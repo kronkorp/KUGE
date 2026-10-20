@@ -958,7 +958,7 @@ replication.update(frameSeconds);             // each frame
 
 Entities appear in the World with a `Replicated` (network id, type, owner) and their components, and the prefab
 adds what the server does not send (the sprite). `entity(networkId)` finds one. Interpolated components are
-placed at `interpolationDelay` (0.1 s) behind the newest snapshot: smooth at any frame rate, though snapshots
+placed two snapshot intervals (`interpolationIntervals`: 67 ms at 30 snapshots a second, 31 ms at 64; or `interpolationDelay` in seconds) behind the newest snapshot: smooth at any frame rate, though snapshots
 come 30 times a second and some are lost; past its last value an entity waits, nothing is invented.
 
 ### Prediction

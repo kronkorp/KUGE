@@ -430,7 +430,7 @@ Test(interpolation, smooth_movement)
     Assert(biggest < 1.5f && smallest > 0.5f, "one unit a tick, smoothly, though snapshots come every 2 ticks: steps from %f to %f", smallest, biggest);
     const float lag = motion.server.back() - motion.client.back();
 
-    Assert(lag > 3.0f && lag < 10.0f, "drawn about 0.1 s (6 ticks) behind the server: %f", lag);
+    Assert(lag >= 2.0f && lag < 6.0f, "drawn about two snapshot intervals (4 ticks, 67 ms) behind the server: %f", lag);
 }
 
 Test(interpolation, smooth_over_a_bad_network)
@@ -483,7 +483,7 @@ Test(interpolation, still_then_moving)
         still = still && seen[t] == 5.0f;
     }
     Assert(still, "for the first 150 ticks it stays exactly where it was");
-    Assert(seen[152] <= 5.0f + 0.001f, "and it starts to move only a moment after the server: %f", seen[152]);
+    Assert(seen[150] <= 5.0f + 0.001f && seen[154] > 5.0f, "and it starts to move only a moment after the server: %f then %f", seen[150], seen[154]);
     Assert(seen.back() > 100.0f && seen.back() < sim.serverWorld.get<kuge::Transform2D>(ship).position.x, "then it follows, behind: %f", seen.back());
 }
 
