@@ -124,6 +124,24 @@ registry.load(world, reader);                           // creates the entities 
 
 The platformer's Save game / Continue is the complete example (`example/platformer/Platformer.hpp`).
 
+## JSON and mods
+
+`kuge::Json` is a small strict JSON value (`Json::parse(text)`, `dump()`): depth is limited to 64, and an error says its line and column.
+
+A **mod** is a folder `mods/<name>/` with a `mod.json` (`name`, `version`, `kuge`, `depends`) and the same `data/` and `resources/` as the game.
+It carries data only, no code.
+
+```cpp
+auto mods = kuge::Mods::scan("mods", "0.1");     // @throw ModError: a cycle, a missing dependency, a bad mod.json (it names the mod)
+kuge::AssetRoots roots(".");                      // the game is the last place looked in
+mods.apply(roots);                                // the mods on top: dependencies first, then by name, the last one loaded wins
+assets.setRoots(std::make_shared<kuge::AssetRoots>(roots));   // a relative name is now looked for in every root
+```
+
+`mods.overrides(".")` lists what a mod replaces, to put in the log. In multiplayer **the server decides**: `mods.fingerprint()` is a
+hash of the names, versions, files and bytes, `MatchmakingClient::setMods()` sends it, and a client whose fingerprint is not the
+server's gets `JoinError::Mods`. No mod gives 0.
+
 ## Which one for what
 
 | You want to... | Use |

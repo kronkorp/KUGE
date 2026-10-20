@@ -77,6 +77,7 @@ add_executable(kuge_tests
     core/math2d_test.cpp
     core/module_test.cpp
     core/mods_test.cpp
+    core/reflect_test.cpp
     core/save_test.cpp
     core/scene_test.cpp
     core/serializer_test.cpp
