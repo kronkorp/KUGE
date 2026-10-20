@@ -72,6 +72,7 @@ namespace kuge::server
             want.roomName = create.roomName;
             want.playerName = create.playerName;
             want.isPrivate = create.isPrivate;
+            want.options = create.options;
             want.protocol = create.protocol;
             request(from, std::move(want));
         });
@@ -92,6 +93,16 @@ namespace kuge::server
 
     void LobbyScene::onExit(void)
     {
+        // The players still in a room are told why they are leaving, before their connection goes (the room tells
+        // them too: whichever arrives first is heard, the other finds the client already in the lobby)
+        if (m_endpoint) {
+            for (const auto& [playerId, member] : m_members) {
+                const auto room = m_rooms.find(member.roomId);
+                const bool closing = room != m_rooms.end() && room->second.closing;
+
+                m_endpoint->send(member.connection, net::RoomClosed{closing ? room->second.endReason : net::RoomEnd::ServerStopping});
+            }
+        }
         // The rooms are the server's: they end with it (the engine stops every spawned scene)
         for (auto& [id, room] : m_rooms) {
             room.handle.stop();
@@ -122,7 +133,7 @@ namespace kuge::server
 
         for (auto& [id, room] : m_rooms) {
             // The fullest room that still has a place: games start sooner. A private room is never filled by chance.
-            if (room.type == type && !room.isPrivate && !room.closing && room.members.size() < room.maxPlayers && (!best || room.members.size() > best->members.size())) {
+            if (room.type == type && !room.isPrivate && room.open && !room.closing && room.members.size() < room.maxPlayers && (!best || room.members.size() > best->members.size())) {
                 best = &room;
             }
         }
@@ -130,7 +141,7 @@ namespace kuge::server
     }
 
     // @param name  Empty: "<type> #<id>"
-    LobbyScene::Room* LobbyScene::makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate)
+    LobbyScene::Room* LobbyScene::makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate, const std::string& options)
     {
         const ServerConfig& config = m_state->config;
         RoomInit init;
@@ -139,6 +150,7 @@ namespace kuge::server
         init.roomType = type;
         init.roomName = name.empty() ? type + " #" + std::to_string(m_nextRoom) : name;
         init.isPrivate = isPrivate;
+        init.options = options;
         init.type = kind.config;
         init.server = config;
         if (config.transport == Transport::Sockets) {
@@ -167,6 +179,7 @@ namespace kuge::server
             room.type = type;
             room.name = init.roomName;
             room.isPrivate = isPrivate;
+            room.options = options;
             room.port = init.port;
             room.address = init.address;
             room.maxPlayers = kind.config.maxPlayers;
@@ -215,7 +228,7 @@ namespace kuge::server
             ++reply.total;
             if (reply.rooms.size() < net::MAX_LISTED_ROOMS) {
                 reply.rooms.push_back(net::RoomInfo{room.id, room.type, room.name, static_cast<std::uint32_t>(room.members.size()),
-                    static_cast<std::uint32_t>(room.maxPlayers)});
+                    static_cast<std::uint32_t>(room.maxPlayers), room.options, room.open});
             }
         }
         m_endpoint->send(from, reply);
@@ -263,6 +276,10 @@ namespace kuge::server
             refuse(from, net::JoinError::InvalidName);
             return true;
         }
+        if (want.kind == Want::Kind::Create && !net::validRoomOptions(want.options)) {
+            refuse(from, net::JoinError::InvalidOptions);
+            return true;
+        }
         const auto already = m_byConnection.find(from);
 
         if (already != m_byConnection.end()) {
@@ -284,7 +301,7 @@ namespace kuge::server
             case Want::Kind::Auto:
                 room = findRoom(want.type);
                 if (!room && m_rooms.size() < m_state->config.maxRooms) {
-                    room = makeRoom(want.type, *kind, "", false);
+                    room = makeRoom(want.type, *kind, "", false, "");
                     if (!room) {
                         refuse(from, net::JoinError::RoomFailed);
                         return true;
@@ -296,7 +313,7 @@ namespace kuge::server
                     refuse(from, net::JoinError::Full);
                     return true;
                 }
-                room = makeRoom(want.type, *kind, name, want.isPrivate);
+                room = makeRoom(want.type, *kind, name, want.isPrivate, want.options);
                 if (!room) {
                     refuse(from, net::JoinError::RoomFailed);
                     return true;
@@ -312,6 +329,10 @@ namespace kuge::server
                     return true;
                 }
                 room = &found->second;
+                if (!room->open) {
+                    refuse(from, net::JoinError::Started);
+                    return true;
+                }
                 if (room->members.size() >= room->maxPlayers) {
                     refuse(from, net::JoinError::Full);
                     return true;
@@ -433,11 +454,18 @@ namespace kuge::server
         } else if (const auto* left = message.as<detail::PlayerLeft>()) {
             // The player left the room (not the lobby): it can join again
             removeMember(left->playerId, false, net::RoomEnd::Kicked);
+        } else if (const auto* opening = message.as<detail::RoomOpen>()) {
+            const auto room = m_rooms.find(opening->roomId);
+
+            if (room != m_rooms.end()) {
+                room->second.open = opening->open;
+            }
         } else if (const auto* closing = message.as<detail::RoomClosing>()) {
             const auto room = m_rooms.find(closing->roomId);
 
             if (room != m_rooms.end()) {
                 room->second.closing = true;
+                room->second.endReason = closing->reason;
             }
         } else if (const auto* ended = message.as<detail::RoomEnded>()) {
             endRoom(ended->roomId, ended->reason);

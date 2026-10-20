@@ -35,6 +35,7 @@ namespace kuge::net
                 double        latency   = 0.0;   //!< Seconds a packet takes
                 double        jitter    = 0.0;   //!< Up to this much more, at random (so packets can pass each other)
                 std::uint64_t seed      = 1;     //!< Same seed, same losses
+                std::size_t   mtu       = 0;     //!< A packet over this many bytes is dropped, as a path does that cannot carry it (0: no limit)
             };
 
             //! A network that behaves
@@ -61,7 +62,8 @@ namespace kuge::net
             void setConditions(const Conditions& conditions);
 
             std::uint64_t packetsSent(void) const;
-            std::uint64_t packetsLost(void) const;
+            std::uint64_t packetsLost(void) const;      //!< (including the ones over the mtu)
+            std::uint64_t packetsTooBig(void) const;    //!< Dropped for being over Conditions::mtu
 
             struct Impl;   //!< (internal)
 

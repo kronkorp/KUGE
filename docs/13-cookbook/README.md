@@ -94,7 +94,7 @@ endpoint.send(peer, Emote{2}, kuge::net::Channel::Reliable);                    
 
 **Kick a player.** `kick(networkId)` in a room; the player is told `RoomClosed{Kicked}`.
 
-**End a game.** `finish(kuge::net::RoomEnd::GameOver)`.
+**End a game.** `finish(kuge::net::RoomEnd::GameOver)`, or `finish(kuge::net::RoomEnd::Victory)` when the players won.
 
 **Read server statistics from a status thread.** `server.stats().rooms.load()` (atomics).
 

@@ -106,7 +106,9 @@ if(TARGET kuge-client AND TARGET rtype-room)
 endif()
 
 add_executable(kuge_replication_tests
+    replication/datagram_test.cpp
     replication/prediction_test.cpp
+    replication/rates_test.cpp
     replication/replication3d_test.cpp
     replication/replication_test.cpp
     replication/room_test.cpp
@@ -121,7 +123,9 @@ target_compile_options(kuge_server_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_server_tests kuge_server_tests)
 
 add_executable(kuge_net_tests
+    net/auth_test.cpp
     net/endpoint_test.cpp
+    net/handshake_test.cpp
     net/loopback_test.cpp
     net/net_scene_test.cpp
     net/socket_test.cpp

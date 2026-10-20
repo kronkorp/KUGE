@@ -72,7 +72,15 @@ namespace kuge::server
         onRoomExit();
         if (!m_ended) {
             m_ended = true;
-            tellLobby(detail::RoomEnded{m_init.roomId, m_finishing ? m_endReason : net::RoomEnd::ServerStopping});
+            if (!m_finishing) {
+                m_endReason = net::RoomEnd::ServerStopping;
+            }
+            // The server is stopping: the players hear why from here, not only from the lobby, which goes in the same
+            // pass (the endpoint sends at once, so nothing needs to poll after this)
+            if (m_endpoint) {
+                announceEnd();
+            }
+            tellLobby(detail::RoomEnded{m_init.roomId, m_endReason});
         }
         Logger::logger().info("room {} is closed", m_init.roomId);
     }
@@ -180,6 +188,14 @@ namespace kuge::server
         }
     }
 
+    void RoomScene::setOpen(bool open)
+    {
+        if (open != m_open) {
+            m_open = open;
+            tellLobby(detail::RoomOpen{m_init.roomId, open});
+        }
+    }
+
     // -- The end -----------------------------------------------------------------------------------
     void RoomScene::finish(net::RoomEnd reason)
     {
@@ -190,7 +206,7 @@ namespace kuge::server
         m_endReason = reason;
         m_announceAt = now() + std::max(m_init.server.closeDelay, 0.0);
         m_finishAt = m_announceAt + m_init.server.linger;
-        tellLobby(detail::RoomClosing{m_init.roomId});   // before the players hear of it: when they ask again, the lobby knows
+        tellLobby(detail::RoomClosing{m_init.roomId, reason});   // before the players hear of it: when they ask again, the lobby knows
         if (m_init.server.closeDelay <= 0.0) {
             announceEnd();
         }

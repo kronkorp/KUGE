@@ -20,6 +20,8 @@ struct Echo
 };
 
 struct FinishNow { KUGE_MESSAGE(FinishNow) };
+struct WinNow { KUGE_MESSAGE(WinNow) };
+struct SetDoor { KUGE_MESSAGE(SetDoor, open) bool open = true; };
 
 // What the rooms of the tests did (they run on other threads: everything is under the mutex)
 struct RoomLog
@@ -30,9 +32,11 @@ struct RoomLog
     std::vector<std::uint32_t>                             networkIds;
     std::vector<std::thread::id>                           threads;
     std::vector<std::pair<std::string, bool>>              roomNames;   //!< What each room was told of its name, and of its privacy
+    std::vector<std::string>                               roomOptions; //!< ... and of its options
     int                                                    entered = 0;
     int                                                    exited = 0;
     std::atomic<int>                                       roomsListening{0};
+    std::atomic<int>                                       finished{0};   //!< Rooms that were told to finish
 
     std::size_t joinedCount(void) { std::lock_guard lock(mutex); return joined.size(); }
     std::size_t leftCount(void) { std::lock_guard lock(mutex); return left.size(); }
@@ -59,9 +63,12 @@ class TestRoom : public kuge::server::RoomScene
                 ++roomLog().entered;
                 roomLog().threads.push_back(std::this_thread::get_id());
                 roomLog().roomNames.emplace_back(init().roomName, init().isPrivate);
+                roomLog().roomOptions.push_back(init().options);
             }
             on<Echo>([this](const Player& who, const Echo& echo) { send(who.networkId, Echo{who.name + ": " + echo.text}); });
-            on<FinishNow>([this](const Player&, const FinishNow&) { finish(kuge::net::RoomEnd::GameOver); });
+            on<SetDoor>([this](const Player&, const SetDoor& door) { setOpen(door.open); });
+            on<WinNow>([this](const Player&, const WinNow&) { finish(kuge::net::RoomEnd::Victory); ++roomLog().finished; });
+            on<FinishNow>([this](const Player&, const FinishNow&) { finish(kuge::net::RoomEnd::GameOver); ++roomLog().finished; });
         }
 
         void onRoomExit(void) override
@@ -115,7 +122,9 @@ struct Harness
         roomLog().networkIds.clear();
         roomLog().threads.clear();
         roomLog().roomNames.clear();
+        roomLog().roomOptions.clear();
         roomLog().entered = roomLog().exited = 0;
+        roomLog().finished = 0;
         config.transport = kuge::server::Transport::Loopback;
         config.loopback = &network;
         config.tickRate = 200;
@@ -175,9 +184,9 @@ struct TestClient
         matchmaking.join(roomType, name);
     }
 
-    void create(const std::string& roomName, bool isPrivate = false, const char* roomType = "duel")
+    void create(const std::string& roomName, bool isPrivate = false, const char* roomType = "duel", const std::string& options = "")
     {
-        matchmaking.createRoom(roomType, roomName, name, isPrivate);
+        matchmaking.createRoom(roomType, roomName, name, isPrivate, options);
     }
 
     void joinNamed(std::uint32_t id, const std::string& roomName)

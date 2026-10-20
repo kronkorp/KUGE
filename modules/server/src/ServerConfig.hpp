@@ -64,6 +64,7 @@ namespace kuge::server
         std::string     roomType;
         std::string     roomName;            //!< What its creator called it ("<type> #<id>" for a room that the lobby made)
         bool            isPrivate = false;   //!< In no list: only its name and its id let anyone in
+        std::string     options;             //!< What its creator set (net::CreateRoom::options): opaque to KUGE, empty for a room the lobby made
         RoomTypeConfig  type;
         ServerConfig    server;
         std::uint16_t   port = 0;          //!< Sockets
@@ -88,7 +89,8 @@ namespace kuge::server
         struct ExpectPlayer  { std::uint32_t playerId; std::string name; std::uint64_t token; };
         struct KickPlayer    { std::uint32_t playerId; net::RoomEnd reason; };
         struct RoomReady     { std::uint32_t roomId; };
-        struct RoomClosing   { std::uint32_t roomId; };      //!< The game ended: no more players, and the ones it has may join again
+        struct RoomOpen      { std::uint32_t roomId; bool open; };   //!< The room takes newcomers again, or no more (RoomScene::setOpen)
+        struct RoomClosing   { std::uint32_t roomId; net::RoomEnd reason; };   //!< The game ended: no more players, and the ones it has may join again
         struct RoomFailed    { std::uint32_t roomId; std::string why; };
         struct PlayerJoined  { std::uint32_t roomId; std::uint32_t playerId; };
         struct PlayerLeft    { std::uint32_t roomId; std::uint32_t playerId; };

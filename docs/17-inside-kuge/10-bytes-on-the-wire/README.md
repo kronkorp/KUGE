@@ -73,15 +73,29 @@ The first byte of every packet says what it is:
 
 | Type | Byte 0 | Then | Size |
 |---|---|---|---|
-| `Connect` | 1 | magic `"KUGE"` (u32), protocol (u16), salt (u32) | 11 |
-| `Accept` | 2 | the same salt (u32) | 5 |
+| `Connect` | 1 | magic `"KUGE"` (u32), protocol (u16), salt (u64), cookie (u64, 0 the first time) | 23 |
+| `Accept` | 2 | the same salt (u64), the cookie (u64) | 17 |
 | `Reject` | 3 | 0 (u32) | 5 |
-| `Data` | 4 | channel (u8: 0 unreliable, 1 reliable, 2 control), ack (u32), ack bits (u32), **reliable only**: seq (u32), then the message | 10, or 14 + message |
-| `Goodbye` | 5 | 0 (u32) | 5 |
+| `Data` | 4 | channel (u8: 0 unreliable, 1 reliable, 2 control), ack (u32), ack bits (u32), **reliable only**: seq (u32), then the message, then the tag (u32) | 14, or 18 + message |
+| `Goodbye` | 5 | the tag (u32) | 5 |
+| `Challenge` | 6 | the salt (u64), a cookie (u64) | 17 |
 
 Every `Data` packet carries `ack` and `ack bits`: what this side has received of the other's reliable messages
 (step 11). So acknowledgements ride on the traffic, and a `control` packet (a `Data` with no message) is only sent
 when there is nothing else to carry them, or to keep a silent connection alive.
+
+Two things are new in this version of the handshake, and both are answers to an attacker who writes a packet by hand:
+
+- **The server does not believe an address until it answers.** The first `Connect` of an address gets a `Challenge`:
+  a **cookie**, 64 bits of a keyed hash (SipHash-2-4, `Auth.hpp`) of a secret that only the server knows, the address,
+  the salt and the time. The server keeps nothing for it. The client sends `Connect` again with the cookie, and only
+  then is it connected. A `Connect` that is forged from an address that never receives anything leaves nothing
+  behind, and every reply (17 bytes at most) is smaller than the `Connect` (23): nothing is amplified. TCP has
+  proved the address already, and skips the `Challenge`.
+- **Each `Data` and `Goodbye` ends with a tag**: 4 bytes of the same hash of the rest of the packet, with a key made of
+  the salt and the cookie, which only the two ends (and anyone who read the handshake) know. A packet with a wrong
+  tag is dropped and counted in `malformed`. It keeps off someone who is not on the path and who guesses the address
+  and the sequence; it hides nothing.
 
 ## The transports
 
@@ -163,23 +177,28 @@ namespace
             bool send(kuge::net::ConnectionId connection, std::span<const std::uint8_t> p) override
             {
                 std::printf("%5.2f s  %s ->", m_now, m_who);
+                const auto u64 = [&](std::size_t at) { return static_cast<std::uint64_t>(u32(p, at)) | static_cast<std::uint64_t>(u32(p, at + 4)) << 32; };
+
                 switch (p[0]) {
-                    case 1: std::printf(" Connect  magic %08x, protocol %u, salt (random)", u32(p, 1), p[5] | p[6] << 8); break;
-                    case 2: std::printf(" Accept   salt (the same)"); break;
+                    case 1: std::printf(" Connect   magic %08x, protocol %u, salt %016llx, cookie %016llx", u32(p, 1), p[5] | p[6] << 8,
+                                static_cast<unsigned long long>(u64(7)), static_cast<unsigned long long>(u64(15))); break;
+                    case 6: std::printf(" Challenge salt %016llx, cookie %016llx", static_cast<unsigned long long>(u64(1)), static_cast<unsigned long long>(u64(9))); break;
+                    case 2: std::printf(" Accept    salt %016llx, cookie %016llx", static_cast<unsigned long long>(u64(1)), static_cast<unsigned long long>(u64(9))); break;
                     case 3: std::printf(" Reject"); break;
-                    case 5: std::printf(" Goodbye"); break;
+                    case 5: std::printf(" Goodbye   tag %08x", u32(p, 1)); break;
                     case 4: {
                         static const char* channels[] = {"unreliable", "reliable", "control"};
-                        std::printf(" Data     %-10s ack %u bits %u", channels[p[1]], u32(p, 2), u32(p, 6));
+                        std::printf(" Data      %-10s ack %u bits %u", channels[p[1]], u32(p, 2), u32(p, 6));
                         std::size_t body = 10;
                         if (p[1] == 1) {
                             std::printf(" seq %u", u32(p, 10));
                             body = 14;
                         }
-                        if (p.size() > body) {
-                            std::printf(" | message id %08x +%zu bytes:", u32(p, body), p.size() - body - 4);
-                            hex(p, body + 4, p.size() - body - 4);
+                        if (p.size() > body + 4) {
+                            std::printf(" | message id %08x +%zu bytes:", u32(p, body), p.size() - body - 8);
+                            hex(p, body + 4, p.size() - body - 8);
                         }
+                        std::printf(" | tag %08x", u32(p, p.size() - 4));
                         break;
                     }
                 }
@@ -239,7 +258,7 @@ int main()
 }
 ```
 
-What it prints (`./build/example/lab10_wire`):
+What it prints (`./build/example/lab10_wire`; the salt, the cookie and the tags are different at each run):
 
 ```text
 PlayerMoved{7, {1.5, -2}, 90}, id = hashName("PlayerMoved") = 859dd5cb
@@ -249,18 +268,20 @@ PlayerMoved{7, {1.5, -2}, 90}, id = hashName("PlayerMoved") = 859dd5cb
   heading  00 00 b4 42
 
 Chat id = 2279d8cb
- 0.01 s  client -> Connect  magic 4547554b, protocol 1, salt (random)   (11 bytes)
- 0.02 s  server -> Accept   salt (the same)   (5 bytes)
+ 0.01 s  client -> Connect   magic 4547554b, protocol 2, salt c6b0223e5b9381ca, cookie 0000000000000000   (23 bytes)
+ 0.02 s  server -> Challenge salt c6b0223e5b9381ca, cookie c178322522b4306c   (17 bytes)
+ 0.02 s  client -> Connect   magic 4547554b, protocol 2, salt c6b0223e5b9381ca, cookie c178322522b4306c   (23 bytes)
+ 0.03 s  server -> Accept    salt c6b0223e5b9381ca, cookie c178322522b4306c   (17 bytes)
 -- connected: the client sends a reliable Chat and an unreliable one
- 0.03 s  client -> Data     reliable   ack 0 bits 0 seq 0 | message id 2279d8cb +6 bytes: 02 00 00 00 68 69   (24 bytes)
- 0.03 s  client -> Data     unreliable ack 0 bits 0 | message id 2279d8cb +6 bytes: 02 00 00 00 79 6f   (20 bytes)
- 0.04 s  server -> Data     control    ack 1 bits 0   (10 bytes)
+ 0.03 s  client -> Data      reliable   ack 0 bits 0 seq 0 | message id 2279d8cb +6 bytes: 02 00 00 00 68 69 | tag c87a73fc   (28 bytes)
+ 0.03 s  client -> Data      unreliable ack 0 bits 0 | message id 2279d8cb +6 bytes: 02 00 00 00 79 6f | tag c34be870   (24 bytes)
+ 0.04 s  server -> Data      control    ack 1 bits 0 | tag e558484e   (14 bytes)
 -- nothing to say for a while
- 1.03 s  client -> Data     control    ack 0 bits 0   (10 bytes)
- 1.04 s  server -> Data     control    ack 1 bits 0   (10 bytes)
+ 1.03 s  client -> Data      control    ack 0 bits 0 | tag dc4d8b9c   (14 bytes)
+ 1.04 s  server -> Data      control    ack 1 bits 0 | tag e558484e   (14 bytes)
 -- the client goes away
- 1.10 s  client -> Goodbye   (5 bytes)
- 1.10 s  server -> Goodbye   (5 bytes)
+ 1.10 s  client -> Goodbye   tag 2f4f53a0   (5 bytes)
+ 1.10 s  server -> Goodbye   tag 6c4e1280   (5 bytes)
 ```
 
 ## Reading the output
@@ -268,11 +289,14 @@ Chat id = 2279d8cb
 - **The message**: 4 bytes of id (`cb d5 9d 85` is `859dd5cb`, low byte first), the id field (7), two floats
   (`00 00 c0 3f` is 1.5 in IEEE 754, `00 00 00 c0` is -2), then the heading (`00 00 b4 42` is 90). 20 bytes, no
   padding, no names.
-- **The handshake**: `Connect` is 11 bytes. `4547554b` is "KUGE" read as a little-endian number. The server answers
-  `Accept` with the same salt. The salt tells this client's attempt apart from an older one that came from the same
-  address.
-- **The reliable Chat** is 24 bytes: 14 of header (type, channel, ack, bits, seq 0), the id `2279d8cb`, then the
-  string "hi" as its length (`02 00 00 00`) and its 2 bytes. The **unreliable** one has no seq: 20 bytes.
+- **The handshake**: `Connect` is 23 bytes. `4547554b` is "KUGE" read as a little-endian number, and its cookie is 0:
+  the client has none yet. The server answers `Challenge` (17 bytes, smaller than what it answers) with the same salt
+  and a cookie, and keeps nothing. The client repeats `Connect` with the cookie; only then does the server answer
+  `Accept` and make the connection. The salt tells this client's attempt apart from an older one that came from the
+  same address, and with the cookie it is the key of the tags.
+- **The reliable Chat** is 28 bytes: 14 of header (type, channel, ack, bits, seq 0), the id `2279d8cb`, then the
+  string "hi" as its length (`02 00 00 00`) and its 2 bytes, then the 4 bytes of the tag. The **unreliable** one has
+  no seq: 24 bytes.
 - **`ack 0`** on the client's packets: it has received none of the server's reliable messages. The server answers
   with a control packet, **`ack 1`**: "I have every message below 1". That is all it takes to acknowledge seq 0.
 - **Keep-alive**: after a second of silence each side sends a control packet (the client at 1.03, one second after

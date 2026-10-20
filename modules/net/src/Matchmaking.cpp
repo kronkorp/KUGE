@@ -15,8 +15,29 @@ namespace kuge::net
                 case JoinError::Protocol:        return "another version of the protocol";
                 case JoinError::InvalidName:     return "this is not a name for a room";
                 case JoinError::UnknownRoom:     return "no such room";
+                case JoinError::InvalidOptions:  return "these are not options for a room";
+                case JoinError::Started:         return "this game has already started";
             }
             return "refused";
+        }
+
+        // What a player can be told when the lobby or the room is lost, whatever the transport said
+        std::string lostText(DisconnectReason reason, const char* otherwise)
+        {
+            switch (reason) {
+                case DisconnectReason::Refused:     return "refused by the server (another version of the game, or it is full)";
+                case DisconnectReason::Timeout:     return "the server does not answer";
+                case DisconnectReason::Unreachable: return "the server cannot be reached";
+                case DisconnectReason::Local:
+                case DisconnectReason::Remote:      break;
+            }
+            return otherwise;
+        }
+
+        // std::isspace of the "C" locale, by hand: a name must not depend on the machine's locale
+        bool blank(char c)
+        {
+            return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
         }
 
         // The length of the UTF-8 character that starts at text[i] (0: it is not one), as RFC 3629 has them:
@@ -61,10 +82,42 @@ namespace kuge::net
         }
     }
 
+    const char* describe(RoomEnd reason)
+    {
+        switch (reason) {
+            case RoomEnd::GameOver:       return "the game is over";
+            case RoomEnd::Idle:           return "nobody came";
+            case RoomEnd::ServerStopping: return "the server stopped";
+            case RoomEnd::Kicked:         return "sent away";
+            case RoomEnd::Error:          return "the connection was lost";
+            case RoomEnd::Victory:        return "the game was won";
+        }
+        return "the room closed";
+    }
+
+    namespace
+    {
+        // Valid UTF-8 with no control character (not even the ones of Latin-1, U+0080 to U+009F)
+        bool cleanText(std::string_view text)
+        {
+            for (std::size_t i = 0; i < text.size();) {
+                const std::size_t length = characterLength(text, i);
+                const auto first = static_cast<unsigned char>(text[i]);
+
+                if (length == 0 || first < 0x20 || first == 0x7F) {
+                    return false;   // not UTF-8, or a control character
+                }
+                if (first == 0xC2 && static_cast<unsigned char>(text[i + 1]) < 0xA0) {
+                    return false;
+                }
+                i += length;
+            }
+            return true;
+        }
+    }
+
     std::string trimRoomName(std::string_view name)
     {
-        const auto blank = [](char c) { return c == ' ' || c == '\t'; };
-
         while (!name.empty() && blank(name.front())) {
             name.remove_prefix(1);
         }
@@ -76,22 +129,12 @@ namespace kuge::net
 
     bool validRoomName(std::string_view name)
     {
-        if (name.empty() || name.size() > MAX_ROOM_NAME || name.front() == ' ' || name.front() == '\t' || name.back() == ' ' || name.back() == '\t') {
-            return false;
-        }
-        for (std::size_t i = 0; i < name.size();) {
-            const std::size_t length = characterLength(name, i);
-            const auto first = static_cast<unsigned char>(name[i]);
+        return !name.empty() && name.size() <= MAX_ROOM_NAME && !blank(name.front()) && !blank(name.back()) && cleanText(name);
+    }
 
-            if (length == 0 || first < 0x20 || first == 0x7F) {
-                return false;   // not UTF-8, or a control character
-            }
-            if (first == 0xC2 && static_cast<unsigned char>(name[i + 1]) < 0xA0) {
-                return false;   // U+0080 to U+009F: the control characters of Latin-1
-            }
-            i += length;
-        }
-        return true;
+    bool validRoomOptions(std::string_view options)
+    {
+        return options.size() <= MAX_ROOM_OPTIONS && cleanText(options);
     }
 
     MatchmakingClient::~MatchmakingClient(void)
@@ -134,7 +177,7 @@ namespace kuge::net
                 m_pending.reset();
             }
         });
-        lobby.onDisconnected([this](ConnectionId, DisconnectReason) {
+        lobby.onDisconnected([this](ConnectionId, DisconnectReason reason) {
             const bool inRoom = m_state == State::ConnectingRoom || m_state == State::InRoom;
             Endpoint* gone = m_lobby;
 
@@ -146,7 +189,8 @@ namespace kuge::net
             if (inRoom && m_onRoomClosed) {
                 m_onRoomClosed(RoomEnd::Error);   // the game holds the room's endpoint: it must hear that it is gone
             }
-            fail("the lobby was lost");
+            m_lastReason = reason;
+            fail(lostText(reason, "the lobby was lost"));
         });
         lobby.on<RoomAssigned>([this](ConnectionId, const RoomAssigned& assigned) { connectRoom(assigned); });
         lobby.on<RoomList>([this](ConnectionId, const RoomList& list) {
@@ -176,6 +220,7 @@ namespace kuge::net
     void MatchmakingClient::connectLobby(Protocol protocol, const std::string& host, std::uint16_t port, EndpointConfig config)
     {
         m_sockets = true;
+        m_lastReason = DisconnectReason::Local;
         m_host = host;
         m_config = config;
         bindLobby(m_net.connect(protocol, host, port, std::move(config)));
@@ -184,6 +229,7 @@ namespace kuge::net
     void MatchmakingClient::connectLobby(const std::string& name, LoopbackNetwork& network, EndpointConfig config)
     {
         m_sockets = false;
+        m_lastReason = DisconnectReason::Local;
         m_network = &network;
         m_host = name;
         m_config = config;
@@ -211,7 +257,8 @@ namespace kuge::net
         start(std::move(request));
     }
 
-    void MatchmakingClient::createRoom(const std::string& roomType, const std::string& roomName, const std::string& playerName, bool isPrivate)
+    void MatchmakingClient::createRoom(const std::string& roomType, const std::string& roomName, const std::string& playerName, bool isPrivate,
+        const std::string& options)
     {
         CreateRoom request;
 
@@ -219,6 +266,7 @@ namespace kuge::net
         request.roomName = roomName;
         request.playerName = playerName;
         request.isPrivate = isPrivate;
+        request.options = options;
         start(std::move(request));
     }
 
@@ -283,7 +331,7 @@ namespace kuge::net
                 m_onRoomClosed(closed.reason);
             }
         });
-        room->onDisconnected([this, room](ConnectionId, DisconnectReason) {
+        room->onDisconnected([this, room](ConnectionId, DisconnectReason reason) {
             if (m_room != room) {
                 return;   // (already left)
             }
@@ -291,7 +339,8 @@ namespace kuge::net
             m_net.remove(*room);
             if (m_state == State::ConnectingRoom || m_state == State::InRoom) {
                 m_state = State::InLobby;
-                m_error = "the connection to the room was lost";
+                m_lastReason = reason;
+                m_error = lostText(reason, "the connection to the room was lost");
                 if (m_onRoomClosed) {
                     m_onRoomClosed(RoomEnd::Error);
                 }

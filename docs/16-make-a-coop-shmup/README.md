@@ -53,7 +53,7 @@ cleanly. Every file is given whole: create them in order and it builds.
              | on a private world, at once                                 | hits, lives, the result
              v                                                             v
       your ship, drawn now <------ snapshots, 30/s ----------------- ReplicationServer: what changed
-      the rest, 0.1 s in the past                                     since what you acknowledged
+      the rest, in the past                                           since what you acknowledged
       (interpolated)
 ```
 
@@ -2158,15 +2158,15 @@ inputs up. Two ways to go further:
 do. This step covers what is special about a shmup.
 
 **Enemy bullets are seen late.** Your ship is drawn *now*, because it is predicted. Enemy bullets are drawn where
-the server had them about `interpolationDelay` plus half a round trip ago. Take a bullet flying at you at 120 px/s,
+the server had them about the interpolation delay plus half a round trip ago. Take a bullet flying at you at 120 px/s,
 with 0.1 s of interpolation and 50 ms of one-way latency: it is drawn about 18 px behind where the server has it,
 which is far more than the 4 px core. It can hit you while it still seems some way off. Starfall limits the damage
 with a small core, slow enemy bullets (95 to 120 px/s), and bullets drawn larger (6 px) than the core. The knobs:
 
 | Knob | Where | Effect |
 |---|---|---|
-| `ReplicationClientConfig::interpolationDelay` | the client, in `joined()` | 0.1 s by default. 0.05 s with a snapshot every tick halves the lag. |
-| `ReplicationServerConfig::sendInterval` | the room | 2 by default (30 snapshots a second); 1 sends 60, at twice the bandwidth. |
+| `ReplicationClientConfig::interpolationIntervals` / `interpolationDelay` | the client, in `joined()` | 2 snapshot intervals by default (67 ms at 30 snapshots a second); `interpolationDelay = 0.1` sets 0.1 s as in the guide's numbers. 0.05 s with a snapshot every tick halves the lag. |
+| `ReplicationServerConfig::sendInterval` (or `sendRate`) | the room | 2 by default (30 snapshots a second); 1 sends 60, at twice the bandwidth. |
 | Enemy bullet speed | the rules | Slower bullets, smaller error. |
 | `SHIP_CORE` | the shared file | The budget the error must fit in. |
 

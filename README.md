@@ -834,7 +834,9 @@ server.poll();                 // once per tick: reads, sends what is due, calls
   are full, instead of growing. Over TCP nothing is ever sent twice.
 - **Handshake.** A client sends `Connect` until the server answers `Accept`; "connected" therefore
   means that the other side answered, even over UDP where a socket knows nothing. A server that is
-  full, or has another `protocol` version, refuses (`DisconnectReason::Refused`).
+  full, or has another `protocol` version, refuses (`DisconnectReason::Refused`). Over UDP the server
+  first sends a `Challenge` (a cookie) and makes the connection only when the client has sent it back, so
+  a forged address leaves nothing behind; every packet after that ends with a 4-byte tag (see 08).
 - **Keep-alive and timeouts.** A silent connection sends something every second, and a peer that says
   nothing for 10 seconds is gone (`Timeout`). Leaving (`disconnect`, or destroying the endpoint) tells
   the peer at once. All the delays are in `EndpointConfig`, with a clock you can replace.
@@ -937,7 +939,8 @@ connects to the lobby, `join("deathmatch", "Ana")` asks for a room, and `onJoine
   at that way: but ids go 1, 2, 3..., so the name is the only secret, and there is no password). A name is 1 to 32 bytes
   of UTF-8 with no control character (`validRoomName()`, and `trimRoomName()` drops the blanks at its ends).
   A room that the lobby makes for `join()` is called `"<kind> #<id>"`, and a room sees its name and whether it is
-  private in `init().roomName` and `init().isPrivate`. The client stays in the lobby all along: it can look at
+  private in `init().roomName` and `init().isPrivate`, and its options (`createRoom(..., options)`: an opaque text of at
+  most 128 bytes that the game reads in `init().options` and a list shows in `RoomInfo::options`). The client stays in the lobby all along: it can look at
   the list, leave a room and join another.
 - **Tokens.** The lobby gives the client the address of the room and a random 64-bit token, and tells
   the room to expect it. The token opens the door **once** and expires after `tokenTtl` (10 s): a
@@ -1045,7 +1048,7 @@ replication.update(frameSeconds);             // each frame
 
 Entities appear in the World with a `Replicated` (network id, type, owner) and their components, and the prefab
 adds what the server does not send (the sprite). `entity(networkId)` finds one. Interpolated components are
-placed at `interpolationDelay` (0.1 s) behind the newest snapshot: smooth at any frame rate, though snapshots
+placed two snapshot intervals (`interpolationIntervals`: 67 ms at 30 snapshots a second, 31 ms at 64; or `interpolationDelay` in seconds) behind the newest snapshot: smooth at any frame rate, though snapshots
 come 30 times a second and some are lost; past its last value an entity waits, nothing is invented.
 
 ### Prediction
