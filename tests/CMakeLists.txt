@@ -159,6 +159,7 @@ if(TARGET kuge-client)
         client/animation_test.cpp
         client/async_load_test.cpp
         client/audio_test.cpp
+        client/camera_test.cpp
         client/client_module_test.cpp
         client/hot_reload_test.cpp
         client/image_test.cpp

@@ -6,6 +6,7 @@
 #include "backend/IWindow.hpp"
 #include "input/ActionState.hpp"
 #include "input/InputMap.hpp"
+#include "render/Components.hpp"
 #include "ui/TextRenderer.hpp"
 #include "ui/Ui.hpp"
 #include <algorithm>
@@ -636,7 +637,8 @@ bool kuge::UiLayout::handle(kw::World& world)
     Layouter layouter(world, theme, result, scale);
 
     layouter.build(m_nodes);
-    layouter.run({0.0f, 0.0f, screen.x, screen.y});
+    // In the viewport of the camera (a split screen has an interface in each part), not the window
+    layouter.run(world.getResource<Camera2D>().viewport.value_or(Rect{0.0f, 0.0f, screen.x, screen.y}));
     return true;
 }
 
