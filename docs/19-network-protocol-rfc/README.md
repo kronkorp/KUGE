@@ -1,12 +1,12 @@
 # RFC — Protocole réseau KUGE
 
-*2026-10-19 · protocole version 1 · commit `3c53df8`*
+*2026-10-20 · protocole version 2*
 
 KUGE parle un protocole applicatif unique, en couches, sur UDP ou TCP : une poignée de main, deux canaux (non fiable, fiable) et des messages typés dont l'identifiant est le hash du nom.
 
 ## Statut de ce mémo
 
-Ce document est **informatif** : il décrit le protocole version 1 (`EndpointConfig::protocol = 1`) tel que le code l'implémente dans `modules/net` et `modules/replication`. En cas de divergence, le code fait foi. Les mots MUST, SHOULD et MAY ont le sens de la RFC 2119.
+Ce document est **informatif** : il décrit le protocole version 2 (`EndpointConfig::protocol = 2` par défaut ; la version 1 est celle de KUGE v0.1.0) tel que le code l'implémente dans `modules/net` et `modules/replication`. En cas de divergence, le code fait foi. Les mots MUST, SHOULD et MAY ont le sens de la RFC 2119.
 
 ## Résumé
 
@@ -147,11 +147,11 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 | Message | Sens | Champs, dans l'ordre | Rôle |
 | --- | --- | --- | --- |
 | `JoinRoom` | C→L | roomType (chaîne), playerName (chaîne), protocol (u16) | demande une salle d'un type, que le lobby choisit |
-| `CreateRoom` | C→L | roomType, roomName, playerName (chaînes), isPrivate (bool), protocol (u16) | crée une salle nommée et y place le client |
+| `CreateRoom` | C→L | roomType, roomName, playerName (chaînes), isPrivate (bool), options (chaîne), protocol (u16) | crée une salle nommée, avec des options que KUGE ne lit pas, et y place le client |
 | `JoinNamedRoom` | C→L | roomId (u32), roomName, playerName (chaînes), protocol (u16) | entre dans la salle dont l'id et le nom correspondent |
 | `ListRooms` | C→L | roomType (chaîne, vide pour tous) | demande les salles publiques |
 | `RoomList` | L→C | total (u32), rooms (vecteur de `RoomInfo`) | réponse : 64 salles au plus, `total` les compte toutes |
-| `RoomInfo` | dans `RoomList` | roomId (u32), roomType, name (chaînes), players (u32), maxPlayers (u32) | décrit une salle publique |
+| `RoomInfo` | dans `RoomList` | roomId (u32), roomType, name (chaînes), players (u32), maxPlayers (u32), options (chaîne) | décrit une salle publique |
 | `RoomAssigned` | L→C | roomId (u32), address (chaîne), port (u16), token (u64), tickRate (u32) | où se trouve la salle, et la clé pour y entrer |
 | `JoinRefused` | L→C | reason (`JoinError`, u8) | la demande échoue |
 | `LeaveRoom` | C→L | aucun | quitte la salle, ou renonce à en rejoindre une |
@@ -178,11 +178,11 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 
 | Énumération | Valeurs |
 | --- | --- |
-| `JoinError` | 0 UnknownRoomType, 1 Full, 2 AlreadyJoined, 3 RoomFailed, 4 Protocol, 5 InvalidName, 6 UnknownRoom |
+| `JoinError` | 0 UnknownRoomType, 1 Full, 2 AlreadyJoined, 3 RoomFailed, 4 Protocol, 5 InvalidName, 6 UnknownRoom, 7 InvalidOptions |
 | `HelloError` | 0 UnknownToken, 1 Closing |
 | `RoomEnd` | 0 GameOver, 1 Idle, 2 ServerStopping, 3 Kicked, 4 Error |
 
-Un nom de salle est valide s'il fait de 1 à 32 octets d'UTF-8 correct (RFC 3629), sans caractère de contrôle (U+0000 à U+001F, U+007F à U+009F) et sans espace ni tabulation à ses extrémités. Le lobby refuse les autres avec `JoinError::InvalidName`.
+Un nom de salle est valide s'il fait de 1 à 32 octets d'UTF-8 correct (RFC 3629), sans caractère de contrôle (U+0000 à U+001F, U+007F à U+009F) et sans espace ni tabulation à ses extrémités. Le lobby refuse les autres avec `JoinError::InvalidName`. Les `options` d'une salle font au plus 128 octets d'UTF-8 correct, sans caractère de contrôle ; le lobby refuse les autres avec `JoinError::InvalidOptions`.
 
 ## 6. Cycle de vie d'une connexion
 
@@ -338,8 +338,8 @@ Une donnée invalide est jetée et comptée dans les statistiques de l'endpoint 
 
 | Version | Où | Valeur | Contrôle |
 | --- | --- | --- | --- |
-| `protocol` | `Connect` (u16) | 1 | égalité exacte, sinon `Reject` |
-| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom` (u16) | 1 | égalité exacte, sinon `JoinRefused(Protocol)` |
+| `protocol` | `Connect` (u16) | 2 | égalité exacte, sinon `Reject` |
+| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom` (u16) | 2 | égalité exacte, sinon `JoinRefused(Protocol)` |
 | `schema` | `SnapshotPacket` (u32) | hash du registre | égalité, sinon instantané ignoré |
 
 Les messages n'ont pas de version propre : ajouter, retirer ou réordonner un champ d'un `KUGE_MESSAGE` casse la lecture, et le message est jeté comme malformé. Un tel changement dans le lobby ou la salle MUST s'accompagner d'une hausse de `protocol`. Le `schema` change quand les noms, les modes ou l'ordre des composants changent ; il ne change pas quand le format d'octets d'un composant change, et ce cas n'est pas détecté.

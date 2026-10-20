@@ -24,8 +24,10 @@ namespace kuge::net
     //     | <--------------------------- RoomClosed --------------------------- |
     //     | (back to the lobby, which the client never left)                       |
 
-    //! What JoinRoom says of the rules of matchmaking (not of the network: see EndpointConfig::protocol)
-    constexpr std::uint16_t MATCHMAKING_VERSION = 1;
+    //! What JoinRoom says of the rules of matchmaking (not of the network: see EndpointConfig::protocol).
+    //! 2: CreateRoom and RoomInfo carry `options`, RoomInfo says if the room is `open`, JoinError::InvalidOptions and
+    //! ::Started, RoomEnd::Victory, and the handshake of the Endpoint is not the same (see EndpointConfig::protocol).
+    constexpr std::uint16_t MATCHMAKING_VERSION = 2;
 
     enum class JoinError : std::uint8_t {
         UnknownRoomType,   //!< The server has no such kind of room
@@ -35,6 +37,7 @@ namespace kuge::net
         Protocol,          //!< Another version of the protocol
         InvalidName,       //!< The name of the room is not one (see validRoomName())
         UnknownRoom,       //!< No room has this id and this name (or it is ending). Same answer for a private room.
+        InvalidOptions,    //!< The options of the room are not some (see validRoomOptions())
     };
 
     // -- Naming, listing and choosing rooms ---------------------------------------------------------
@@ -44,7 +47,7 @@ namespace kuge::net
     //   client                                    lobby
     //     | -- ListRooms(type) --------------->   |
     //     | <-- RoomList(total, [RoomInfo...]) --  |   public rooms only
-    //     | -- CreateRoom(type, name, private) ->  |   the creator names it, and is placed in it
+    //     | -- CreateRoom(type, name, private, options) ->  |   the creator names it, sets it, and is placed in it
     //     | -- JoinNamedRoom(id, name) -------->   |   the id AND the name must match: the only way into a private room
     //     | <-- RoomAssigned / JoinRefused ------  |   then as for join()
 
@@ -54,9 +57,16 @@ namespace kuge::net
     //! The most rooms that one RoomList carries (the others are counted in `total`)
     constexpr std::size_t MAX_LISTED_ROOMS = 64;
 
+    //! The longest `options` of a room, in bytes
+    constexpr std::size_t MAX_ROOM_OPTIONS = 128;
+
     //! Can a player name a room that? 1 to MAX_ROOM_NAME bytes of valid UTF-8, no control character, and no
     //! blank at either end (see trimRoomName())
     bool validRoomName(std::string_view name);
+
+    //! Can these be the options of a room? At most MAX_ROOM_OPTIONS bytes of valid UTF-8, with no control character
+    //! (so a compact JSON or "key=value;key=value" fit, a text with line breaks does not). Empty is fine: no options.
+    bool validRoomOptions(std::string_view options);
 
     //! The name without the blanks at its ends (space, tab, line breaks, vertical tab, form feed: a code pasted from a
     //! chat ends with a line break)
@@ -86,12 +96,13 @@ namespace kuge::net
     //! What the lobby says of a room that anyone can join: enough to choose one
     struct RoomInfo
     {
-        KUGE_MESSAGE(RoomInfo, roomId, roomType, name, players, maxPlayers)
+        KUGE_MESSAGE(RoomInfo, roomId, roomType, name, players, maxPlayers, options)
         std::uint32_t roomId = 0;
         std::string   roomType;
         std::string   name;          //!< What its creator called it ("<type> #<id>" for a room that the lobby made)
         std::uint32_t players = 0;   //!< Who is in it, or on the way
         std::uint32_t maxPlayers = 0;
+        std::string   options;       //!< What its creator set (CreateRoom::options), for a list to show; empty for a room the lobby made
     };
 
     //! The client asks which rooms it can join
@@ -113,11 +124,12 @@ namespace kuge::net
     //! anyone in.
     struct CreateRoom
     {
-        KUGE_MESSAGE(CreateRoom, roomType, roomName, playerName, isPrivate, protocol)
+        KUGE_MESSAGE(CreateRoom, roomType, roomName, playerName, isPrivate, options, protocol)
         std::string   roomType;
         std::string   roomName;
         std::string   playerName;
         bool          isPrivate = false;
+        std::string   options;   //!< Opaque to KUGE, a validRoomOptions() text: the game puts what it likes ("hurry=1;map=3", JSON...)
         std::uint16_t protocol = MATCHMAKING_VERSION;
     };
 
@@ -229,9 +241,11 @@ namespace kuge::net
             //! handler of onRoomList(). It can be asked in the lobby or in a room, and before the lobby answered.
             void requestRooms(const std::string& roomType = "");
 
-            //! Opens a room and joins it. `roomName` must be a validRoomName(); the lobby refuses it (onFailed) if
-            //! not. A private room is in no list: whoever knows its name and its id can join it (joinRoom()).
-            void createRoom(const std::string& roomType, const std::string& roomName, const std::string& playerName, bool isPrivate = false);
+            //! Opens a room and joins it. `roomName` must be a validRoomName() and `options` a validRoomOptions(); the
+            //! lobby refuses it (onFailed) if not. The room reads the options in `init().options`, and they are in its
+            //! RoomInfo. A private room is in no list: whoever knows its name and its id can join it (joinRoom()).
+            void createRoom(const std::string& roomType, const std::string& roomName, const std::string& playerName, bool isPrivate = false,
+                const std::string& options = "");
 
             //! Joins the room that has this id and this name (public or private: both must be right)
             void joinRoom(std::uint32_t roomId, const std::string& roomName, const std::string& playerName);

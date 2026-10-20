@@ -800,3 +800,54 @@ Test(server, stopping_a_finishing_room)
     Assert(ana.until([&] { return !ana.closed.empty(); }, 5.0), "the player hears the end");
     AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::GameOver), "with the reason of the game, not the server's");
 }
+
+// -- Rooms with options (ticket 008) -----------------------------------------------------------
+Test(server, a_room_has_options)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    ana.create("Hurry", false, "duel", "hurry=1");
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens a room with options");
+    {
+        std::lock_guard lock(roomLog().mutex);
+        Assert(roomLog().roomOptions.size() == 1 && roomLog().roomOptions[0] == "hurry=1", "the room reads them in init()");
+    }
+    const auto* list = ben.list();
+
+    Assert(list != nullptr && list->rooms.size() == 1, "the room is listed");
+    AssertStrEq(list->rooms[0].options.c_str(), "hurry=1", "with its options");
+    ben.join();
+    Assert(ben.until([&] { return ben.inRoom(); }), "Ben asks for any room");
+    TestClient carl("Carl");
+
+    carl.connect(harness);
+    carl.join("duel");
+    Assert(carl.until([&] { return carl.inRoom(); }), "and Carl, whose room the lobby makes");
+    const auto* both = carl.list();
+
+    Assert(both != nullptr && both->rooms.size() == 2, "two rooms");
+    AssertStrEq(both->rooms[1].options.c_str(), "", "the one that the lobby made has none");
+}
+
+Test(server, bad_options_are_refused)
+{
+    Harness harness;
+    TestClient ana("Ana");
+
+    ana.connect(harness);
+    std::size_t refusals = 0;
+
+    for (const std::string& bad : {std::string(net::MAX_ROOM_OPTIONS + 1, 'x'), std::string("\xFF\xFE"), std::string("two\nlines")}) {
+        ana.create("Room", false, "duel", bad);
+        ++refusals;
+        Assert(ana.until([&] { return ana.failures.size() == refusals; }), "bad options are refused");
+        AssertStrEq(ana.failures.back().c_str(), "these are not options for a room", "for that reason");
+    }
+    Assert(ana.inLobby(), "the client is still in the lobby");
+    AssertEq(harness.server->stats().rooms, 0, "no room was made");
+    ana.create("Room", false, "duel", std::string(net::MAX_ROOM_OPTIONS, 'x'));
+    Assert(ana.until([&] { return ana.inRoom(); }), "128 bytes are accepted");
+}

@@ -15,6 +15,7 @@ namespace kuge::net
                 case JoinError::Protocol:        return "another version of the protocol";
                 case JoinError::InvalidName:     return "this is not a name for a room";
                 case JoinError::UnknownRoom:     return "no such room";
+                case JoinError::InvalidOptions:  return "these are not options for a room";
             }
             return "refused";
         }
@@ -80,6 +81,27 @@ namespace kuge::net
         }
     }
 
+    namespace
+    {
+        // Valid UTF-8 with no control character (not even the ones of Latin-1, U+0080 to U+009F)
+        bool cleanText(std::string_view text)
+        {
+            for (std::size_t i = 0; i < text.size();) {
+                const std::size_t length = characterLength(text, i);
+                const auto first = static_cast<unsigned char>(text[i]);
+
+                if (length == 0 || first < 0x20 || first == 0x7F) {
+                    return false;   // not UTF-8, or a control character
+                }
+                if (first == 0xC2 && static_cast<unsigned char>(text[i + 1]) < 0xA0) {
+                    return false;
+                }
+                i += length;
+            }
+            return true;
+        }
+    }
+
     std::string trimRoomName(std::string_view name)
     {
         while (!name.empty() && blank(name.front())) {
@@ -93,22 +115,12 @@ namespace kuge::net
 
     bool validRoomName(std::string_view name)
     {
-        if (name.empty() || name.size() > MAX_ROOM_NAME || blank(name.front()) || blank(name.back())) {
-            return false;
-        }
-        for (std::size_t i = 0; i < name.size();) {
-            const std::size_t length = characterLength(name, i);
-            const auto first = static_cast<unsigned char>(name[i]);
+        return !name.empty() && name.size() <= MAX_ROOM_NAME && !blank(name.front()) && !blank(name.back()) && cleanText(name);
+    }
 
-            if (length == 0 || first < 0x20 || first == 0x7F) {
-                return false;   // not UTF-8, or a control character
-            }
-            if (first == 0xC2 && static_cast<unsigned char>(name[i + 1]) < 0xA0) {
-                return false;   // U+0080 to U+009F: the control characters of Latin-1
-            }
-            i += length;
-        }
-        return true;
+    bool validRoomOptions(std::string_view options)
+    {
+        return options.size() <= MAX_ROOM_OPTIONS && cleanText(options);
     }
 
     MatchmakingClient::~MatchmakingClient(void)
@@ -231,7 +243,8 @@ namespace kuge::net
         start(std::move(request));
     }
 
-    void MatchmakingClient::createRoom(const std::string& roomType, const std::string& roomName, const std::string& playerName, bool isPrivate)
+    void MatchmakingClient::createRoom(const std::string& roomType, const std::string& roomName, const std::string& playerName, bool isPrivate,
+        const std::string& options)
     {
         CreateRoom request;
 
@@ -239,6 +252,7 @@ namespace kuge::net
         request.roomName = roomName;
         request.playerName = playerName;
         request.isPrivate = isPrivate;
+        request.options = options;
         start(std::move(request));
     }
 

@@ -64,6 +64,7 @@ namespace kuge::server
         std::string     roomType;
         std::string     roomName;            //!< What its creator called it ("<type> #<id>" for a room that the lobby made)
         bool            isPrivate = false;   //!< In no list: only its name and its id let anyone in
+        std::string     options;             //!< What its creator set (net::CreateRoom::options): opaque to KUGE, empty for a room the lobby made
         RoomTypeConfig  type;
         ServerConfig    server;
         std::uint16_t   port = 0;          //!< Sockets

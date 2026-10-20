@@ -150,8 +150,8 @@ Test(wire, room_messages_round_trip)
     RoomList list;
 
     list.total = 3;
-    list.rooms.push_back(RoomInfo{7, "duel", "Les copains", 1, 2});
-    list.rooms.push_back(RoomInfo{9, "duel", "Caf\xC3\xA9 \xF0\x9F\x8E\xAE", 2, 2});
+    list.rooms.push_back(RoomInfo{7, "duel", "Les copains", 1, 2, "hurry=1;map=3"});
+    list.rooms.push_back(RoomInfo{9, "duel", "Caf\xC3\xA9 \xF0\x9F\x8E\xAE", 2, 2, ""});
     const auto bytes = written(list);
     kuge::ByteReader reader(bytes);
     RoomList back;
@@ -163,14 +163,16 @@ Test(wire, room_messages_round_trip)
     AssertStrEq(back.rooms[0].name.c_str(), "Les copains", "the name");
     AssertStrEq(back.rooms[1].name.c_str(), "Caf\xC3\xA9 \xF0\x9F\x8E\xAE", "a name with accents and an emoji");
     AssertEq(back.rooms[1].players, 2, "how many are in");
+    AssertStrEq(back.rooms[0].options.c_str(), "hurry=1;map=3", "and the options of the room");
 
-    CreateRoom create{"duel", "Secret", "Ana", true};
+    CreateRoom create{"duel", "Secret", "Ana", true, "{\"hurry\":1}"};
     const auto createBytes = written(create);
     kuge::ByteReader createReader(createBytes);
     CreateRoom createBack;
 
     decode(createReader, createBack);
     Assert(createBack.isPrivate && createBack.roomName == "Secret" && createBack.playerName == "Ana", "CreateRoom comes back whole");
+    AssertStrEq(createBack.options.c_str(), "{\"hurry\":1}", "and its options");
     AssertEq(createBack.protocol, MATCHMAKING_VERSION, "with the version of the protocol");
 
     JoinNamedRoom join{12, "Secret", "Ben"};
@@ -227,4 +229,22 @@ Test(wire, room_names_and_line_breaks)
     Assert(!validRoomName("a\f"), "or a form feed");
     Assert(!validRoomName("a\nb"), "and a line break inside is still refused");
     Assert(validRoomName(trimRoomName("Les copains\r\n")), "what is trimmed is a name");
+}
+
+Test(wire, room_options)
+{
+    using kuge::net::validRoomOptions;
+    using kuge::net::MAX_ROOM_OPTIONS;
+
+    Assert(validRoomOptions(""), "no options is fine");
+    Assert(validRoomOptions("hurry=1;map=3"), "key=value;key=value");
+    Assert(validRoomOptions("{\"hurry\": true, \"map\": \"caf\xC3\xA9\"}"), "a JSON, accents included");
+    Assert(validRoomOptions(" lead and end "), "blanks are the game's business");
+    Assert(validRoomOptions(std::string(MAX_ROOM_OPTIONS, 'x')), "128 bytes is the limit");
+    Assert(!validRoomOptions(std::string(MAX_ROOM_OPTIONS + 1, 'x')), "129 is too many");
+    Assert(!validRoomOptions("\xFF"), "not UTF-8");
+    Assert(!validRoomOptions("caf\xC3"), "a character that is cut");
+    Assert(!validRoomOptions("a\nb"), "no line break");
+    Assert(!validRoomOptions(std::string("a\0b", 3)), "no zero");
+    Assert(!validRoomOptions("a\xC2\x85" "b"), "no control character of Latin-1");
 }

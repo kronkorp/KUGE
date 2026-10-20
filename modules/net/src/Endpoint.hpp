@@ -41,7 +41,7 @@ namespace kuge::net
         double                       connectRetry   = 0.25;  //!< A client asks again this often
         double                       connectTimeout = 5.0;   //!< ... and gives up after this
         std::size_t                  maxConnections = 64;    //!< Server: the next ones are refused
-        std::uint16_t                protocol       = 1;     //!< Version of what is said: both sides must have the same
+        std::uint16_t                protocol       = 2;     //!< Version of what is said: both sides must have the same (a game sets its own; 2: KUGE's handshake and matchmaking of this version)
         ReliableChannel::Config      reliable;
     };
 

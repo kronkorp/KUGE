@@ -72,6 +72,7 @@ namespace kuge::server
             want.roomName = create.roomName;
             want.playerName = create.playerName;
             want.isPrivate = create.isPrivate;
+            want.options = create.options;
             want.protocol = create.protocol;
             request(from, std::move(want));
         });
@@ -140,7 +141,7 @@ namespace kuge::server
     }
 
     // @param name  Empty: "<type> #<id>"
-    LobbyScene::Room* LobbyScene::makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate)
+    LobbyScene::Room* LobbyScene::makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate, const std::string& options)
     {
         const ServerConfig& config = m_state->config;
         RoomInit init;
@@ -149,6 +150,7 @@ namespace kuge::server
         init.roomType = type;
         init.roomName = name.empty() ? type + " #" + std::to_string(m_nextRoom) : name;
         init.isPrivate = isPrivate;
+        init.options = options;
         init.type = kind.config;
         init.server = config;
         if (config.transport == Transport::Sockets) {
@@ -177,6 +179,7 @@ namespace kuge::server
             room.type = type;
             room.name = init.roomName;
             room.isPrivate = isPrivate;
+            room.options = options;
             room.port = init.port;
             room.address = init.address;
             room.maxPlayers = kind.config.maxPlayers;
@@ -225,7 +228,7 @@ namespace kuge::server
             ++reply.total;
             if (reply.rooms.size() < net::MAX_LISTED_ROOMS) {
                 reply.rooms.push_back(net::RoomInfo{room.id, room.type, room.name, static_cast<std::uint32_t>(room.members.size()),
-                    static_cast<std::uint32_t>(room.maxPlayers)});
+                    static_cast<std::uint32_t>(room.maxPlayers), room.options});
             }
         }
         m_endpoint->send(from, reply);
@@ -273,6 +276,10 @@ namespace kuge::server
             refuse(from, net::JoinError::InvalidName);
             return true;
         }
+        if (want.kind == Want::Kind::Create && !net::validRoomOptions(want.options)) {
+            refuse(from, net::JoinError::InvalidOptions);
+            return true;
+        }
         const auto already = m_byConnection.find(from);
 
         if (already != m_byConnection.end()) {
@@ -294,7 +301,7 @@ namespace kuge::server
             case Want::Kind::Auto:
                 room = findRoom(want.type);
                 if (!room && m_rooms.size() < m_state->config.maxRooms) {
-                    room = makeRoom(want.type, *kind, "", false);
+                    room = makeRoom(want.type, *kind, "", false, "");
                     if (!room) {
                         refuse(from, net::JoinError::RoomFailed);
                         return true;
@@ -306,7 +313,7 @@ namespace kuge::server
                     refuse(from, net::JoinError::Full);
                     return true;
                 }
-                room = makeRoom(want.type, *kind, name, want.isPrivate);
+                room = makeRoom(want.type, *kind, name, want.isPrivate, want.options);
                 if (!room) {
                     refuse(from, net::JoinError::RoomFailed);
                     return true;

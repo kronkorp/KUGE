@@ -110,13 +110,14 @@ lobby keeps the connection all along, so a client can look, leave, and join anot
 ```cpp
 matchmaking.onRoomList([](const kuge::net::RoomList& list) {
     for (const auto& room : list.rooms) {          // public rooms only, by id, at most 64 (list.total: how many)
-        // room.roomId, room.name, room.roomType, room.players, room.maxPlayers
+        // room.roomId, room.name, room.roomType, room.players, room.maxPlayers, room.options
     }
 });
 matchmaking.requestRooms("deathmatch");            // "" for every kind: the answer goes to onRoomList
 
 matchmaking.createRoom("deathmatch", "Les copains", "Ana");          // opens it, and Ana is in it
 matchmaking.createRoom("deathmatch", "Secret", "Ana", true);         // private: in no list
+matchmaking.createRoom("deathmatch", "Vite", "Ana", false, "hurry=1");   // with options (below)
 matchmaking.joinRoom(12, "Secret", "Ben");                           // the id AND the name must be the room's
 ```
 
@@ -127,8 +128,16 @@ matchmaking.joinRoom(12, "Secret", "Ben");                           // the id A
   `JoinError::UnknownRoom`, so a private room cannot be told from one that does not exist. Be aware of how little
   that protects: the ids are 1, 2, 3..., so **the name is the only secret**, and there is no password. A room that is
   full is `JoinError::Full`.
+- **Options.** `createRoom(..., options)` carries a text that KUGE does not read: the game puts what it likes in it
+  (`"hurry=1;map=3"`, a compact JSON...). It is **at most 128 bytes** (`MAX_ROOM_OPTIONS`) of valid UTF-8 with no
+  control character (`validRoomOptions()` lets a UI check it); another text is refused with
+  `JoinError::InvalidOptions` and no room is made. The room reads it in `init().options` (in `onRoomEnter`), and the
+  list carries it in `RoomInfo::options`, so a menu can show how a room is set without a kind of room per
+  combination. A room that the lobby makes for `join()` has none. Options are chosen by the creator and are not
+  checked by KUGE beyond this: **the game validates them** (a client may send any text that fits).
 - A public room is filled by `join()` too, like any other.
-- The room sees its own name and whether it is private in `init().roomName` and `init().isPrivate`.
+- The room sees its own name, whether it is private and its options in `init().roomName`, `init().isPrivate` and
+  `init().options`.
 - The lobby does not limit how often a client asks for the list.
 
 ## The door of a room

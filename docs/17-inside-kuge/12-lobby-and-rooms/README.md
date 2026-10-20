@@ -84,7 +84,7 @@ if (room.ready) {
 ```
 
 `ListRooms` is answered on the spot (`handleList`): the lobby walks `m_rooms` and tells the public rooms that are not ending
-(`RoomInfo`: id, kind, name, players, maximum), at most 64, with the total. Nothing of a private room leaves the lobby.
+(`RoomInfo`: id, kind, name, players, maximum, options), at most 64, with the total. Nothing of a private room leaves the lobby.
 
 ```cpp
 // modules/server/src/RoomScene.cpp, RoomScene::admit

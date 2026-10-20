@@ -849,7 +849,8 @@ connects to the lobby, `join("deathmatch", "Ana")` asks for a room, and `onJoine
   at that way: but ids go 1, 2, 3..., so the name is the only secret, and there is no password). A name is 1 to 32 bytes
   of UTF-8 with no control character (`validRoomName()`, and `trimRoomName()` drops the blanks at its ends).
   A room that the lobby makes for `join()` is called `"<kind> #<id>"`, and a room sees its name and whether it is
-  private in `init().roomName` and `init().isPrivate`. The client stays in the lobby all along: it can look at
+  private in `init().roomName` and `init().isPrivate`, and its options (`createRoom(..., options)`: an opaque text of at
+  most 128 bytes that the game reads in `init().options` and a list shows in `RoomInfo::options`). The client stays in the lobby all along: it can look at
   the list, leave a room and join another.
 - **Tokens.** The lobby gives the client the address of the room and a random 64-bit token, and tells
   the room to expect it. The token opens the door **once** and expires after `tokenTtl` (10 s): a
