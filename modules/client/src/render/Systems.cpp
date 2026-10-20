@@ -33,7 +33,8 @@ bool kuge::SpriteRender::handle(kw::World& world)
     const auto& white = world.getResource<WhitePixel>().texture;
     const float alpha = static_cast<float>(world.getResource<Time>().alpha);
     const Vec2 screen = renderer.outputSize();
-    const Rect visibleArea{0.0f, 0.0f, screen.x, screen.y};
+    const CameraView shown = camera.view(screen);
+    const Rect& visibleArea = shown.area;
 
     m_items.clear();
     auto view = world.view<Transform2D, Sprite>();
@@ -54,8 +55,8 @@ bool kuge::SpriteRender::handle(kw::World& world)
         if (size.x == 0.0f && size.y == 0.0f) {
             size = source.w > 0.0f ? Vec2{source.w, source.h} : (texture ? texture->size() : Vec2{});
         }
-        size = Vec2{size.x * transform.scale.x, size.y * transform.scale.y} * camera.zoom;
-        const Vec2 at = camera.worldToScreen(transform.position, screen);
+        size = Vec2{size.x * transform.scale.x * shown.scale.x, size.y * transform.scale.y * shown.scale.y};
+        const Vec2 at = shown.worldToScreen(transform.position);
         const Rect destination{at.x - sprite.pivot.x * size.x, at.y - sprite.pivot.y * size.y, size.x, size.y};
 
         // Turned around its pivot, it can reach as far as its diagonal
@@ -111,6 +112,12 @@ bool kuge::SpriteRender::handle(kw::World& world)
         }
         return a.entity < b.entity;
     });
+    // Bars and other cameras' parts of the window stay as they are: nothing is drawn outside the area
+    const bool clipped = shown.area != Rect{0.0f, 0.0f, screen.x, screen.y};
+
+    if (clipped) {
+        renderer.setClip(shown.area);
+    }
     for (const Item& item : m_items) {
         if (item.tiles) {
             drawTiles(world, item.entity, renderer);
@@ -124,6 +131,9 @@ bool kuge::SpriteRender::handle(kw::World& world)
             renderer.drawTexture(item.draw);
         }
     }
+    if (clipped) {
+        renderer.setClip(std::nullopt);
+    }
     return true;
 }
 
@@ -136,6 +146,7 @@ void kuge::SpriteRender::drawTiles(kw::World& world, kw::Entity entity, IRendere
     const Transform2D& transform = world.get<Transform2D>(entity);
     const Camera2D& camera = world.getResource<Camera2D>();
     const Vec2 screen = renderer.outputSize();
+    const CameraView shown = camera.view(screen);
     const TileMap& map = *view.map;
     const TileRange range = visibleTiles(map, transform.position, transform.scale, camera, screen);
 
@@ -148,10 +159,10 @@ void kuge::SpriteRender::drawTiles(kw::World& world, kw::Entity entity, IRendere
     m_columns.clear();
     m_rows.clear();
     for (int x = range.x0; x <= range.x1 + 1; ++x) {
-        m_columns.push_back(std::round(camera.worldToScreen({transform.position.x + width * static_cast<float>(x), 0.0f}, screen).x));
+        m_columns.push_back(std::round(shown.worldToScreen({transform.position.x + width * static_cast<float>(x), 0.0f}).x));
     }
     for (int y = range.y0; y <= range.y1 + 1; ++y) {
-        m_rows.push_back(std::round(camera.worldToScreen({0.0f, transform.position.y + height * static_cast<float>(y)}, screen).y));
+        m_rows.push_back(std::round(shown.worldToScreen({0.0f, transform.position.y + height * static_cast<float>(y)}).y));
     }
     auto drawLayer = [&](const TileLayer& layer) {
         TextureDraw draw;

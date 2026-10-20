@@ -147,6 +147,26 @@ auto& client = net.connect(kuge::net::Protocol::Tcp, "127.0.0.1", 4242);
 A scene's endpoints are polled by its own thread and destroyed with the scene (their peers are told). An
 endpoint belongs to the thread that polls it.
 
+### A connection that lives longer than a scene
+
+The `Net` made by `installNet(setup())` dies with its scene. A connection to a lobby must survive the menu, the game and
+the way back: make the `Net` outside, and give it to each scene.
+
+```cpp
+auto net = std::make_shared<kuge::net::Net>();          // in Main (or in the Session the scenes share)
+engine.scenes().change<MainMenu>(net);
+
+void MainMenu::onEnter()
+{
+    kuge::net::installNet(setup(), m_net);               // polls it; no Net of its own
+    auto& net = *world().getResource<kuge::Ref<kuge::net::Net>>();    // (this form works for both installNet())
+}
+```
+
+The system that polls it keeps a `shared_ptr`, so the `Net` is released after the scenes whatever the order. It is polled
+once per tick (`Net::pollTick(Time::tick)`) even when two scenes poll it (one over the other, see 03). A
+`MatchmakingClient(net)` is made over it the same way, and lives as long as the `Net` does.
+
 ## Joining a game: matchmaking
 
 Getting a player into a room has its own small protocol, with its client side in this module (so a client does

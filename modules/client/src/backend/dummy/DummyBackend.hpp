@@ -10,6 +10,9 @@
 namespace kuge
 {
 
+    class DummyInput;
+    class DummyRenderer;
+
     //! A window that is only a size and a title
     class DummyWindow : public IWindow
     {
@@ -18,6 +21,16 @@ namespace kuge
 
             Vec2 size(void) const override { return m_size; }
             void setTitle(const std::string& title) override { m_title = title; }
+
+            //! Like a real window: the renderer follows, and a ResizeEvent comes (see follow())
+            void setSize(int width, int height) override;
+            void setFullscreen(bool on) override { m_fullscreen = on; }
+            bool fullscreen(void) const override { return m_fullscreen; }
+            void setVsync(bool on) override { m_vsync = on; }
+            bool vsync(void) const noexcept { return m_vsync; }
+
+            //! The renderer and the inputs that setSize() tells (makeDummyBackend() does it)
+            void follow(DummyRenderer* renderer, DummyInput* input) noexcept { m_renderer = renderer; m_input = input; }
             std::string clipboardText(void) const override { return m_clipboard; }
             void setClipboardText(const std::string& text) override { m_clipboard = text; }
 
@@ -25,9 +38,13 @@ namespace kuge
             void resize(Vec2 size) noexcept { m_size = size; }
 
         private:
-            Vec2        m_size;
-            std::string m_title;
-            std::string m_clipboard;   //!< (its own: tests do not touch the real clipboard)
+            Vec2          m_size;
+            std::string   m_title;
+            std::string   m_clipboard;   //!< (its own: tests do not touch the real clipboard)
+            bool          m_fullscreen = false;
+            bool          m_vsync      = true;
+            DummyRenderer* m_renderer  = nullptr;
+            DummyInput*    m_input     = nullptr;
     };
 
     //! Inputs that the test decides: push() what "happened", the client polls it

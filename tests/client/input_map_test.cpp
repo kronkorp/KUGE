@@ -2,6 +2,7 @@ extern "C" {
     #include "kronklab/kronklab.h"
 }
 #include "input/InputMap.hpp"
+#include "input/ViewAngles.hpp"
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -493,4 +494,76 @@ Test(inputmap, readme_keybinds_file)
     Assert(input.bindings(Action::Jump).size() == 3, "up has its three inputs");
     Assert(input.bindings(Action::Menu).empty(), "pause has none");
     std::filesystem::remove(path);
+}
+
+Test(inputmap, mouse_axis_has_a_value)
+{
+    kuge::InputMap input;
+
+    input.bind(Action::Left, kuge::Binding::mouseAxis(0));
+    input.bind(Action::Right, kuge::Binding::mouseAxis(0, 2.0f));
+    input.bind(Action::Jump, kuge::Binding::mouseAxis(1, -1.0f));
+    input.handle(kuge::MouseMoveEvent{{10.0f, 4.0f}, {10.0f, -4.0f}});
+    Assert(input.axisValue(Action::Left) == 10.0f, "x as it came");
+    Assert(input.axisValue(Action::Right) == 20.0f, "twice with a sensitivity of 2");
+    Assert(input.axisValue(Action::Jump) == 4.0f, "y inverted");
+    Assert(input.axisValue(Action::Shoot) == 0.0f, "nothing for an action with no axis");
+    Assert(input.sampleTick(1).down == 0, "a move is not a press");
+    input.beginFrame();
+    Assert(input.axisValue(Action::Left) == 0.0f, "and nothing the next frame");
+}
+
+Test(inputmap, stick_is_an_axis_too)
+{
+    kuge::InputMap input;
+
+    input.bind(Action::Left, kuge::Binding::axis(kuge::GamepadAxis::RightX, 1));
+    input.bind(Action::Left, kuge::Binding::axis(kuge::GamepadAxis::RightX, -1));
+    input.handle(stick(0, kuge::GamepadAxis::RightX, 0.1f));
+    Assert(input.axisValue(Action::Left) == 0.0f, "a stick at rest drifts a little: dead zone");
+    input.handle(stick(0, kuge::GamepadAxis::RightX, 0.8f));
+    Assert(input.axisValue(Action::Left) == 0.8f, "pushed right");
+    input.handle(stick(0, kuge::GamepadAxis::RightX, -0.5f));
+    Assert(input.axisValue(Action::Left) == -0.5f, "pushed left: the two bindings make one axis");
+}
+
+Test(inputmap, axes_in_the_keybinds_file)
+{
+    kuge::InputMap input;
+    kuge::ConfigFile config;
+
+    input.declare(Action::Left, "look_x");
+    input.declare(Action::Right, "look_y");
+    config.set("input.look_x", "Mouse.X*2.5, Pad.RightX+*3");
+    config.set("input.look_y", "Mouse.Y*-1");
+    input.load(config);
+    Assert(input.bindings(Action::Left).size() == 2, "two inputs for the x look");
+    Assert(input.bindings(Action::Left)[0] == kuge::Binding::mouseAxis(0, 2.5f), "the mouse, with its sensitivity");
+    Assert(input.bindings(Action::Right)[0] == kuge::Binding::mouseAxis(1, -1.0f), "inverted y");
+
+    kuge::ConfigFile saved;
+
+    input.save(saved);
+    Assert(saved.getString("input.look_x") == "Mouse.X*2.5, Pad.RightX+*3", "and they come back as they were: %s", saved.getString("input.look_x").c_str());
+    Assert(!kuge::Binding::parse("Space*2"), "a key has no sensitivity");
+    Assert(!kuge::Binding::parse("Mouse.X*fast"), "nor is a bad number one");
+    Assert(kuge::Binding::parse("Mouse.X1") == kuge::Binding(kuge::MouseButton::X1), "(the button X1 is not the axis X)");
+}
+
+Test(inputmap, view_angles_clamp_and_pack)
+{
+    kuge::ViewAngles view;
+
+    view.turn(0.0f, -100000.0f);
+    Assert(view.pitch == kuge::ViewAngles::MAX_PITCH, "looking up stops at 89 degrees");
+    view.turn(0.0f, 1000000.0f);
+    Assert(view.pitch == -kuge::ViewAngles::MAX_PITCH, "and down too");
+    view.turn(1000.0f, 0.0f, 1.0f);   // many turns
+    Assert(view.yaw >= -3.1416f && view.yaw < 3.1416f, "yaw stays in one turn: %f", view.yaw);
+    for (const float angle : {0.0f, 1.0f, -1.0f, 3.1f, -3.1f, 0.001f}) {
+        const float back = kuge::unpackAngle(kuge::packAngle(angle));
+
+        Assert(std::fabs(back - angle) < 0.0001f, "%f survives 16 bits, got %f", angle, back);
+    }
+    Assert(kuge::packAngle(7.0f) == kuge::packAngle(7.0f - 6.2831853f), "a turn more is the same angle");
 }

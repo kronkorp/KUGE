@@ -159,12 +159,14 @@ if(TARGET kuge-client)
         client/animation_test.cpp
         client/async_load_test.cpp
         client/audio_test.cpp
+        client/camera_test.cpp
         client/client_module_test.cpp
         client/hot_reload_test.cpp
         client/image_test.cpp
         client/input_map_test.cpp
         client/keys_test.cpp
         client/platformer_test.cpp
+        client/overlay_test.cpp
         client/pong_test.cpp
         client/sdl_audio_test.cpp
         client/sdl_font_test.cpp
@@ -178,6 +180,7 @@ if(TARGET kuge-client)
         client/ui_render_test.cpp
         client/ui_textfield_test.cpp
         client/ui_widgets_test.cpp
+        client/window_test.cpp
     )
     target_link_libraries(kuge_client_tests PRIVATE kuge-client kronklab-static)
     target_include_directories(kuge_client_tests PRIVATE ${PROJECT_SOURCE_DIR}/example/pong ${PROJECT_SOURCE_DIR}/example/platformer)

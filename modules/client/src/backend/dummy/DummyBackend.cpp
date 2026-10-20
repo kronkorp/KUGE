@@ -1,6 +1,17 @@
 #include "backend/dummy/DummyBackend.hpp"
 #include <stdexcept>
 
+void kuge::DummyWindow::setSize(int width, int height)
+{
+    m_size = {static_cast<float>(width), static_cast<float>(height)};
+    if (m_renderer) {
+        m_renderer->resize(m_size);
+    }
+    if (m_input) {
+        m_input->push(ResizeEvent{width, height});
+    }
+}
+
 void kuge::DummyRenderer::begin(Color clear)
 {
     m_clear = clear;
@@ -71,6 +82,8 @@ kuge::DummyBackend kuge::makeDummyBackend(Vec2 size)
     auto audio = std::make_unique<DummyAudio>();
     auto fonts = std::make_unique<DummyFontLoader>();
     DummyBackend result{{}, window.get(), input.get(), renderer.get(), audio.get(), fonts.get()};
+
+    window->follow(renderer.get(), input.get());
 
     result.backend.window = std::move(window);
     result.backend.input = std::move(input);

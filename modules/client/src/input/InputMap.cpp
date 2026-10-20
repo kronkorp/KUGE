@@ -73,7 +73,8 @@ bool kuge::InputMap::isActive(const Binding& binding) const
                 return inRange(binding.code, pad.second.buttons) && pad.second.buttons[binding.code];
             });
         case Binding::Kind::MouseWheel:
-            return false;   // (a notch is an event, not a state: see handle())
+        case Binding::Kind::MouseAxis:
+            return false;   // (a notch and a move are events, not states: see handle() and axisValue())
         case Binding::Kind::GamepadAxis:
             return std::any_of(m_pads.begin(), m_pads.end(), [&](const auto& pad) {
                 return inRange(binding.code, pad.second.axes)
@@ -81,6 +82,26 @@ bool kuge::InputMap::isActive(const Binding& binding) const
             });
     }
     return false;
+}
+
+float kuge::InputMap::axisOf(ActionId action) const
+{
+    float value = 0.0f;
+
+    for (const Binding& binding : m_bindings[action]) {
+        if (binding.kind == Binding::Kind::MouseAxis) {
+            value += (binding.code == 0 ? m_mouseDelta.x : m_mouseDelta.y) * binding.sensitivity;
+        } else if (binding.kind == Binding::Kind::GamepadAxis && binding.code < static_cast<std::size_t>(GamepadAxis::Count)) {
+            for (const auto& [id, pad] : m_pads) {
+                const float pushed = pad.axes[binding.code] * static_cast<float>(binding.direction);
+
+                if (pushed > m_stickDeadzone) {
+                    value += pad.axes[binding.code] * binding.sensitivity;
+                }
+            }
+        }
+    }
+    return value;
 }
 
 std::uint64_t kuge::InputMap::computeDown(void) const

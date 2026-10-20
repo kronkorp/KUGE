@@ -1,5 +1,6 @@
 #include "Scene.hpp"
 #include "Engine.hpp"
+#include "Stage.hpp"
 
 namespace
 {
@@ -10,13 +11,13 @@ namespace
     class GuardedSystem final : public kw::ISystem
     {
         public:
-            GuardedSystem(std::unique_ptr<kw::ISystem> system, std::exception_ptr& error)
-                : m_system(std::move(system)), m_error(error) {}
+            GuardedSystem(std::unique_ptr<kw::ISystem> system, std::exception_ptr& error, const bool& frozen, bool gameplay)
+                : m_system(std::move(system)), m_error(error), m_frozen(frozen), m_gameplay(gameplay) {}
 
             bool handle(kw::World& world) override
             {
-                if (m_error) {
-                    return true;
+                if (m_error || (m_gameplay && m_frozen)) {
+                    return true;   // (still scheduled: it runs again when the scene is on top)
                 }
                 try {
                     const bool again = m_system->handle(world);
@@ -34,7 +35,16 @@ namespace
         private:
             std::unique_ptr<kw::ISystem>  m_system;
             std::exception_ptr&           m_error;
+            const bool&                   m_frozen;
+            bool                          m_gameplay;   // a Fixed system of the game's own logic: see Scene::overlay()
     };
+
+    bool isGameplay(kw::Schedule schedule, kw::StageId stage)
+    {
+        using namespace kuge;
+
+        return schedule == kw::Schedule::Fixed && stage >= stage::Input && stage <= stage::Late;
+    }
 }
 
 kuge::Scene::Scene(void) : m_mailbox(std::make_shared<Mailbox>()), m_world(std::make_unique<kw::World>())
@@ -65,7 +75,7 @@ kw::SystemHandle kuge::Scene::addSystem(
     std::size_t interval
 )
 {
-    auto handle = m_world->scheduleSystem(schedule, stage, std::make_unique<GuardedSystem>(std::move(system), m_error), delay, interval);
+    auto handle = m_world->scheduleSystem(schedule, stage, std::make_unique<GuardedSystem>(std::move(system), m_error, m_frozen, isGameplay(schedule, stage)), delay, interval);
 
     m_systems.push_back(handle);
     return handle;

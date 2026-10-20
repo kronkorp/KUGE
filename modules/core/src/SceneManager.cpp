@@ -48,19 +48,25 @@ void kuge::SceneManager::apply(void)
                 }
                 enter(op.factory->make());
                 break;
-            case Kind::Push:
-                if (!m_stack.empty()) {
+            case Kind::Push: {
+                // Made first: only the new scene knows if the one under it is paused
+                std::unique_ptr<Scene> over = op.factory->make();
+
+                if (!m_stack.empty() && over->overlay() == OverlayMode::Opaque) {
+                    m_stack.back()->m_paused = true;
                     m_stack.back()->onPause();
                 }
-                enter(op.factory->make());
+                enter(std::move(over));
                 break;
+            }
             case Kind::Pop:
                 if (m_stack.empty()) {
                     Logger::logger().warn("SceneManager::pop() with no scene to pop");
                     break;
                 }
                 leaveTop();
-                if (!m_stack.empty()) {
+                if (!m_stack.empty() && m_stack.back()->m_paused) {
+                    m_stack.back()->m_paused = false;
                     m_stack.back()->onResume();
                 }
                 break;
@@ -79,6 +85,19 @@ void kuge::SceneManager::clear(void)
 kuge::Scene* kuge::SceneManager::top(void) noexcept
 {
     return m_stack.empty() ? nullptr : m_stack.back().get();
+}
+
+std::vector<kuge::Scene*> kuge::SceneManager::running(void)
+{
+    std::vector<Scene*> layers;
+
+    for (auto it = m_stack.rbegin(); it != m_stack.rend(); ++it) {
+        layers.insert(layers.begin(), it->get());
+        if ((*it)->overlay() == OverlayMode::Opaque) {
+            break;
+        }
+    }
+    return layers;
 }
 
 std::size_t kuge::SceneManager::size(void) const noexcept

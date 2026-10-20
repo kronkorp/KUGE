@@ -16,22 +16,32 @@ bool kuge::SceneLoop::ready(void)
 
 void kuge::SceneLoop::run(double frameSeconds, const std::atomic<bool>& stop)
 {
-    Scene* scene = m_scenes.top();
+    // The top scene, and the ones a Transparent scene leaves visible under it (bottom first: the top is drawn last)
+    const std::vector<Scene*> layers = m_scenes.running();
 
-    scene->deliverMessages();
+    for (std::size_t i = 0; i < layers.size(); ++i) {
+        layers[i]->m_frozen = i + 1 < layers.size();
+    }
+    // Only the top one reads its messages: a stop asked of the scene under would pop the one over it. It gets
+    // them when it is on top again, like a paused scene.
+    layers.back()->deliverMessages();
     const std::uint32_t ticks = m_timestep.advance(frameSeconds);
 
     // NOTE: The transitions asked while ticking wait for the end of the loop,
-    // so this scene stays the top one until then.
+    // so these scenes stay as they are until then.
     for (std::uint32_t i = 0; i < ticks && !stop; ++i) {
         m_time.tick = m_ticksRun;
-        scene->fixedTick(m_time);
+        for (Scene* scene : layers) {
+            scene->fixedTick(m_time);
+        }
         ++m_ticksRun;
     }
     m_time.tick = m_ticksRun;
     m_time.alpha = m_timestep.alpha();
     m_time.frameDt = frameSeconds;
-    scene->frame(m_time);
+    for (Scene* scene : layers) {
+        scene->frame(m_time);
+    }
 }
 
 void kuge::SceneLoop::settle(void)

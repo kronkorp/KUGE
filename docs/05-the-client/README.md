@@ -77,6 +77,23 @@ if (actions.isDown(Action::Fire))    { ... }     // held during this tick
 if (actions.wasPressed(Action::Fire)) { ... }    // went down since the last tick (never missed, even for a very short press)
 ```
 
+**Axes** have a value instead of a state: a mouse look reads `input.axisValue(Action::LookX)`, the sum of how far the
+mouse moved during the frame along the bound axes (`"Mouse.X"`, `"Mouse.Y"`) and of how far a stick is pushed
+(`"Pad.RightX+"`, towards that way only; a dead zone of 0.15 hides the drift). Each axis binding has a
+**sensitivity**, a negative one inverts, and it is saved with the binding: `input.look_x = Mouse.X*2.5, Pad.RightX+*3`.
+No acceleration, no smoothing. Hide the cursor and keep the mouse in the window with
+`world().getResource<kuge::Ref<kuge::IInputSource>>()->setRelativeMouse(true)`; the window gives it back when it loses the focus.
+
+`ViewAngles` (`input/ViewAngles.hpp`) is the camera of a first or third person game: turn it **each frame**, so it
+never feels late, and sample it at each tick for the input, as absolute angles (a lost input then loses nothing of the aim):
+
+```cpp
+view.turn(input.axisValue(Action::LookX), input.axisValue(Action::LookY));   // each frame; pitch stays within 89 degrees
+message.yaw = kuge::packAngle(view.yaw);                                       // each tick: 16 bits, 0.0055 degrees
+```
+
+Keys are named after their **place** on the keyboard, not the letter printed on it (`Key::W` is the key where a QWERTY keyboard has W, on any layout): a shooter's WASD works for everybody, and the text typed in a field is a separate event.
+
 The player can rebind everything: `input.saveBindings("keybinds.cfg")` writes
 `input.fire = Space, Pad.A`, and `startCapture()` / `takeCaptured()` implement "press the key you want".
 
@@ -104,8 +121,44 @@ else: no art files at all. It is a good way to start.
 Drawing order is `(layer, z, texture, entity)`, so it is stable. The `Camera2D` resource says which point of
 the world is at the centre of the screen and how much it is zoomed.
 
+### How much of the world is shown
+
+With nothing else, what the player sees is the window divided by the zoom: a bigger window shows **more of the world**.
+A game that wants the same area at any resolution gives the camera a **logical size**:
+
+```cpp
+auto& camera = world().getResource<kuge::Camera2D>();
+
+camera.logicalSize = {640, 360};                          // the screen the game is made for, at a zoom of 1
+camera.fit = kuge::Camera2D::Fit::IntegerLetterbox;
+```
+
+| `fit` | In a window of another shape |
+|---|---|
+| `Stretch` | Fills it, the pixels are not square any more |
+| `Letterbox` (default) | As big as it can be with the same shape: bars on two sides |
+| `IntegerLetterbox` | A whole number of window pixels per logical pixel (pixel art stays sharp); smaller than the logical size, it is a `Letterbox` |
+| `FitHeight` | The height fills it: a wider window shows more at the sides |
+
+`camera.view(windowSize)` says where the world goes (`area`, without the bars) and how big a unit is (`scale`);
+`worldToScreen` and `screenToWorld` use it, so they are inverses in every mode, and `camera.visibleSize(windowSize)`
+says how much of the world is shown. Sprites and tilemaps are cut at the edge of the area, so nothing is drawn in the bars.
+
+`camera.viewport` is a `Rect` of the window (none: all of it) where the camera draws: a split screen or a minimap.
+The UI is laid out in the viewport of the camera.
+
+If the size of the server's "screen of a player" matters to the rules, give it the same numbers as the logical size, in
+one place: it then does not depend on the window of each player.
+
 If an entity also has a `PreviousTransform2D` (the client keeps it up to date), it is drawn **between** its last
 two ticks by `Time::alpha`: smooth on any refresh rate.
+
+## The window
+
+`client.window()` is the window of the backend: `setSize(w, h)`, `setFullscreen(on)` (desktop fullscreen, no change of the
+video mode; leaving it gives the size back), `fullscreen()`, `setVsync(on)`, `setTitle(...)`. A change comes back as a
+`ResizeEvent` at the next frame, and the camera follows it (see above): a game with a "Display" screen needs nothing else.
+The dummy backend does the same, so a test can follow it.
 
 ## Assets
 
