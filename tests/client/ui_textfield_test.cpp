@@ -62,6 +62,16 @@ namespace
         void tick(void) { fx->frame(1.0 / 60.0); }
         void type(const std::string& text) { fx->dummy.input->push(kuge::TextEvent{text}); tick(); }
         void press(kuge::Key key, bool repeat = false) { fx->dummy.input->push(kuge::KeyEvent{key, true, repeat}); tick(); }
+        // Key with Ctrl held (the clipboard keys), then both let go
+        void ctrl(kuge::Key key)
+        {
+            fx->dummy.input->push(kuge::KeyEvent{kuge::Key::LCtrl, true});
+            press(key);
+            release(key);
+            release(kuge::Key::LCtrl);
+        }
+        void clipboard(const std::string& text) { fx->dummy.window->setClipboardText(text); }
+        std::string clipboard(void) { return fx->dummy.window->clipboardText(); }
         void release(kuge::Key key) { fx->dummy.input->push(kuge::KeyEvent{key, false}); }
         void mouseTo(float x, float y) { fx->dummy.input->push(kuge::MouseMoveEvent{{x, y}, {}}); }
         void clickAt(float x, float y)
@@ -551,4 +561,96 @@ Test(uitext, only_the_focused_has_a_caret)
     const auto carets = std::count_if(calls.begin(), calls.end(), [&](const Call& c) { return c.kind == Call::Kind::Fill && c.color == theme.fieldCaret && c.destination.w == 2.0f; });
 
     AssertEq(carets, 1, "two fields, one caret: the one that has the focus");
+}
+
+// -- The clipboard: Ctrl+V pastes, Ctrl+C copies the whole text, Ctrl+X cuts it (there is no selection) ----------
+Test(uitext, paste_at_the_caret)
+{
+    Form form;
+
+    form.tick();
+    form.type("ab");
+    form.press(kuge::Key::Left);
+    form.release(kuge::Key::Left);
+    form.clipboard("XY");
+    form.ctrl(kuge::Key::V);
+    AssertStrEq(form.field(0).text.c_str(), "aXYb", "pasted where the caret was");
+    AssertEq(form.field(0).caret, 3, "and the caret is after it");
+    AssertEq(form.count(Kind::Changed), 1, "it says that it changed");
+}
+
+Test(uitext, paste_one_line_cut_short)
+{
+    Form form;
+
+    form.tick();
+    form.clipboard("one\r\ntwo");
+    form.ctrl(kuge::Key::V);
+    AssertStrEq(form.field(0).text.c_str(), "one", "only the first line");
+    form.field(0).text.clear();
+    form.field(0).caret = 0;
+    form.field(0).maxLength = 5;
+    form.clipboard("a\tb\x01" "cdefgh");
+    form.ctrl(kuge::Key::V);
+    AssertStrEq(form.field(0).text.c_str(), "abcde", "control characters dropped, and maxLength counts");
+    form.field(0).text.clear();
+    form.field(0).caret = 0;
+    form.clipboard("\xC3\xA9\xC3\xA9\xC3\xA9\xC3\xA9\xC3\xA9\xC3\xA9");
+    form.ctrl(kuge::Key::V);
+    AssertEq(form.field(0).text.size(), 10, "five characters of two bytes, never half of one");
+}
+
+Test(uitext, empty_paste_changes_nothing)
+{
+    Form form;
+
+    form.tick();
+    form.clipboard("");
+    form.ctrl(kuge::Key::V);
+    AssertEq(form.count(Kind::Changed), 0, "nothing to say");
+}
+
+Test(uitext, copy_and_cut)
+{
+    Form form;
+
+    form.tick();
+    form.type("hi there");
+    form.ctrl(kuge::Key::C);
+    AssertStrEq(form.clipboard().c_str(), "hi there", "all of it is copied");
+    AssertStrEq(form.field(0).text.c_str(), "hi there", "and it stays");
+    AssertEq(form.count(Kind::Changed), 0, "copying changes nothing");
+    form.clipboard("");
+    form.ctrl(kuge::Key::X);
+    AssertStrEq(form.clipboard().c_str(), "hi there", "cut copies it");
+    AssertStrEq(form.field(0).text.c_str(), "", "and empties the field");
+    AssertEq(form.field(0).caret, 0, "caret at the start");
+    AssertEq(form.count(Kind::Changed), 1, "and says so");
+    form.ctrl(kuge::Key::V);
+    AssertStrEq(form.field(0).text.c_str(), "hi there", "pasting brings it back");
+}
+
+Test(uitext, a_v_alone_is_a_letter)
+{
+    Form form;
+
+    form.tick();
+    form.clipboard("XY");
+    form.press(kuge::Key::V);           // no Ctrl
+    form.type("v");
+    AssertStrEq(form.field(0).text.c_str(), "v", "only the typed letter");
+}
+
+Test(uitext, no_paste_in_a_button)
+{
+    Form form;
+
+    form.tick();
+    form.press(kuge::Key::Tab);
+    form.press(kuge::Key::Tab);
+    Assert(form.focusOnButton(), "the focus is on the button");
+    form.clipboard("XY");
+    form.ctrl(kuge::Key::V);
+    AssertStrEq(form.field(0).text.c_str(), "", "nothing pasted anywhere");
+    AssertStrEq(form.field(1).text.c_str(), "", "");
 }

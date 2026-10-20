@@ -173,6 +173,7 @@ if(TARGET kuge-client)
         client/ui_layout_test.cpp
         client/ui_render_test.cpp
         client/ui_textfield_test.cpp
+        client/ui_widgets_test.cpp
     )
     target_link_libraries(kuge_client_tests PRIVATE kuge-client kronklab-static)
     target_include_directories(kuge_client_tests PRIVATE ${PROJECT_SOURCE_DIR}/example/pong ${PROJECT_SOURCE_DIR}/example/platformer)

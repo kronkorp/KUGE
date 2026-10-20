@@ -43,6 +43,8 @@ kuge::Key kuge::keyFromScancode(int scancode) noexcept
         case SDL_SCANCODE_RCTRL:        return Key::RCtrl;
         case SDL_SCANCODE_LALT:         return Key::LAlt;
         case SDL_SCANCODE_RALT:         return Key::RAlt;
+        case SDL_SCANCODE_LGUI:         return Key::LGui;      // (Cmd on macOS)
+        case SDL_SCANCODE_RGUI:         return Key::RGui;
         case SDL_SCANCODE_INSERT:       return Key::Insert;
         case SDL_SCANCODE_DELETE:       return Key::Delete;
         case SDL_SCANCODE_HOME:         return Key::Home;

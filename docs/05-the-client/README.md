@@ -134,7 +134,16 @@ audio.playMusic(*theme, {.fadeIn = 2.0f});
 
 `client.loadFont("font.ttf", 14)` gives a font; `Ref<TextRenderer>` draws text in screen pixels. Menus, HUD
 and options are **entities in screen pixels** made of `UiNode` (a rectangle placed by an anchor or a stack),
-`UiPanel`, `UiLabel`, `UiButton` and `UiTextField`. `installUi(setup(), actions)` adds the systems: layout, focus
+`UiPanel`, `UiLabel`, `UiButton`, `UiTextField`, `UiProgress` (a bar for health or XP, filled for `value / max`) `UiCheckbox` (on or off:
+`checked`, and `Changed` in `UiEvents` when it is flipped) and `UiSlider` (a value in a range, for the volume:
+left / right, or the mouse; `Changed` when it moves). A long list is a node with a size, a `UiStack` and a
+`UiScroll`: the mouse wheel scrolls it, the keyboard focus brings its child into view, and what is outside is cut
+(`IRenderer2D::setClip`). The wheel is also an input: `Binding::wheel(1)` is "Wheel.Up".
+`UiImage` puts a texture (an icon, a portrait) in the rectangle of a node.
+
+**Any resolution.** Build the UI for 1280 x 720 and set `UiScale::value = uiScaleFor(window.size())` when the window
+changes: the layout multiplies every pixel number by it (the components keep theirs) and the text is drawn with the
+same font at `value` times its size (`IFont::scaled()`), so it stays sharp. `installUi(setup(), actions)` adds the systems: layout, focus
 navigation with the keyboard or gamepad (nearest neighbour), mouse hover and click, and drawing. The platformer's
 `MenuScene` and `PauseScene` are complete examples.
 
@@ -144,7 +153,9 @@ reach it with the focus), type, edit with Backspace, Delete, the arrows, Home an
 `Submitted` (Enter) in `UiEvents`. While a field has the focus the actions that move it (up, down, left, right,
 accept) are left alone, since a letter that your game bound to "up" is a letter there: **Tab** leaves the field.
 For your own input, `InputMap::takeTyped()` and `takeEditKeys()` give the text and the editing keys since the last
-call. There is no selection, clipboard or multi-line text yet. The details are in the README (User interface).
+call. **Ctrl+V** (Cmd+V on macOS) pastes the first line of the clipboard, **Ctrl+C** copies the whole text and
+**Ctrl+X** cuts it; a game reaches the clipboard with `Ref<IWindow>` (`clipboardText()`, `setClipboardText()`).
+There is no selection or multi-line text yet. The details are in the README (User interface).
 
 ## Tilemaps and animations
 

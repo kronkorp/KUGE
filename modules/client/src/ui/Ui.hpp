@@ -4,6 +4,7 @@
 #include "Scene.hpp"
 #include "input/ActionState.hpp"
 #include "render/Color.hpp"
+#include "render/Texture.hpp"
 #include "ui/Font.hpp"
 #include <cstdint>
 #include <map>
@@ -23,7 +24,7 @@ namespace kuge
      * parent (or in the screen, if it has none), or by the **stack** of its
      * parent (UiStack: a column or a row). What it shows is another component of
      * the same entity: UiPanel (a background), UiLabel (text), UiButton (a
-     * button with its text), UiTextField (a line of text that the player types).
+     * button with its text), UiTextField (a line of text that the player types), UiProgress (a bar), UiCheckbox, UiSlider; a UiScroll makes a long stack scroll, UiImage shows a picture.
      *
      *     kuge::installUi(setup(), {.up = kuge::actionId(Action::Up), .down = kuge::actionId(Action::Down),
      *                               .accept = kuge::actionId(Action::Confirm), .click = kuge::actionId(Action::Click)});
@@ -88,11 +89,45 @@ namespace kuge
         Align     align     = Align::Stretch;
     };
 
+    //! On a node that has a UiStack and a size: the stack is longer than the node and scrolls. The children are laid out
+    //! as in the stack, moved back by `offset`; only what is inside the rectangle of the node is drawn (the renderer
+    //! clips it) or can be hovered, and the mouse wheel over the node changes `offset`. The focus brings the child it
+    //! lands on into view.
+    struct UiScroll
+    {
+        float offset = 0.0f;    //!< How far the content has gone up (left, in a row), in pixels. Kept between 0 and `extent` minus the node
+        float notch  = 40.0f;   //!< Pixels for one notch of the wheel
+        float extent = 0.0f;    //!< The whole length of the content, as of the last frame (to draw a scroll bar from)
+    };
+
+    //! A picture drawn in the rectangle of its node: an icon, a portrait, a logo. A node with no size takes the size
+    //! of the picture (of `source` if it is given). It is drawn with the rest of the interface, so a panel of a
+    //! higher layer covers it. The texture is shared: the UI does not load it (see ClientModule::textures()).
+    struct UiImage
+    {
+        std::shared_ptr<Texture> texture;                    //!< Nothing is drawn without one
+        Rect                     source{};                   //!< The part of the texture, in its pixels. Width 0: all of it.
+        Color                    tint{255, 255, 255, 255};   //!< Multiplies the colors of the picture
+    };
+
     struct UiPanel
     {
         Color fill{30, 32, 44, 235};
         Color border{170, 175, 200, 255};
         float borderWidth = 2.0f;
+    };
+
+    //! A bar that is filled for `value / max` of its width (or of its height, from the bottom). The size of its node
+    //! is the whole bar, `UiTheme::progressWidth` x `progressHeight` if it has none. The number is a `UiLabel` child.
+    struct UiProgress
+    {
+        float value = 0.0f;
+        float max   = 1.0f;              //!< <= 0, or a value that is NaN or negative: an empty bar
+        Color fill{90, 200, 110, 255};
+        Color back{30, 32, 44, 235};
+        Color border{170, 175, 200, 255};
+        float borderWidth = 2.0f;
+        bool  vertical = false;          //!< Fills from the bottom instead of from the left
     };
 
     struct UiLabel
@@ -115,7 +150,40 @@ namespace kuge
         bool        pressed = false;    //!< An action or a click holds it down
     };
 
-    //! A line of text that the player types, edited in place (no selection, no clipboard, one line).
+    //! A box that is ticked or not, with a text after it. Pressed like a button (accept, a click): `checked` is flipped
+    //! and `UiEvent::Kind::Changed` says so. The size of its node is its own if it has one, else a square the height of
+    //! a line, then the text. Ticked is a filled square in the box (not a colour alone).
+    struct UiCheckbox
+    {
+        std::string text;
+        bool        checked = false;
+        bool        enabled = true;
+
+        // What the interaction found, at the last tick
+        bool        hovered = false;    //!< The mouse is over it
+        bool        focused = false;    //!< The keyboard or the gamepad is on it
+    };
+
+    //! A value in a range, set with left / right (your UiActions), the gamepad or the mouse (a click, then drag). The
+    //! size of its node is its own if it has one, else `columns` letters wide and one line high. It does not show the
+    //! number: a UiLabel next to it does, rewritten when `Changed` says so.
+    struct UiSlider
+    {
+        float value = 0.0f;
+        float min   = 0.0f;
+        float max   = 1.0f;
+        float step  = 0.05f;    //!< Added or removed by one press of left / right
+        int   columns = 16;     //!< How wide it is when its node has no size
+        bool  enabled = true;
+
+        // What the interaction found, at the last tick
+        bool  hovered  = false;   //!< The mouse is over it
+        bool  focused  = false;   //!< The keyboard or the gamepad is on it
+        bool  dragging = false;   //!< The mouse holds the handle
+    };
+
+    //! A line of text that the player types, edited in place (one line, no selection: Ctrl+C / Cmd+C copies the
+    //! whole text, Ctrl+X cuts it, Ctrl+V pastes the first line of the clipboard at the caret).
     //! The size of its node is its own if it has one, else `columns` letters wide and one line high.
     struct UiTextField
     {
@@ -152,8 +220,36 @@ namespace kuge
         Color fieldText{240, 240, 245, 255};
         Color fieldPlaceholder{120, 122, 135, 255};
         Color fieldCaret{255, 214, 90, 255};
+        // Check boxes (the border is the text fields', the focus ring and the disabled colors the buttons')
+        Color checkMark{255, 214, 90, 255};
+
+        // Sliders (the track is the text fields', the handle the buttons')
+        Color sliderFill{90, 140, 230, 255};   //!< The track, up to the value
+
+        // Progress bars (the size of a bar whose node has none)
+        float progressWidth = 200.0f;
+        float progressHeight = 20.0f;
+
         std::uint32_t caretBlinkTicks = 30;   //!< The caret is shown this many fixed ticks, then hidden as many. 0: always shown.
     };
+
+    //! How big the interface is drawn (a resource). It is built for one size of window, 1280 x 720 say, and this makes it
+    //! bigger on a bigger screen: the layout multiplies by `value` every pixel number of the components (`offset`,
+    //! `size`, `spacing`, `padding`, `borderWidth`, `wrapWidth`, `UiScroll::offset` and `notch`) and of the theme
+    //! (`padding`, `focusWidth`, `progressWidth`, `progressHeight`), and draws the text with the same font at `value`
+    //! times its size (IFont::scaled(), so it stays sharp). The components keep the numbers you gave them. See
+    //! uiScaleFor(): a game sets `value` from the size of its window when it changes.
+    struct UiScale
+    {
+        float value = 1.0f;   //!< 1: as built. Zero, negative or not a number: 1.
+
+        Vec2 toUi(Vec2 screen) const { return value > 0.0f ? screen / value : screen; }   //!< A pixel of the window, in the units you built the UI in
+        Vec2 toScreen(Vec2 ui) const { return value > 0.0f ? ui * value : ui; }
+    };
+
+    //! The scale that makes an interface built for `base` fill a window as well as it can without being cut
+    //! (the smaller of the two ratios)
+    float uiScaleFor(Vec2 window, Vec2 base = {1280.0f, 720.0f});
 
     //! Which actions of the game the interface uses. -1: none. They are the
     //! numbers of the game's own actions (its enum), see InputMap.
@@ -174,7 +270,7 @@ namespace kuge
             Activated,   //!< A button was pressed
             Focused,     //!< The focus moved to a button
             Cancelled,   //!< "back" was asked (entity: what had the focus, if anything)
-            Changed,     //!< What is in a text field changed (at most once a tick: read it in the component)
+            Changed,     //!< What is in a text field changed, or a check box was flipped or a slider moved (at most once a tick: read it in the component)
             Submitted,   //!< Enter was pressed in a text field
         };
 
@@ -201,6 +297,7 @@ namespace kuge
     struct UiLayoutResult
     {
         std::map<kw::Entity, Rect> rects;     //!< Only the nodes that show
+        std::map<kw::Entity, Rect> clips;     //!< Inside a UiScroll: where it can be seen (drawOrder has only what is in it)
         std::vector<kw::Entity>    drawOrder; //!< Back to front
     };
 

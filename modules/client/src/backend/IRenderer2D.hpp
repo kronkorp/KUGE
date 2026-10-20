@@ -3,6 +3,7 @@
 #include "Math2D.hpp"
 #include "render/Color.hpp"
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -67,6 +68,10 @@ namespace kuge
             //! @param rgba  width * height pixels of the texture
             //! @throw std::runtime_error if the texture is unknown, or the pixels do not match its size
             virtual void updateTexture(TextureId texture, std::span<const std::uint8_t> rgba) = 0;
+
+            //! Nothing is drawn outside this rectangle (pixels of the screen) until it is changed; none: all of the
+            //! screen. begin() lifts it. A scrolling list uses it to cut what goes past its edge.
+            virtual void setClip(const std::optional<Rect>& area) = 0;
 
             virtual void fillRect(const Rect& destination, Color color) = 0;
             virtual void strokeRect(const Rect& destination, Color color) = 0;

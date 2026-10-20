@@ -15,12 +15,12 @@ namespace kuge
      *         button, a gamepad button, or a gamepad stick pushed one way
      *
      * As text (for the keybinds file): "Space", "Mouse.Left", "Pad.A",
-     * "Pad.LeftX-" (stick to the left), "Pad.LeftTrigger+".
+     * "Pad.LeftX-" (stick to the left), "Pad.LeftTrigger+", "Wheel.Up", "Wheel.Down".
      */
     ////////////////////////////////////////////////////////////////////////////
     struct Binding
     {
-        enum class Kind : std::uint8_t { Key, MouseButton, GamepadButton, GamepadAxis };
+        enum class Kind : std::uint8_t { Key, MouseButton, GamepadButton, GamepadAxis, MouseWheel };
 
         Kind          kind      = Kind::Key;
         std::uint16_t code      = 0;   //!< The key / button / axis, as a number
@@ -40,6 +40,16 @@ namespace kuge
 
             binding.kind = Kind::GamepadAxis;
             binding.code = static_cast<std::uint16_t>(axis);
+            binding.direction = direction < 0 ? -1 : 1;
+            return binding;
+        }
+
+        //! One notch of the mouse wheel, up (+1) or down (-1). Never held: it presses its action for one tick.
+        static constexpr Binding wheel(int direction)
+        {
+            Binding binding;
+
+            binding.kind = Kind::MouseWheel;
             binding.direction = direction < 0 ? -1 : 1;
             return binding;
         }

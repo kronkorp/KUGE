@@ -6,6 +6,7 @@ namespace
 {
     constexpr std::string_view MOUSE_PREFIX = "Mouse.";
     constexpr std::string_view PAD_PREFIX   = "Pad.";
+    constexpr std::string_view WHEEL_PREFIX = "Wheel.";
 
     std::string_view trim(std::string_view text)
     {
@@ -38,6 +39,8 @@ std::string kuge::Binding::toString(void) const
             return std::string(PAD_PREFIX) + name(static_cast<GamepadButton>(code));
         case Kind::GamepadAxis:
             return std::string(PAD_PREFIX) + name(static_cast<GamepadAxis>(code)) + (direction < 0 ? '-' : '+');
+        case Kind::MouseWheel:
+            return std::string(WHEEL_PREFIX) + (direction < 0 ? "Down" : "Up");
     }
     return {};
 }
@@ -52,6 +55,17 @@ std::optional<kuge::Binding> kuge::Binding::parse(std::string_view text)
             return std::nullopt;
         }
         return Binding(button);
+    }
+    if (startsWith(text, WHEEL_PREFIX)) {
+        const std::string_view way = text.substr(WHEEL_PREFIX.size());
+
+        if (startsWith(way, "up") && way.size() == 2) {
+            return Binding::wheel(1);
+        }
+        if (startsWith(way, "down") && way.size() == 4) {
+            return Binding::wheel(-1);
+        }
+        return std::nullopt;
     }
     if (startsWith(text, PAD_PREFIX)) {
         std::string_view what = text.substr(PAD_PREFIX.size());

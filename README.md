@@ -426,7 +426,9 @@ input.pause =
 ```
 
 Only the actions the file mentions are replaced: the defaults survive a file with a few lines.
-`Pad.LeftY-` is a stick pushed the negative way; `Mouse.Left` is a mouse button.
+`Pad.LeftY-` is a stick pushed the negative way; `Mouse.Left` is a mouse button; `Wheel.Up` and `Wheel.Down`
+are the notches of the mouse wheel, which press their action for one tick (a notch is not held). To scroll
+by the amount instead, `InputMap::takeWheel()` gives the notches since the last call (up is positive).
 
 ### Sprites, camera, drawing
 
@@ -568,6 +570,11 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiPanel` | A background and a border. |
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
+| `UiCheckbox` | A box that is ticked or not, with its `text` after it: `checked`, `enabled`; `hovered` / `focused` are filled in by the interaction. Focused and pressed like a button, it flips `checked` and says `Changed`. |
+| `UiImage` | A picture (`texture`, a part of it with `source`, a `tint`) in the rectangle of its node, which takes the size of the picture if it has none. |
+| `UiScroll` | On a node that has a size and a `UiStack`: the stack scrolls. `offset` (pixels), `notch` (pixels per wheel notch); `extent` (the length of the content) is filled in by the layout. |
+| `UiSlider` | A value from `min` to `max` (`step` per press of left / right, `columns` letters wide if the node has no size): `value`, `enabled`; `hovered` / `focused` / `dragging` are filled in by the interaction. |
+| `UiProgress` | A bar filled for `value / max` (from the left, or from the bottom if `vertical`): `fill`, `back`, `border`. Its size is the node's, else `UiTheme::progressWidth` x `progressHeight`. |
 | `UiTextField` | A line of text that the player types: `text`, `placeholder`, `maxLength` (in characters), `caret`, `columns` (its width if the node has no size), `enabled`; `hovered` / `focused` are filled in by the interaction. |
 
 Resources: `UiTheme` (font and colors, change it for your game), `UiActions` (which of *your*
@@ -603,9 +610,90 @@ action) says `Cancelled`, and the mouse moving over another widget does not take
 a character. When the text is wider than the field, its end (where the caret is) is shown: the renderer
 has no clipping.
 
-Not there yet: selection, copy and paste, a masked field for a password, several lines, and showing the
+**Clipboard.** Ctrl+V (Cmd+V on macOS) pastes at the caret the first line of the clipboard, cut to `maxLength` and
+without control characters; Ctrl+C copies the whole text (there is no selection yet) and Ctrl+X cuts it. The keys
+reach the field as editing keys of `takeEditKeys()` (V, C, X with Ctrl or Cmd held; a V alone is a letter). The clipboard
+itself is `IWindow::clipboardText()` / `setClipboardText()` (SDL's on the SDL backend, a string of its own on the
+dummy one, so a test can set it and read it) and a game reaches it through `Ref<IWindow>`, for a "copy the code" button.
+
+Not there yet: selection, a masked field for a password, several lines, and showing the
 composition of an input method editor (what the OS *commits* arrives as a `TextEvent`; the text being
 composed, `SDL_TEXTEDITING`, is not handled, and this was not tried with one).
+
+**Progress bar.** `UiProgress` shows a ratio (health, XP, loading). The number on it is a `UiLabel` child,
+and a bar whose `max` is 0, or whose `value` is negative or NaN, is empty:
+
+```cpp
+world.add<kuge::UiNode>(bar, kuge::UiNode{.parent = hud, .hasParent = true, .size = {240.0f, 24.0f}});
+world.add<kuge::UiProgress>(bar, kuge::UiProgress{.value = 42.0f, .max = 100.0f});
+world.get<kuge::UiProgress>(bar).value = hp;      // every frame, if it changes
+```
+
+**Check box.** `UiCheckbox` is a choice that is on or off. It is focused like a button, and Enter (your `accept`) or a
+click flips `checked` and puts a `Changed` (not `Activated`) in `UiEvents`; read the value in the component. The tick is a
+filled square in the box, so it does not rely on a colour (`UiTheme::checkMark`):
+
+```cpp
+world.add<kuge::UiNode>(hurry, kuge::UiNode{.parent = form, .hasParent = true});
+world.add<kuge::UiCheckbox>(hurry, kuge::UiCheckbox{.text = "Hurry mode"});
+// ... in a system: Changed, then
+const bool on = world.get<kuge::UiCheckbox>(event.entity).checked;
+```
+
+**Slider.** `UiSlider` is a number in a range, for a volume or a sensitivity. With the focus on it, your `left` and
+`right` actions move `value` by `step` (and no longer move the focus; up, down and Tab still do); a click puts the
+handle at the mouse, which drags it while the button is held (even outside the slider, clamped to `min` and `max`).
+Every change is a `Changed` for its entity, at most one per tick, and none when it did not move (at `max`, a press of
+right says nothing). The number is not drawn: a `UiLabel` next to it, rewritten on `Changed`, does that.
+
+```cpp
+world.add<kuge::UiNode>(music, kuge::UiNode{.parent = menu, .hasParent = true});
+world.add<kuge::UiSlider>(music, kuge::UiSlider{.value = 0.4f});
+// ... on Changed for `music`:
+audio.setBusVolume(kuge::Bus::Music, world.get<kuge::UiSlider>(music).value);
+```
+
+**Image.** `UiImage` is drawn with the rest of the interface, at the depth of its node, so a panel of a higher layer
+covers it and a stack places it like any other child. The texture is yours to load (`client.textures().load(...)`,
+shared): an icon on a button is a `UiImage` child of the button's row. A `UiButton` with an icon inside is not there yet.
+
+```cpp
+world.add<kuge::UiNode>(icon, kuge::UiNode{.parent = row, .hasParent = true, .size = {32.0f, 32.0f}});
+world.add<kuge::UiImage>(icon, kuge::UiImage{.texture = client.textures().load("sword.png")});
+```
+
+**Scroll.** A list that is longer than the screen: give the node a size, a `UiStack` and a `UiScroll`. The children are
+laid out as in the stack, moved back by `offset`; the layout keeps `offset` between 0 and `extent` minus the node. What
+is outside the node is **cut**: `IRenderer2D::setClip` (SDL's clip rectangle) cuts the drawing of the children, and a
+cut part cannot be hovered or clicked. The mouse wheel over the node (the innermost one) moves `offset` by `notch` per
+notch, and when the keyboard or gamepad focus lands on a child that is out, the node scrolls just enough to show it.
+`UiLayoutResult::rects` has every child (the ones outside too); `drawOrder` has only those that show. KUGE draws no
+scroll bar: a game that wants one reads `offset` and `extent`.
+
+```cpp
+world.add<kuge::UiNode>(list, kuge::UiNode{.size = {300.0f, 400.0f}});          // the window on the list
+world.add<kuge::UiStack>(list, kuge::UiStack{});
+world.add<kuge::UiScroll>(list, kuge::UiScroll{});
+// ... then the buttons, as children of `list`: ten of them show four, the wheel shows the others
+```
+
+**The UI at any resolution.** Build the interface for one size, 1280 x 720 say, and let `UiScale` (a resource)
+stretch it to the window. The layout multiplies by `UiScale::value` every pixel number of the components (`offset`,
+`size`, `spacing`, `padding`, `borderWidth`, `wrapWidth`, the `UiScroll` offset and notch) and of the theme (`padding`,
+`focusWidth`, `progressWidth`, `progressHeight`); the components **keep the numbers you gave them**, so the scale can
+change at any time (the next frame takes it) and nothing needs rebuilding. Text stays sharp: a font is not stretched,
+`IFont::scaled(factor)` gives the same font at `factor` times its size (SDL_ttf opens the file again; kept by the font,
+so asking each frame is free). `UiLayoutResult::rects` and the mouse are in pixels of the window, so a click at the
+doubled button presses it; `UiScale::toUi()` gives a mouse position in the units you built in.
+
+```cpp
+const auto window = world.getResource<kuge::Ref<kuge::IWindow>>()->size();
+world.getResource<kuge::UiScale>().value = kuge::uiScaleFor(window);   // min(width / 1280, height / 720); uiScaleFor(window, {640, 360}) for another base
+```
+
+A system that sets a size every frame by itself (an animated panel) writes it in the units it was built in, not
+multiplied. A zero, negative or NaN scale is 1. The scale is not chosen for you (a game may want 1 on a small window,
+or whole numbers only).
 
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus
 navigation with the keyboard or gamepad, mouse hover and click) and drawing (Frame, `Render`,

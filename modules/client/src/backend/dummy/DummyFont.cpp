@@ -8,10 +8,10 @@ namespace
 {
     // The lines of a text: cut at line breaks, and at spaces to stay within
     // the wrap width (a word that is longer than the width is left whole)
-    std::vector<std::size_t> lineLengths(std::string_view text, int wrapWidth)
+    std::vector<std::size_t> lineLengths(std::string_view text, int wrapWidth, int letter)
     {
         std::vector<std::size_t> lengths;
-        const std::size_t limit = wrapWidth > 0 ? static_cast<std::size_t>(std::max(1, wrapWidth / kuge::DummyFont::LETTER)) : 0;
+        const std::size_t limit = wrapWidth > 0 ? static_cast<std::size_t>(std::max(1, wrapWidth / letter)) : 0;
         std::size_t start = 0;
 
         while (start <= text.size()) {
@@ -43,12 +43,12 @@ namespace
 kuge::Vec2 kuge::DummyFont::measure(std::string_view text, int wrapWidth) const
 {
     if (text.empty()) {
-        return {0.0f, static_cast<float>(LINE)};
+        return {0.0f, static_cast<float>(LINE * m_zoom)};
     }
-    const auto lengths = lineLengths(text, wrapWidth);
+    const auto lengths = lineLengths(text, wrapWidth, LETTER * m_zoom);
     const auto longest = *std::max_element(lengths.begin(), lengths.end());
 
-    return {static_cast<float>(longest * LETTER), static_cast<float>(lengths.size() * LINE)};
+    return {static_cast<float>(static_cast<int>(longest) * LETTER * m_zoom), static_cast<float>(static_cast<int>(lengths.size()) * LINE * m_zoom)};
 }
 
 kuge::Image kuge::DummyFont::rasterize(std::string_view text, int wrapWidth) const

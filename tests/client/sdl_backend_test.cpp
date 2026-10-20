@@ -111,6 +111,41 @@ Test(sdl, window_and_renderer)
     backend.window->setTitle("a title");
 }
 
+Test(sdl, clipboard_round_trip)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(200, 100));
+    const std::string text = "ABCD-1234 \xC3\xA9";
+
+    backend.window->setClipboardText(text);
+    AssertStrEq(backend.window->clipboardText().c_str(), text.c_str(), "what was copied is pasted");
+}
+
+Test(sdl, clip_cuts_the_drawing)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(200, 100));
+    auto& renderer = *backend.renderer;
+    const kuge::Color blue{60, 110, 230, 255};
+
+    renderer.begin(blue);
+    renderer.setClip(kuge::Rect{20.0f, 20.0f, 30.0f, 30.0f});
+    renderer.fillRect({0.0f, 0.0f, 100.0f, 100.0f}, kuge::colors::Red);
+    renderer.setClip(std::nullopt);
+    renderer.fillRect({150.0f, 0.0f, 10.0f, 10.0f}, kuge::colors::Red);
+    auto image = renderer.readPixels();
+
+    Assert(close(pixel(image, 25, 25), kuge::colors::Red), "inside the clip");
+    Assert(close(pixel(image, 10, 10), blue), "outside it: not drawn");
+    Assert(close(pixel(image, 60, 60), blue), "and past its far corner");
+    Assert(close(pixel(image, 155, 5), kuge::colors::Red), "lifted: drawn again");
+    renderer.setClip(kuge::Rect{0.0f, 0.0f, 10.0f, 10.0f});
+    renderer.begin(blue);
+    renderer.fillRect({0.0f, 0.0f, 100.0f, 100.0f}, kuge::colors::Red);
+    image = renderer.readPixels();
+    Assert(close(pixel(image, 50, 50), kuge::colors::Red), "a new frame starts without the clip");
+}
+
 Test(sdl, fill_and_blend)
 {
     useNoScreen();
