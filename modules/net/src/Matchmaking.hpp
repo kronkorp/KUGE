@@ -27,7 +27,9 @@ namespace kuge::net
     //! What JoinRoom says of the rules of matchmaking (not of the network: see EndpointConfig::protocol).
     //! 2: CreateRoom and RoomInfo carry `options`, RoomInfo says if the room is `open`, JoinError::InvalidOptions and
     //! ::Started, RoomEnd::Victory, and the handshake of the Endpoint is not the same (see EndpointConfig::protocol).
-    constexpr std::uint16_t MATCHMAKING_VERSION = 2;
+    //! 3: RoomAssigned carries `playerId` and `rejoinKey`, and RejoinRoom brings a player back into the room it lost (see
+    //! RoomTypeConfig::reconnectSeconds).
+    constexpr std::uint16_t MATCHMAKING_VERSION = 3;
 
     enum class JoinError : std::uint8_t {
         UnknownRoomType,   //!< The server has no such kind of room
@@ -154,12 +156,26 @@ namespace kuge::net
     //! Where the room is, and the key to enter it. An empty address means "the machine of the lobby".
     struct RoomAssigned
     {
-        KUGE_MESSAGE(RoomAssigned, roomId, address, port, token, tickRate)
+        KUGE_MESSAGE(RoomAssigned, roomId, address, port, token, tickRate, playerId, rejoinKey)
         std::uint32_t roomId = 0;
         std::string   address;
         std::uint16_t port = 0;
         std::uint64_t token = 0;
         std::uint32_t tickRate = 60;
+        std::uint32_t playerId = 0;     //!< Who the server knows this player as (server-wide)
+        std::uint64_t rejoinKey = 0;    //!< The secret that lets this player back into the room if its connection is lost (RejoinRoom)
+    };
+
+    //! A player that lost its room (its connection dropped) asks to come back into it, from a new connection to the lobby. The
+    //! lobby answers like for a join (RoomAssigned, with a new token) when the room still keeps the place; otherwise
+    //! JoinRefused(UnknownRoom), the same answer whatever is wrong, so that a player id cannot be tried.
+    struct RejoinRoom
+    {
+        KUGE_MESSAGE(RejoinRoom, roomId, playerId, rejoinKey, protocol)
+        std::uint32_t roomId = 0;
+        std::uint32_t playerId = 0;
+        std::uint64_t rejoinKey = 0;
+        std::uint16_t protocol = MATCHMAKING_VERSION;
     };
 
     struct JoinRefused
@@ -258,6 +274,15 @@ namespace kuge::net
             //! Joins the room that has this id and this name (public or private: both must be right)
             void joinRoom(std::uint32_t roomId, const std::string& roomName, const std::string& playerName);
 
+            //! Comes back into the room that was lost (the connection to it dropped, or the lobby's: call connectLobby() again first if
+            //! it was lost, this waits for it). The room must keep the place (RoomTypeConfig::reconnectSeconds): the player is the same
+            //! one, with the same network id, and onJoined is called again. Does nothing, and says so in onFailed, if there is nothing to
+            //! come back to (canRejoin()).
+            void rejoin(void);
+
+            //! Is there a room that this player was in and can come back to?
+            bool canRejoin(void) const noexcept { return m_rejoin.has_value(); }
+
             //! Leaves the room (or the wait for one). The lobby is kept.
             void leave(void);
 
@@ -284,7 +309,7 @@ namespace kuge::net
             std::uint32_t        networkId(void) const noexcept { return m_networkId; }
 
         private:
-            using Request = std::variant<JoinRoom, CreateRoom, JoinNamedRoom>;
+            using Request = std::variant<JoinRoom, CreateRoom, JoinNamedRoom, RejoinRoom>;
 
             void bindLobby(Endpoint& lobby);
             void start(Request request);
@@ -306,6 +331,8 @@ namespace kuge::net
             LoopbackNetwork*        m_network = nullptr;
             EndpointConfig          m_config;
 
+            bool                      m_rejoining = false;   // a RejoinRoom was asked for and not answered
+            std::optional<RejoinRoom> m_rejoin;       // the room that was assigned, kept until the player leaves it or it ends
             std::optional<Request>   m_pending;       // waiting for the lobby
             std::optional<ListRooms> m_pendingList;   // the same
             bool                     m_leaving = false;

@@ -21,6 +21,8 @@ struct Echo
 };
 
 struct FinishNow { KUGE_MESSAGE(FinishNow) };
+struct SetTeam { KUGE_MESSAGE(SetTeam, team) std::uint32_t team = 0; };
+struct TeamSay { KUGE_MESSAGE(TeamSay, text) std::string text; };
 struct WinNow { KUGE_MESSAGE(WinNow) };
 struct SetDoor { KUGE_MESSAGE(SetDoor, open) bool open = true; };
 
@@ -30,6 +32,8 @@ struct RoomLog
     std::mutex                                             mutex;
     std::vector<std::string>                               joined;
     std::vector<std::pair<std::string, kuge::net::DisconnectReason>> left;
+    std::vector<std::string>                               away;       //!< Players whose connection was lost and whose place is kept
+    std::vector<std::pair<std::string, std::uint32_t>>     rejoined;   //!< Players that came back: their name, and their network id
     std::vector<std::uint32_t>                             networkIds;
     std::vector<std::thread::id>                           threads;
     std::vector<std::pair<std::string, bool>>              roomNames;   //!< What each room was told of its name, and of its privacy
@@ -41,6 +45,8 @@ struct RoomLog
 
     std::size_t joinedCount(void) { std::lock_guard lock(mutex); return joined.size(); }
     std::size_t leftCount(void) { std::lock_guard lock(mutex); return left.size(); }
+    std::size_t awayCount(void) { std::lock_guard lock(mutex); return away.size(); }
+    std::size_t rejoinedCount(void) { std::lock_guard lock(mutex); return rejoined.size(); }
 };
 
 inline RoomLog& roomLog(void)
@@ -69,6 +75,8 @@ class TestRoom : public kuge::server::RoomScene
             enableChat({.maxBytes = 40, .burst = 2, .refillSeconds = 1000.0});   // (a bucket that does not refill in a test)
             on<Echo>([this](const Player& who, const Echo& echo) { send(who.networkId, Echo{who.name + ": " + echo.text}); });
             on<SetDoor>([this](const Player&, const SetDoor& door) { setOpen(door.open); });
+            on<SetTeam>([this](const Player& who, const SetTeam& team) { setTeam(who.networkId, team.team); });
+            on<TeamSay>([this](const Player& who, const TeamSay& say) { broadcastTeam(who.team, Echo{who.name + " (team): " + say.text}); });
             on<WinNow>([this](const Player&, const WinNow&) { finish(kuge::net::RoomEnd::Victory); ++roomLog().finished; });
             on<FinishNow>([this](const Player&, const FinishNow&) { finish(kuge::net::RoomEnd::GameOver); ++roomLog().finished; });
         }
@@ -84,6 +92,18 @@ class TestRoom : public kuge::server::RoomScene
             std::lock_guard lock(roomLog().mutex);
             roomLog().joined.push_back(player.name);
             roomLog().networkIds.push_back(player.networkId);
+        }
+
+        void onPlayerAway(const Player& player, kuge::net::DisconnectReason) override
+        {
+            std::lock_guard lock(roomLog().mutex);
+            roomLog().away.push_back(player.name);
+        }
+
+        void onPlayerRejoined(const Player& player, kuge::net::ConnectionId) override
+        {
+            std::lock_guard lock(roomLog().mutex);
+            roomLog().rejoined.emplace_back(player.name, player.networkId);
         }
 
         void onPlayerLeft(const Player& player, kuge::net::DisconnectReason reason) override
@@ -121,6 +141,8 @@ struct Harness
 
         roomLog().joined.clear();
         roomLog().left.clear();
+        roomLog().away.clear();
+        roomLog().rejoined.clear();
         roomLog().networkIds.clear();
         roomLog().threads.clear();
         roomLog().roomNames.clear();
@@ -178,9 +200,14 @@ struct TestClient
         matchmaking.onFailed([this](const std::string& why) { failures.push_back(why); });
     }
 
-    void connect(Harness& harness)
+    void connect(Harness& harness, double timeout = 0.0)
     {
-        matchmaking.connectLobby("lobby", harness.network);
+        kuge::net::EndpointConfig config;
+
+        if (timeout > 0.0) {
+            config.timeout = timeout;   // how soon this client finds out that it has lost the server
+        }
+        matchmaking.connectLobby("lobby", harness.network, config);
     }
 
     void join(const char* roomType = "duel")

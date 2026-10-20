@@ -161,6 +161,34 @@ player (`burst` lines, one more every `refillSeconds`). A line that fails costs 
 leaves. Names, channels (team, all), commands and a mute list are the game's. `utf8Valid`, `utf8Length` and `trimSpaces` (`Utf8.hpp`)
 are there for your own checks. On the client, `UiChatLog` is the widget (see [05](../05-the-client/README.md)).
 
+## A player who loses its connection
+
+A cable that is cut, a Wi-Fi that drops: by default the player is gone (`onPlayerLeft`) and comes back as a new one. A room type can keep its
+place instead:
+
+```cpp
+server.addRoomType<DeathmatchRoom>("deathmatch", {.maxPlayers = 8, .reconnectSeconds = 30.0});
+```
+
+When the connection is **lost** (a timeout; not a player who leaves, is kicked, or a game that ends) the room calls `onPlayerAway(player, reason)`
+and keeps the `Player` in `players()` with `away` set and no connection (`broadcast` and `send` skip it). Remove its replication client
+and its input there; what the avatar does meanwhile (stands, is driven by a bot, dies) is the game's. If the player comes back in time,
+`onPlayerRejoined(player, previousConnection)` is called, with the **same `Player` and the same network id**: give it again to the
+replication (`addClient(player.connection)`) and it is sent the whole world. If the time runs out, `onPlayerLeft` follows as usual.
+
+The client does the rest: when it hears that its room (or the lobby) is lost it connects to the lobby again and calls
+`matchmaking.rejoin()`. Coming back needs the `rejoinKey` that the lobby gave with the room (`RoomAssigned`): it is the proof that this
+connection is the player that lost its own, and anyone who watches the traffic can read it (see the RFC). `canRejoin()` says if there is
+a room to come back to. The lobby answers `JoinRefused(UnknownRoom)` to everything that is wrong (no such player, a wrong key, a room that
+no longer keeps the place), so that ids cannot be tried.
+
+## Teams
+
+`Player::team` is a number the game sets (`setTeam(networkId, team)`; 0: none). KUGE does nothing with it but pick who a message goes to:
+`broadcastTeam(team, message)` is the team chat, what only allies may know. What a team is, who may change it, a score, a side swap,
+rounds with a buy phase: all of that is the game's. (A phase machine for rounds is not in the engine on purpose: a timer in a `Fixed`
+system is a few lines, and the phases are the rules of the game.)
+
 ## A room that starts
 
 A game with a start (a match, a round, a race) is open, then closed. When it starts, the room calls

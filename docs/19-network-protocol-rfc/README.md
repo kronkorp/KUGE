@@ -153,7 +153,8 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 | `ListRooms` | C→L | roomType (chaîne, vide pour tous) | demande les salles publiques |
 | `RoomList` | L→C | total (u32), rooms (vecteur de `RoomInfo`) | réponse : 64 salles au plus, `total` les compte toutes |
 | `RoomInfo` | dans `RoomList` | roomId (u32), roomType, name (chaînes), players (u32), maxPlayers (u32), options (chaîne), open (bool) | décrit une salle publique ; `open` est faux quand la salle est fermée aux nouveaux venus |
-| `RoomAssigned` | L→C | roomId (u32), address (chaîne), port (u16), token (u64), tickRate (u32) | où se trouve la salle, et la clé pour y entrer |
+| `RoomAssigned` | L→C | roomId (u32), address (chaîne), port (u16), token (u64), tickRate (u32), playerId (u32), rejoinKey (u64) | où se trouve la salle, la clé pour y entrer, et ce qu'il faut pour y revenir (`RejoinRoom`) |
+| `RejoinRoom` | C→L | roomId (u32), playerId (u32), rejoinKey (u64), protocol (u16) | un joueur dont la connexion à la salle est perdue redemande sa place ; le lobby répond `RoomAssigned` (nouveau token) ou `JoinRefused(UnknownRoom)`, la même réponse quoi qu'il y ait de faux |
 | `JoinRefused` | L→C | reason (`JoinError`, u8) | la demande échoue |
 | `LeaveRoom` | C→L | aucun | quitte la salle, ou renonce à en rejoindre une |
 | `RoomClosed` | L→C | reason (`RoomEnd`, u8) | le lobby annonce la fin de la salle |
@@ -352,7 +353,7 @@ Une donnée invalide est jetée et comptée dans les statistiques de l'endpoint 
 | Version | Où | Valeur | Contrôle |
 | --- | --- | --- | --- |
 | `protocol` | `Connect` (u16) | 2 | égalité exacte, sinon `Reject` |
-| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom` (u16) | 2 | égalité exacte, sinon `JoinRefused(Protocol)` |
+| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom`, `RejoinRoom` (u16) | 3 | égalité exacte, sinon `JoinRefused(Protocol)` |
 | `schema` | `SnapshotPacket` (u32) | hash du registre | égalité, sinon instantané ignoré |
 
 Les messages n'ont pas de version propre : ajouter, retirer ou réordonner un champ d'un `KUGE_MESSAGE` casse la lecture, et le message est jeté comme malformé. Un tel changement dans le lobby ou la salle MUST s'accompagner d'une hausse de `protocol`. Le `schema` change quand les noms, les modes ou l'ordre des composants changent ; il ne change pas quand le format d'octets d'un composant change, et ce cas n'est pas détecté.
@@ -364,6 +365,7 @@ Le protocole ne chiffre rien et n'authentifie aucun joueur : il convient à un r
 - **Confidentialité et intégrité.** Tout circule en clair, token et nom du joueur compris. Seules les sommes de contrôle d'UDP et de TCP protègent contre une corruption accidentelle.
 - **Usurpation sur UDP.** Une connexion ne se fait pas sur une adresse qui n'a pas répondu au `Challenge` : un `Connect` d'une adresse usurpée ne laisse aucune connexion, et n'occupe aucune des `maxConnections` places (au plus `maxHalfOpen` entrées en attente, les plus anciennes abandonnées). Ensuite, chaque paquet `Data` et `Goodbye` porte une étiquette de 32 bits sous une clé de 128 bits formée du sel du client et du cookie : un attaquant qui n'a pas lu la poignée de main doit deviner l'étiquette (une chance sur 2^32 par paquet), pas seulement l'adresse et le numéro de séquence. **Ce qui n'est pas couvert** : un attaquant qui lit le trafic (le sel et le cookie passent en clair) peut calculer des étiquettes, injecter, ou rejouer un paquet (il n'y a pas de protection contre le rejeu autre que la numérotation du canal fiable). Les `Reject` et `Challenge` n'ont pas d'étiquette. Le chiffrement et l'authentification des joueurs viennent plus tard, avec une dépendance.
 - **Token.** Il a 64 bits tirés de `std::random_device`, sert une fois, vaut 10 s et n'ouvre qu'une salle. Il circule en clair dans `RoomAssigned` et `Hello` : qui l'observe peut l'utiliser avant le client.
+- **Retour dans une salle.** `rejoinKey` a 64 bits tirés de `std::random_device`, ne change pas tant que le joueur est dans la salle, et circule en clair dans `RoomAssigned` comme le token. Elle est la seule preuve qu'une nouvelle connexion est le joueur qui a perdu la sienne : qui l'observe peut prendre sa place. Une salle ne garde la place d'un joueur que `reconnectSeconds` (0 par défaut : aucune).
 - **Salle privée.** Elle n'est protégée que par son id, séquentiel à partir de 1, et par son nom, choisi par le créateur. Il ne faut pas les prendre pour un secret fort.
 - **Amplification.** Un `Connect` de 23 octets reçoit un `Challenge` ou un `Accept` de 17 octets, ou un `Reject` de 5 : la réponse est plus petite que la demande. Les `Connect` d'une adresse sont comptés (64 par seconde par défaut, adresse IP sans le port) et ceux qui dépassent sont abandonnés sans réponse. Plusieurs joueurs derrière une même adresse (réseau local, NAT) se partagent ce compte.
 - **Autorité du serveur.** Un client n'envoie que ses entrées et ses accusés ; le serveur n'accepte jamais d'état venu d'un client. Sans filtre d'intérêt, chaque client reçoit tout le monde, y compris ce qu'il ne devrait pas voir.
@@ -430,6 +432,7 @@ SnapshotAck, tick 300, dans un Data non fiable (ack 0, ackBits 0), étiquette (2
 | `RoomList` | 0x2EE55876 | 76 58 E5 2E |
 | `RoomInfo` | 0xDCF0AC42 | 42 AC F0 DC |
 | `RoomAssigned` | 0xEC7581C2 | C2 81 75 EC |
+| `RejoinRoom` | 0x3AAD1EA3 | A3 1E AD 3A |
 | `JoinRefused` | 0xDD5D9C17 | 17 9C 5D DD |
 | `LeaveRoom` | 0xA07C3AE3 | E3 3A 7C A0 |
 | `RoomClosed` | 0x04CF4606 | 06 46 CF 04 |

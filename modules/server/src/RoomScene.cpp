@@ -88,7 +88,7 @@ namespace kuge::server
     void RoomScene::onMessage(const Message& message)
     {
         if (const auto* expect = message.as<detail::ExpectPlayer>()) {
-            m_expected[expect->token] = Expected{expect->name, expect->playerId, now() + m_init.server.tokenTtl};
+            m_expected[expect->token] = Expected{expect->name, expect->playerId, now() + m_init.server.tokenTtl, expect->rejoin};
         } else if (const auto* kickOne = message.as<detail::KickPlayer>()) {
             for (auto it = m_expected.begin(); it != m_expected.end();) {
                 it = it->second.playerId == kickOne->playerId ? m_expected.erase(it) : std::next(it);
@@ -136,10 +136,33 @@ namespace kuge::server
         if (found == m_expected.end()) {
             return false;
         }
-        Player who{found->second.playerId, found->second.name, m_nextNetworkId++, from};
+        const Expected expected = found->second;
 
         m_expected.erase(found);        // a token opens the door once
         m_unknown.erase(from);
+        // A player that comes back takes its place again: the same Player, the same network id
+        if (expected.rejoin) {
+            for (auto& [networkId, who] : m_players) {
+                if (who.playerId != expected.playerId) {
+                    continue;
+                }
+                const net::ConnectionId previous = who.connection;
+
+                if (!who.away && previous != 0) {
+                    m_endpoint->disconnect(previous);   // the room had not noticed the loss yet: the old connection goes
+                }
+                who.connection = from;
+                who.away = false;
+                m_lastActive = now();
+                m_endpoint->send(from, net::Welcome{who.networkId, m_init.roomId, m_init.server.tickRate});
+                tellLobby(detail::PlayerJoined{m_init.roomId, who.playerId});
+                onPlayerRejoined(who, previous);
+                return true;
+            }
+            // Its place is gone (the time ran out): it is a new player, like any other
+        }
+        Player who{expected.playerId, expected.name, m_nextNetworkId++, from};
+
         m_players[who.networkId] = who;
         m_endpoint->send(from, net::Welcome{who.networkId, m_init.roomId, m_init.server.tickRate});
         tellLobby(detail::PlayerJoined{m_init.roomId, who.playerId});
@@ -183,23 +206,58 @@ namespace kuge::server
         m_unknown.erase(connection);
         std::erase_if(m_waiting, [connection](const WaitingHello& hello) { return hello.connection == connection; });
         for (auto it = m_players.begin(); it != m_players.end(); ++it) {
-            if (it->second.connection == connection) {
-                const Player who = it->second;
+            if (it->second.connection == connection && !it->second.away) {
+                // A lost connection (not one the player ended, or that the room did) is kept for a while if the room type asks
+                const bool lost = reason == net::DisconnectReason::Timeout || reason == net::DisconnectReason::Unreachable;
 
-                m_players.erase(it);
-                m_lastActive = now();
-                tellLobby(detail::PlayerLeft{m_init.roomId, who.playerId});
-                onPlayerLeft(who, reason);
+                if (lost && m_init.type.reconnectSeconds > 0.0 && !m_finishing) {
+                    it->second.away = true;
+                    it->second.awaySince = now();
+                    it->second.connection = 0;
+                    m_lastActive = now();
+                    onPlayerAway(it->second, reason);
+                    return;
+                }
+                letGo(it->first, reason);
                 return;
             }
         }
+    }
+
+    // A player is out for good: its place is free, the lobby knows
+    void RoomScene::letGo(std::uint32_t networkId, net::DisconnectReason reason)
+    {
+        const auto it = m_players.find(networkId);
+
+        if (it == m_players.end()) {
+            return;
+        }
+        const Player who = it->second;
+
+        m_players.erase(it);
+        m_lastActive = now();
+        tellLobby(detail::PlayerLeft{m_init.roomId, who.playerId});
+        onPlayerLeft(who, reason);
+    }
+
+    bool RoomScene::setTeam(std::uint32_t networkId, std::uint32_t team)
+    {
+        const auto it = m_players.find(networkId);
+
+        if (it == m_players.end()) {
+            return false;
+        }
+        it->second.team = team;
+        return true;
     }
 
     void RoomScene::kick(std::uint32_t networkId, net::RoomEnd reason)
     {
         const Player* who = playerByNetworkId(networkId);
 
-        if (who) {
+        if (who && who->away) {
+            letGo(networkId, net::DisconnectReason::Local);   // nobody to tell: its place just goes
+        } else if (who) {
             const net::ConnectionId connection = who->connection;
 
             m_endpoint->send(connection, net::RoomClosed{reason});
@@ -261,6 +319,19 @@ namespace kuge::server
     {
         const double time = now();
 
+        // A player that stayed away longer than the room keeps its place is gone
+        if (m_init.type.reconnectSeconds > 0.0) {
+            std::vector<std::uint32_t> expired;
+
+            for (const auto& [networkId, who] : m_players) {
+                if (who.away && time - who.awaySince >= m_init.type.reconnectSeconds) {
+                    expired.push_back(networkId);
+                }
+            }
+            for (const std::uint32_t networkId : expired) {
+                letGo(networkId, net::DisconnectReason::Timeout);
+            }
+        }
         // The numbers of the network, in the log: the same line for every game (see NetMeter and describe())
         if (m_init.server.statsEvery > 0.0 && time >= m_nextStats) {
             const NetReport& report = m_meter.update(*m_endpoint, std::nullopt, time, m_players.size());

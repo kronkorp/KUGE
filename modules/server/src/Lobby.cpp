@@ -54,7 +54,8 @@ namespace kuge::server
         }
         m_state->stats.lobbyOpen = true;
         m_endpoint->onConnected([this](net::ConnectionId) { refreshStats(); });
-        m_endpoint->onDisconnected([this](net::ConnectionId id, net::DisconnectReason) { handleGone(id); });
+        m_endpoint->onDisconnected([this](net::ConnectionId id, net::DisconnectReason reason) { handleGone(id, reason); });
+        m_endpoint->on<net::RejoinRoom>([this](net::ConnectionId from, const net::RejoinRoom& rejoin) { handleRejoin(from, rejoin); });
         m_endpoint->on<net::JoinRoom>([this](net::ConnectionId from, const net::JoinRoom& join) {
             Want want;
 
@@ -206,6 +207,8 @@ namespace kuge::server
         assigned.port = room.port;
         assigned.token = member.token;
         assigned.tickRate = m_state->config.tickRate;
+        assigned.playerId = member.playerId;
+        assigned.rejoinKey = member.rejoinKey;
         m_endpoint->send(member.connection, assigned);
     }
 
@@ -238,6 +241,8 @@ namespace kuge::server
     void LobbyScene::enter(net::ConnectionId from, Room& room, const std::string& playerName)
     {
         Member member{m_nextPlayer++, from, room.id, newToken(), playerName, m_state->config.now(), false};
+
+        member.rejoinKey = newToken();
 
         room.handle.send(detail::ExpectPlayer{member.playerId, member.name, member.token});
         room.members.insert(member.playerId);
@@ -380,10 +385,73 @@ namespace kuge::server
         }
     }
 
-    void LobbyScene::handleGone(net::ConnectionId from)
+    // How long a room of this type keeps the place of a player whose connection is lost
+    static double keepsPlaceFor(const ServerState& state, const std::string& roomType)
     {
+        const auto kind = state.roomTypes.find(roomType);
+
+        return kind == state.roomTypes.end() ? 0.0 : kind->second.config.reconnectSeconds;
+    }
+
+    void LobbyScene::handleGone(net::ConnectionId from, net::DisconnectReason reason)
+    {
+        const auto found = m_byConnection.find(from);
+
+        // A lost connection (not one the client ended) to a room that keeps places: the player is away, not gone. The room finds out
+        // by itself, and tells when its time is up.
+        if (found != m_byConnection.end() && (reason == net::DisconnectReason::Timeout || reason == net::DisconnectReason::Unreachable)) {
+            const auto member = m_members.find(found->second);
+            const auto room = member == m_members.end() ? m_rooms.end() : m_rooms.find(member->second.roomId);
+
+            if (room != m_rooms.end() && !room->second.closing && member->second.joined && keepsPlaceFor(*m_state, room->second.type) > 0.0) {
+                member->second.away = true;
+                member->second.awaySince = m_state->config.now();
+                m_byConnection.erase(found);
+                refreshStats();
+                return;
+            }
+        }
         // The client left the lobby: it leaves its room too
         handleLeave(from);
+        refreshStats();
+    }
+
+    // A player comes back from a new connection to the lobby (or the old one, if only the room was lost)
+    void LobbyScene::handleRejoin(net::ConnectionId from, const net::RejoinRoom& rejoin)
+    {
+        if (rejoin.protocol != net::MATCHMAKING_VERSION) {
+            refuse(from, net::JoinError::Protocol);
+            return;
+        }
+        const auto found = m_members.find(rejoin.playerId);
+        const auto room = found == m_members.end() ? m_rooms.end() : m_rooms.find(found->second.roomId);
+
+        // One answer for every way to be wrong, so that player ids cannot be tried
+        if (found == m_members.end() || room == m_rooms.end() || found->second.rejoinKey != rejoin.rejoinKey || found->second.roomId != rejoin.roomId
+            || room->second.closing || !room->second.ready || keepsPlaceFor(*m_state, room->second.type) <= 0.0) {
+            refuse(from, net::JoinError::UnknownRoom);
+            return;
+        }
+        const auto other = m_byConnection.find(from);
+
+        if (other != m_byConnection.end() && other->second != rejoin.playerId) {
+            refuse(from, net::JoinError::AlreadyJoined);
+            return;
+        }
+        Member& member = found->second;
+        const auto old = m_byConnection.find(member.connection);
+
+        if (old != m_byConnection.end() && old->second == rejoin.playerId) {
+            m_byConnection.erase(old);
+        }
+        member.connection = from;
+        member.away = false;
+        member.joined = false;   // until the room welcomes it again
+        member.token = newToken();
+        member.issuedAt = m_state->config.now();
+        m_byConnection[from] = rejoin.playerId;
+        room->second.handle.send(detail::ExpectPlayer{member.playerId, member.name, member.token, true});
+        assign(member, room->second);
         refreshStats();
     }
 
@@ -496,6 +564,14 @@ namespace kuge::server
         }
         for (const auto& [playerId, member] : m_members) {
             if (!member.joined && time - member.issuedAt > m_state->config.tokenTtl + 1.0) {
+                stale.push_back(playerId);
+            }
+        }
+        // A player away for longer than its room keeps the place (the room lets it go itself, at about the same time)
+        for (const auto& [playerId, member] : m_members) {
+            const auto room = m_rooms.find(member.roomId);
+
+            if (member.away && room != m_rooms.end() && time - member.awaySince > keepsPlaceFor(*m_state, room->second.type) + 1.0) {
                 stale.push_back(playerId);
             }
         }
