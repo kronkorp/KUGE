@@ -1,6 +1,7 @@
 extern "C" {
     #include "kronklab/kronklab.h"
 }
+#include "WorldHistory.hpp"
 #include "physics3d_fixture.hpp"
 
 // NOTE: kronklab test names are limited to 31 characters.
@@ -132,4 +133,35 @@ Test(shoot, sweeping_a_capsule)
     const auto skipped = sim.physics().raycast({0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 20.0f, 0xFFFFFFFFu, false, [&](kw::Entity e) { return e == wallEntity; });
 
     Assert(!skipped, "a ray that looks through the wall finds nothing behind it");
+}
+
+Test(rewind, a_ray_at_where_it_was)
+{
+    // A runner at 10 m/s along x, 100 ms ago it was 1 m behind. A ray aimed at that place hits the rewound runner and misses today's.
+    kw::Entity runner = 0;
+    kuge::WorldHistory history({.windowTicks = 30});
+    Sim sim([&](Level& level) {
+        runner = player(level.world(), {0.0f, 0.0f, -10.0f});
+        level.world().get<kuge::Hitboxes>(runner).parts.resize(1);
+        level.world().get<kuge::Hitboxes>(runner).parts[0] = {"body", kuge::Hitbox::Shape::Sphere, {0.5f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, "", 1.0f};
+    });
+
+    history.keep<kuge::Transform3D>();
+    for (std::uint32_t tick = 1; tick <= 20; ++tick) {
+        sim.world().get<kuge::Transform3D>(runner).translation.x = 10.0f * static_cast<float>(tick) / 60.0f;
+        history.record(sim.world(), tick);
+    }
+    sim.ticks(1);
+    // Now (tick 20) it is at x = 3.33. Six ticks (100 ms) ago it was at 2.33.
+    std::optional<kuge::HitboxHit3D> now = sim.physics().raycastHitboxes(sim.world(), {2.33f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
+
+    Assert(!now, "without the rewind the ray at x = 2.33 misses: the runner is 1 m further");
+    std::optional<kuge::HitboxHit3D> then;
+
+    history.rewound(sim.world(), 14.0, [&](const kuge::WorldHistory::Rewound& past) {
+        then = sim.physics().raycastHitboxes(sim.world(), {2.33f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f, 0xFFFFFFFFu,
+            [&](kw::Entity e) { return !past.existed(e); });
+    });
+    Assert(then && then->entity == runner, "with the rewind it hits");
+    Assert(std::fabs(sim.world().get<kuge::Transform3D>(runner).translation.x - 3.3333f) < 1e-3f, "and the runner is back where it is");
 }
