@@ -30,16 +30,16 @@ Test(shoot, the_part_that_was_hit)
     Sim sim([&](Level& level) { target = player(level.world(), {0.0f, 0.0f, -10.0f}); });
 
     sim.ticks(1);
-    const auto head = sim.physics().shoot(sim.world(), {0.0f, 1.65f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
-    const auto body = sim.physics().shoot(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
-    const auto legs = sim.physics().shoot(sim.world(), {0.0f, 0.3f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
+    const auto head = sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.65f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
+    const auto body = sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
+    const auto legs = sim.physics().raycastHitboxes(sim.world(), {0.0f, 0.3f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
 
-    Assert(head && head->entity == target && head->hitbox == 0 && head->damageScale == 2.0f, "the head");
+    Assert(head && head->entity == target && head->hitbox == 0 && head->weight == 2.0f, "the head");
     Assert(near(head->distance, 9.85f, 0.01f) && near(head->point.z, -9.85f, 0.01f) && head->normal.z > 0.9f, "10 m off, 15 cm of head: %f", head->distance);
-    Assert(body && body->hitbox == 1 && body->damageScale == 1.0f && near(body->distance, 9.7f, 0.01f), "the body");
-    Assert(legs && legs->hitbox == 2 && legs->damageScale == 0.5f && near(legs->distance, 9.85f, 0.01f), "the legs (a box)");
-    Assert(!sim.physics().shoot(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 50.0f), "behind the shooter: nothing");
-    Assert(!sim.physics().shoot(sim.world(), {1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f), "a miss, by a meter");
+    Assert(body && body->hitbox == 1 && body->weight == 1.0f && near(body->distance, 9.7f, 0.01f), "the body");
+    Assert(legs && legs->hitbox == 2 && legs->weight == 0.5f && near(legs->distance, 9.85f, 0.01f), "the legs (a box)");
+    Assert(!sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 50.0f), "behind the shooter: nothing");
+    Assert(!sim.physics().raycastHitboxes(sim.world(), {1.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f), "a miss, by a meter");
 }
 
 Test(shoot, from_above_the_head_first)
@@ -47,7 +47,7 @@ Test(shoot, from_above_the_head_first)
     Sim sim([&](Level& level) { player(level.world(), {0.0f, 0.0f, -10.0f}); });
 
     sim.ticks(1);
-    const auto hit = sim.physics().shoot(sim.world(), {0.0f, 5.0f, -10.0f}, {0.0f, -1.0f, 0.0f}, 50.0f);
+    const auto hit = sim.physics().raycastHitboxes(sim.world(), {0.0f, 5.0f, -10.0f}, {0.0f, -1.0f, 0.0f}, 50.0f);
 
     Assert(hit && hit->hitbox == 0, "coming from above, the head is before the body");
     Assert(near(hit->point.y, 1.8f, 0.01f) && hit->normal.y > 0.9f, "on its top: y = %f", hit->point.y);
@@ -63,14 +63,14 @@ Test(shoot, a_wall_hides_the_target)
     });
 
     sim.ticks(1);
-    const auto hit = sim.physics().shoot(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
+    const auto hit = sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
 
     Assert(hit && hit->entity == wallEntity && hit->hitbox == -1 && near(hit->distance, 4.75f, 0.01f), "the wall is hit, not the player behind it");
-    const auto through = sim.physics().shoot(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f, 0xFFFFFFFFu,
+    const auto through = sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f, 0xFFFFFFFFu,
         [&](kw::Entity e) { return e == wallEntity; });
 
     Assert(through && through->entity == target, "unless the game lets shots through this wall (the filter)");
-    const auto short_ = sim.physics().shoot(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 3.0f);
+    const auto short_ = sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 3.0f);
 
     Assert(!short_, "the range is respected");
 }
@@ -80,8 +80,8 @@ Test(shoot, far_and_inside)
     Sim sim([&](Level& level) { player(level.world(), {0.0f, 0.0f, -200.0f}); });
 
     sim.ticks(1);
-    Assert(sim.physics().shoot(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 300.0f), "a shot at 200 m");
-    Assert(!sim.physics().shoot(sim.world(), {0.0f, 1.0f, -200.0f}, {0.0f, 0.0f, -1.0f}, 300.0f), "from inside the player: nothing (the shooter is not in his own way)");
+    Assert(sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 300.0f), "a shot at 200 m");
+    Assert(!sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.0f, -200.0f}, {0.0f, 0.0f, -1.0f}, 300.0f), "from inside the player: nothing (the shooter is not in his own way)");
 }
 
 Test(shoot, parts_follow_bones_and_turns)
@@ -97,17 +97,17 @@ Test(shoot, parts_follow_bones_and_turns)
     });
 
     sim.ticks(1);
-    Assert(sim.physics().shoot(sim.world(), {0.0f, 1.65f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f)->hitbox == 0, "the head is where its bone is");
+    Assert(sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.65f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f)->hitbox == 0, "the head is where its bone is");
     sim.world().get<kuge::Hitboxes>(target).bones[0].translation = {0.5f, 1.65f, 0.0f};   // leans to the side: the animation moved it
-    Assert(!sim.physics().shoot(sim.world(), {0.0f, 1.65f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f), "the bone moved: a shot at the old place misses");
-    const auto leaned = sim.physics().shoot(sim.world(), {0.5f, 1.65f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
+    Assert(!sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.65f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f), "the bone moved: a shot at the old place misses");
+    const auto leaned = sim.physics().raycastHitboxes(sim.world(), {0.5f, 1.65f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
 
     Assert(leaned && leaned->hitbox == 0, "and a shot at the new one hits the head");
     // The whole entity turned a quarter around y, and scaled: the offset turns and stretches with it
     sim.world().get<kuge::Hitboxes>(target).parts[0].bone.clear();
     sim.world().get<kuge::Hitboxes>(target).parts[0].offset = {-1.0f, 1.0f, 0.0f};
     sim.world().get<kuge::Transform3D>(target).rotation = kuge::axisAngle({0.0f, 1.0f, 0.0f}, 1.5707963f);
-    const auto turned = sim.physics().shoot(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
+    const auto turned = sim.physics().raycastHitboxes(sim.world(), {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, 50.0f);
 
     Assert(turned && turned->hitbox == 0, "an offset of -x, turned a quarter around y, is 1 m toward the shooter: the head is in front of the body: %d", turned ? turned->hitbox : -2);
 }

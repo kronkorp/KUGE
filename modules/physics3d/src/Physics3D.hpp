@@ -41,11 +41,11 @@ namespace kuge
     //! Which entities a question skips: return true to skip one
     using EntityFilter = std::function<bool(kw::Entity)>;
 
-    //! What a shot hit: the first wall or body, or a part (a Hitbox) of an entity that has Hitboxes
-    struct ShotHit3D : RaycastHit3D
+    //! What a ray hit: the first wall or body, or a part (a Hitbox) of an entity that has Hitboxes
+    struct HitboxHit3D : RaycastHit3D
     {
         int   hitbox = -1;          //!< The index in Hitboxes::parts of the part that was hit; -1: not a hitbox (a wall, a body)
-        float damageScale = 1.0f;   //!< Of that part (1 for a wall)
+        float weight = 1.0f;        //!< Of that part, as the game gave it (1 for a wall). The engine does not use it.
     };
 
     //! What a character wants to do during a tick (see Physics3D::moveCharacter())
@@ -93,7 +93,7 @@ namespace kuge
 
             //! The first thing a ray meets
             //! @param direction  any length but 0
-            //! @param ignore  Entities to look through (a wall that lets a shot pass, the shooter); none: all count
+            //! @param ignore  Entities to look through (a wall that lets a ray pass, the one who casts it); none: all count
             std::optional<RaycastHit3D> raycast(k3::Math::Vector3f origin, k3::Math::Vector3f direction, float maxDistance,
                 std::uint32_t mask = 0xFFFFFFFFu, bool triggers = false, const EntityFilter& ignore = {}) const;
 
@@ -103,11 +103,11 @@ namespace kuge
             std::optional<RaycastHit3D> sweepCapsule(k3::Math::Vector3f origin, k3::Math::Vector3f direction, float maxDistance,
                 float radius, float height, std::uint32_t mask = 0xFFFFFFFFu, bool triggers = false, const EntityFilter& ignore = {}) const;
 
-            //! A hitscan shot: the first thing a ray meets among the walls and bodies **and** the Hitboxes of the entities
+            //! A ray: the first thing it meets among the walls and bodies **and** the Hitboxes of the entities
             //! of the world (the part that was hit and its damage scale). An entity that has Hitboxes is only hit
             //! through them, not through its Collider3D. Ties go to the lowest entity. Parts are placed by the Transform3D of
-            //! their entity (and its bones): the same as when the shooter fired, if the room kept that world (ticket 026).
-            std::optional<ShotHit3D> shoot(kw::World& world, k3::Math::Vector3f origin, k3::Math::Vector3f direction, float maxDistance,
+            //! their entity (and its bones): the same as when the ray was cast, if the room kept that world (ticket 026).
+            std::optional<HitboxHit3D> raycastHitboxes(kw::World& world, k3::Math::Vector3f origin, k3::Math::Vector3f direction, float maxDistance,
                 std::uint32_t mask = 0xFFFFFFFFu, const EntityFilter& ignore = {}) const;
 
             //! Moves a character (an entity with a Transform3D and a Character3D): walks it by the wish, slides it along

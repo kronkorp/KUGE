@@ -268,14 +268,16 @@ the gravity of the physics, jumps at `jumpSpeed` from the ground, and crouches t
 there is room** (`crouching` stays true under a ceiling). It does not tunnel at 100 m/s. It sees the world as the last `step()` left
 it, and the same inputs on the same world give the same positions on one machine. `wish` is a speed on the ground, x and z only.
 
-### Shots and sweeps
+### Rays through hitboxes, and sweeps
 
-`physics.shoot(world, origin, direction, maxDistance, mask, ignore)` is a hitscan: the first of the walls and bodies **and** the
-parts of the entities that have a `Hitboxes` component, with the entity, the point, the normal, the distance, the **index of the part**
-(`hitbox`) and its `damageScale`. Each `Hitbox` is a box, sphere or capsule with an `offset` from the entity, a name and a damage scale
-(a head is worth double); an entity with `Hitboxes` is only hit through them. A part that names a `bone` is placed at that bone's
-`BonePlace` (in `Hitboxes::bones`, which the animation writes when the room samples the pose, see `kuge-animation`). The `ignore`
-filter lets a shot through an entity (the shooter, a window). A ray that starts inside a part does not hit it.
+`physics.raycastHitboxes(world, origin, direction, maxDistance, mask, ignore)` is a ray that also sees the parts of bodies: the first of
+the walls and bodies **and** the parts of the entities that have a `Hitboxes` component, with the entity, the point, the normal, the
+distance, the **index of the part** (`hitbox`) and its `weight`. Each `Hitbox` is a box, sphere or capsule with an `offset` from the
+entity, a name and a `weight`; an entity with `Hitboxes` is only hit through them. **The engine does not know what a hit is worth**: `weight` is
+a number the game gave and reads back (a game of guns can make it a damage multiplier, 2 for a head; another can make it points or
+nothing), and a ray is not a shot: ammunition, cadence, damage and who is hurt are the game's. A part that names a `bone` is placed at that
+bone's `BonePlace` (in `Hitboxes::bones`, which the animation writes when the room samples the pose, see `kuge-animation`). The `ignore`
+filter lets the ray through an entity (the one who casts it, a window). A ray that starts inside a part does not hit it.
 
 `physics.sweepCapsule(center, direction, maxDistance, radius, height)` slides a capsule along a line and says how far it went before
 touching something, and the normal of what stopped it (a ground check, a ledge test). `raycast` takes the same `ignore` filter.

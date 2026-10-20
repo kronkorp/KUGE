@@ -126,11 +126,12 @@ namespace kuge
 
     ////////////////////////////////////////////////////////////////////////////
     /**
-     * @brief  A part of a body that a shot can hit, with its own value (a component of many)
+     * @brief  A part of a body that a ray can hit, with a number of the game's (a component of many)
      *
-     * A head, a body and legs are three hitboxes of one player: a ray that hits the head is worth more
-     * (`damageScale`). The room reads the part that was hit (Physics3D::shoot()); the client never decides.
-     * A part is placed from the entity, or from one of its bones (`bone`, see Hitboxes::bones).
+     * A head, a body and legs are three hitboxes of one player. The engine finds which part a ray hits
+     * (Physics3D::raycastHitboxes()) and says what it is worth to the game (`weight`); what that means (damage,
+     * points, nothing) is the game's, and the engine never reads it. A part is placed from the entity, or from one of
+     * its bones (`bone`, see Hitboxes::bones).
      */
     ////////////////////////////////////////////////////////////////////////////
     struct Hitbox
@@ -144,7 +145,7 @@ namespace kuge
         k3::Math::Vector3f size{0.3f, 1.0f, 0.3f};
         k3::Math::Vector3f offset{};                      //!< From the entity (or from its bone), in the space of the entity
         std::string        bone;                          //!< A name in Hitboxes::bones; empty: follows the entity
-        float              damageScale = 1.0f;            //!< 2 for a head, 0.5 for a leg
+        float              weight = 1.0f;            //!< A number for the game to read: 2 for a head, 0.5 for a leg, if it means damage
     };
 
     //! Where a bone is, in the space of the entity: what the animation (kuge-animation) writes, when the room samples the pose
@@ -155,7 +156,7 @@ namespace kuge
         k3::Math::Vector4f rotation{0.0f, 0.0f, 0.0f, 1.0f};   //!< Unit quaternion x y z w
     };
 
-    //! The parts of an entity that a shot can hit (with a Transform3D), in the order the game gave them: the index of the
+    //! The parts of an entity that a ray can hit (with a Transform3D), in the order the game gave them: the index of the
     //! part that was hit is the index in `parts`
     struct Hitboxes
     {

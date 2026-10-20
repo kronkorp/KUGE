@@ -238,7 +238,7 @@ Test(graph, hitboxes_follow_the_pose)
     engine.step(1.0 / 60.0);
     auto& physics = world.getResource<kuge::Physics3D>();
     const auto shootAt = [&](float height) {
-        return physics.shoot(world, {0.0f, height, 5.0f}, {0.0f, 0.0f, -1.0f}, 20.0f);
+        return physics.raycastHitboxes(world, {0.0f, height, 5.0f}, {0.0f, 0.0f, -1.0f}, 20.0f);
     };
 
     graph.update(0.0f);
