@@ -177,11 +177,38 @@ The dummy backend does the same, so a test can follow it.
 ```cpp
 auto boom = client.sounds().load("boom.wav");
 
-audio.play(*boom, {.volume = 0.8f});                         // {.volume, .pan, .loop}
+audio.play(*boom, {.volume = 0.8f});                         // {.volume, .pan, .loop, .lowpass, .bus, .priority}
 audio.playAt(*boom, enemyPosition, {.position = cameraPos}); // louder when near, panned by where it is
-audio.setBusVolume(kuge::Bus::Music, 0.4f);                  // Effects and Music, under the master volume
+audio.setBusVolume(kuge::Bus::Music, 0.4f);                  // Effects, Music and Dialogue, under the master volume
 audio.playMusic(*theme, {.fadeIn = 2.0f});
 ```
+
+The volume heard is the master volume, times the one of the **bus**, times the one of the sound. Three buses, three sliders
+for the player: `Effects`, `Music` and `Dialogue` (spoken lines). A voice is on the bus of its options (`{.bus = kuge::Bus::Dialogue}`),
+so `playAt` and the 3D `playAt` take it too: a character who speaks from the left is heard on the left, at the volume of the dialogue.
+
+**A line must not be lost to a flood of effects.** The mixer has 32 voices; `audio.reserveVoices(kuge::Bus::Dialogue, 2)` (once, at
+the start) keeps two of them for the dialogue. Effects never take them; when both are busy a third line is not played (an empty
+`Voice`), unless it has a higher `priority` than one that plays, which it replaces.
+
+**Priority.** When all the voices are busy, a new sound takes the place of a playing one of lower priority, or of the same priority
+that is quieter, never of a higher one: a shot of the player (`priority = 5`) is not lost to a far footstep, and with 40 sounds at
+once the nearest are kept. The default priority is 0, so a game that sets none still keeps the loudest.
+
+**Ducking.** `audio.setDucking(0.3f, 0.2f)`: while a line of the dialogue plays, the music is multiplied by 0.3, getting there and coming
+back over 0.2 s. The slider of the player is not touched. The client calls `audio.update(seconds)` once per loop; a test calls it itself.
+
+**Streams.** Samples that arrive while they are played, a voice from the network or a synthesiser: one stream per speaker.
+
+```cpp
+auto speaker = audio.createStream(48000, 1);                 // 1 or 2 channels, 16 bits, interleaved
+speaker->push(frames);                                       // as they arrive (it holds 5 seconds)
+audio.play(*speaker, {.bus = kuge::Bus::Dialogue});          // once a few frames wait: a jitter buffer
+```
+
+It plays what it has, resampled to the mixer's rate, and the voice **ends when nothing is left** (play it again after pushing more:
+that is the "stop when frames stop" of a voice chat). Recording a microphone, a codec and relaying voice frames over the network are not
+there yet (ticket 014).
 
 ## Text and UI
 

@@ -118,7 +118,7 @@ Test(audio3d, near_far_left_right)
     const auto ahead = kuge::spatialize({10.0f, 2.0f, 0.0f}, ears);
     const auto behind = kuge::spatialize({10.0f, 2.0f, 20.0f}, ears);
 
-    Assert(ahead.pan == 0.0f && behind.pan == 0.0f && ahead.volume == behind.volume, "ahead and behind sound the same: it is the side that pans");
+    Assert(ahead.pan == 0.0f && behind.pan == 0.0f, "ahead and behind are both in the middle: it is the side that pans");
     Assert(kuge::spatialize({10.0f, 2.0f, -40.0f}, ears).volume == 0.0f, "beyond the range, nothing");
     Assert(kuge::spatialize({10.0f, 2.0f, -10.0f}, ears).volume < kuge::spatialize({10.0f, 2.0f, 5.0f}, ears).volume, "farther is quieter");
 
@@ -135,4 +135,68 @@ Test(audio3d, near_far_left_right)
     AssertEq(backend.activeVoices(), 1u, "one voice");
     Assert(!kuge::playAt(audio, sound, {10.0f, 2.0f, -100.0f}, ears), "out of hearing: no voice");
     AssertEq(backend.activeVoices(), 1u, "and no voice was taken");
+}
+
+Test(audio3d, behind_is_quieter)
+{
+    k3::Camera camera;
+
+    camera.position = {0.0f, 0.0f, 0.0f};
+    camera.lookAt({0.0f, 0.0f, -1.0f});
+    const auto ears = kuge::listenerOf(camera, 40.0f, 10.0f);
+    const auto ahead = kuge::spatialize({0.0f, 0.0f, -10.0f}, ears);
+    const auto behind = kuge::spatialize({0.0f, 0.0f, 10.0f}, ears);
+    const auto aside = kuge::spatialize({10.0f, 0.0f, 0.0f}, ears);
+
+    Assert(ahead.lowpass > behind.lowpass + 0.2f, "behind is muffled: %f against %f", behind.lowpass, ahead.lowpass);
+    Assert(ahead.volume > behind.volume, "and quieter");
+    Assert(aside.lowpass == ahead.lowpass && aside.volume == ahead.volume, "at the side it is as ahead (only the pan changes)");
+    Assert(kuge::spatialize({0.0f, 0.0f, -35.0f}, ears).lowpass < ahead.lowpass, "what is far loses its highs too");
+    Assert(kuge::spatialize({0.0f, 0.0f, 0.0f}, ears).lowpass == 1.0f, "on the spot nothing is cut");
+}
+
+Test(audio3d, a_wall_muffles)
+{
+    k3::Camera camera;
+
+    camera.position = {0.0f, 0.0f, 0.0f};
+    camera.lookAt({0.0f, 0.0f, -1.0f});
+    const auto ears = kuge::listenerOf(camera, 40.0f, 10.0f);
+    const k3::Math::Vector3f source{0.0f, 0.0f, -10.0f};
+    const auto clear = kuge::spatialize(source, ears);
+    const auto walled = kuge::spatialize(source, ears, 1.0f);
+    const auto half = kuge::spatialize(source, ears, 0.5f);
+
+    Assert(walled.volume < clear.volume * 0.6f && walled.lowpass < clear.lowpass * 0.4f, "behind a wall: half as loud and muffled");
+    Assert(half.volume < clear.volume && half.volume > walled.volume && half.lowpass > walled.lowpass, "half a wall is half");
+    Assert(kuge::spatialize(source, ears, 9.0f).volume == walled.volume, "occlusion is kept between 0 and 1");
+}
+
+Test(audio3d, curve_and_a_moving_source)
+{
+    const render3d::Folder folder("audio3d_move");
+    const auto file = folder.write("beep.wav", "not a sound: the dummy only looks that it is there");
+    kuge::DummyAudio backend;
+    kuge::Audio audio(backend);
+    const kuge::Sound sound(backend, backend.loadSound(file));
+    k3::Camera camera;
+
+    camera.position = {0.0f, 0.0f, 0.0f};
+    camera.lookAt({0.0f, 0.0f, -1.0f});
+    auto ears = kuge::listenerOf(camera, 40.0f, 10.0f);
+    const k3::Math::Vector3f halfway{0.0f, 0.0f, -20.0f};
+
+    Assert(std::fabs(kuge::spatialize(halfway, ears).volume - 0.5f) < 0.02f, "a straight line: half the range, half the volume");
+    ears.curve = 2.0f;
+    Assert(std::fabs(kuge::spatialize(halfway, ears).volume - 0.25f) < 0.02f, "a curve of 2 falls faster");
+
+    ears.curve = 1.0f;
+    const auto voice = kuge::playAt(audio, sound, {0.0f, 0.0f, -10.0f}, ears, {.volume = 0.8f, .lowpass = 0.9f});
+
+    Assert(voice && backend.voice(voice.id)->lowpass < 0.9f && backend.voice(voice.id)->lowpass > 0.7f, "played muffled by the distance: %f", backend.voice(voice.id)->lowpass);
+    const float before = backend.voice(voice.id)->volume;
+
+    Assert(kuge::moveVoice(audio, voice, {0.0f, 0.0f, -30.0f}, ears, 0.8f), "it moved away, still heard");
+    Assert(backend.voice(voice.id)->volume < before, "and quieter");
+    Assert(!kuge::moveVoice(audio, voice, {0.0f, 0.0f, -90.0f}, ears, 0.8f) && backend.voice(voice.id)->volume == 0.0f, "out of range: silent");
 }

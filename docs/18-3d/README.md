@@ -156,10 +156,19 @@ middle of the window). A game should let the player free the mouse (Arena: Esc g
 
 ## Sounds and particles
 
-A sound that comes from a place in 3D: `listenerOf(camera)` gives the ears (where they are, which way is right, how far a
-sound reaches), `spatialize(source, ears)` says what is heard (the volume falls from 1 to 0 at the end of the range, the pan is
-how far to the right the source is: ahead and behind sound the same), and `playAt(audio, sound, source, ears, options)` plays
+A sound that comes from a place in 3D: `listenerOf(camera)` gives the ears (where they are, which way is right and forward, how far a
+sound reaches), `spatialize(source, ears, occlusion)` says what is heard, and `playAt(audio, sound, source, ears, options, occlusion)` plays
 it, or takes no voice if it is out of hearing.
+
+What is heard: the volume falls from 1 to 0 at the end of the range (`ears.curve`: 1 evenly, 2 faster), the pan is how far to the right
+the source is, and the **highs are cut** (a low-pass, `Spatial::lowpass`) for what is far away, **behind the listener** (a fifth quieter
+and half way muffled when it is right behind) or **behind a wall**. The wall is the game's to find: `occlusion` is 0 to 1, and a raycast
+of the physics from the ears to the source gives it (a hit is 1). The numbers are first guesses, to be heard and tuned.
+
+A sound that moves, or ears that turn: `moveVoice(audio, voice, source, ears, volume, occlusion)` each frame. The bus, the priority and
+the reserved voices of [05](../05-the-client/README.md) apply: a spoken line from a character in the world is attenuated, panned and
+muffled like any other source. The mixer is SDL_mixer: the filter is an effect registered on the channel of the voice, so there was no
+need for another audio library; there is no head model (HRTF) and no reverb.
 
 `Particles3D` is a resource of every scene; `ModelRender` moves its particles by the time of the frame and draws them, as soft
 round quads that face the camera (kronk3d's `BillboardBatch`), fading as they age:

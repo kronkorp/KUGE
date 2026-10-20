@@ -230,3 +230,177 @@ Test(audio, no_sound_no_problem)
     Assert(engine.step(1.0 / 60.0), "and goes on");
     sound.reset();
 }
+
+Test(audio, dialogue_bus_is_apart)
+{
+    Studio studio;
+    const auto line = studio.mixer.play(studio.sound, {.volume = 0.8f, .bus = kuge::Bus::Dialogue});
+    const auto effect = studio.mixer.play(studio.sound, {.volume = 0.8f});
+
+    studio.mixer.setMasterVolume(0.5f);
+    studio.mixer.setBusVolume(kuge::Bus::Dialogue, 0.5f);
+    Assert(near(studio.audio.voice(line.id)->volume, 0.2f), "master x dialogue x the line: %f", studio.audio.voice(line.id)->volume);
+    Assert(near(studio.audio.voice(effect.id)->volume, 0.4f), "an effect is not touched by the dialogue bus");
+    studio.mixer.setBusVolume(kuge::Bus::Effects, 0.0f);
+    Assert(near(studio.audio.voice(line.id)->volume, 0.2f), "and the effects bus does not touch the line");
+    Assert(near(studio.audio.voice(effect.id)->volume, 0.0f), "it silences the effect");
+    studio.mixer.setBusVolume(kuge::Bus::Dialogue, 0.0f);
+    Assert(near(studio.audio.voice(line.id)->volume, 0.0f), "the dialogue bus silences the line");
+}
+
+Test(audio, dialogue_voices_are_reserved)
+{
+    Studio studio;
+
+    studio.audio.setMaxVoices(8);
+    studio.mixer.reserveVoices(kuge::Bus::Dialogue, 2);
+    int effects = 0;
+
+    while (studio.mixer.play(studio.sound, {.loop = true})) {
+        ++effects;
+    }
+    AssertEq(effects, 6, "the effects fill what is not reserved (got %d)", effects);
+    Assert(studio.mixer.play(studio.sound, {.loop = true, .bus = kuge::Bus::Dialogue}), "a line still plays");
+    Assert(studio.mixer.play(studio.sound, {.loop = true, .bus = kuge::Bus::Dialogue}), "and a second one");
+    Assert(!studio.mixer.play(studio.sound, {.loop = true, .bus = kuge::Bus::Dialogue}), "a third does not: an empty voice");
+    bool threw = false;
+
+    try { studio.mixer.reserveVoices(kuge::Bus::Effects, 1); } catch (const std::invalid_argument&) { threw = true; }
+    Assert(threw, "only the dialogue has reserved voices");
+}
+
+Test(audio, dialogue_without_reserve)
+{
+    Studio studio;
+
+    studio.audio.setMaxVoices(2);
+    Assert(studio.mixer.play(studio.sound, {.loop = true}) && studio.mixer.play(studio.sound, {.loop = true}), "two effects");
+    Assert(!studio.mixer.play(studio.sound, {.bus = kuge::Bus::Dialogue}), "with no reserve a line has no more room than an effect");
+}
+
+Test(audio, dialogue_ducks_the_music)
+{
+    Studio studio;
+
+    studio.mixer.playMusic(studio.music, {.volume = 1.0f});
+    studio.mixer.setBusVolume(kuge::Bus::Music, 0.8f);
+    studio.mixer.setDucking(0.5f, 0.2f);
+    studio.mixer.update(0.1);
+    Assert(near(studio.audio.music().volume, 0.8f), "nothing speaks: no ducking");
+    const auto line = studio.mixer.play(studio.sound, {.bus = kuge::Bus::Dialogue});
+
+    studio.mixer.update(0.1);
+    Assert(near(studio.audio.music().volume, 0.8f * 0.75f), "half way after 0.1 s of 0.2: %f", studio.audio.music().volume);
+    studio.mixer.update(0.5);
+    Assert(near(studio.audio.music().volume, 0.4f), "0.5 x the player's 0.8: %f", studio.audio.music().volume);
+    AssertEq(studio.mixer.busVolume(kuge::Bus::Music), 0.8f, "the slider of the player is not touched");
+    studio.audio.finish(line.id);
+    studio.mixer.update(0.1);
+    Assert(near(studio.audio.music().volume, 0.6f), "the line is over: back up, %f", studio.audio.music().volume);
+    studio.mixer.update(0.2);
+    Assert(near(studio.audio.music().volume, 0.8f), "all the way");
+    studio.mixer.playMusic(studio.music, {.volume = 1.0f});
+    Assert(near(studio.audio.music().volume, 0.8f), "a new music starts at the volume of the moment");
+}
+
+Test(audio, a_line_at_a_place)
+{
+    Studio studio;
+    const kuge::Listener ears{.position = {0.0f, 0.0f}, .range = 100.0f, .panWidth = 50.0f};
+
+    studio.audio.setMaxVoices(4);
+    studio.mixer.reserveVoices(kuge::Bus::Dialogue, 1);
+    studio.mixer.setBusVolume(kuge::Bus::Dialogue, 0.5f);
+    const auto line = studio.mixer.playAt(studio.sound, {-25.0f, 0.0f}, ears, {.bus = kuge::Bus::Dialogue});
+
+    Assert(line, "it plays");
+    Assert(near(studio.audio.voice(line.id)->volume, 0.375f), "attenuated by the distance and the dialogue bus: %f", studio.audio.voice(line.id)->volume);
+    Assert(near(studio.audio.voice(line.id)->pan, -0.5f), "on the left");
+    Assert(studio.audio.voice(line.id)->reserved, "on a reserved voice");
+}
+
+Test(audio, important_sounds_stay)
+{
+    Studio studio;
+
+    studio.audio.setMaxVoices(2);
+    const auto first = studio.mixer.play(studio.sound, {.volume = 0.5f, .loop = true});
+    const auto second = studio.mixer.play(studio.sound, {.volume = 0.7f, .loop = true});
+
+    Assert(!studio.mixer.play(studio.sound, {.volume = 0.3f}), "quieter, same priority: it is the one lost");
+    Assert(!studio.mixer.play(studio.sound, {.volume = 0.5f}), "as loud: it is the one lost");
+    const auto louder = studio.mixer.play(studio.sound, {.volume = 0.9f, .loop = true});
+
+    Assert(louder && !studio.audio.playing(first.id) && studio.audio.playing(second.id), "louder: it takes the place of the quietest");
+    const auto shot = studio.mixer.play(studio.sound, {.volume = 0.1f, .loop = true, .priority = 5});
+
+    Assert(shot && !studio.audio.playing(second.id), "a higher priority wins even if it is quieter: it takes the quietest of the others");
+    const auto late = studio.mixer.play(studio.sound, {.volume = 1.0f, .priority = 1});
+
+    Assert(late && studio.audio.playing(shot.id), "it never takes a voice of a higher priority");
+    Assert(studio.mixer.voices() == 2, "and the count stays right");
+}
+
+Test(audio, nearest_sounds_are_kept)
+{
+    Studio studio;
+    const kuge::Listener ears{.position = {0.0f, 0.0f}, .range = 1000.0f};
+    std::vector<kuge::Voice> voices;
+
+    for (int i = 0; i < 40; ++i) {
+        // From the farthest to the nearest
+        voices.push_back(studio.mixer.playAt(studio.sound, {900.0f - 20.0f * static_cast<float>(i), 0.0f}, ears, {.loop = true}));
+    }
+    int kept = 0;
+
+    for (int i = 0; i < 40; ++i) {
+        kept += studio.mixer.playing(voices[static_cast<std::size_t>(i)]) ? 1 : 0;
+        Assert(studio.mixer.playing(voices[static_cast<std::size_t>(i)]) == (i >= 8), "voice %d (the farthest first): kept only if one of the 32 nearest", i);
+    }
+    AssertEq(kept, 32, "32 voices, the nearest (got %d)", kept);
+}
+
+Test(audio, a_voice_can_be_muffled)
+{
+    Studio studio;
+    const auto voice = studio.mixer.play(studio.sound, {.lowpass = 0.4f});
+
+    Assert(near(studio.audio.voice(voice.id)->lowpass, 0.4f), "it starts muffled");
+    studio.mixer.setVoice(voice, 1.0f, 0.0f, 0.1f);
+    Assert(near(studio.audio.voice(voice.id)->lowpass, 0.1f), "and follows a moving source");
+    studio.mixer.setVoice(voice, 1.0f, 0.0f, 9.0f);
+    Assert(near(studio.audio.voice(voice.id)->lowpass, 1.0f), "kept in range");
+    const auto plain = studio.mixer.play(studio.sound);
+
+    Assert(near(studio.audio.voice(plain.id)->lowpass, 1.0f), "by default it is not touched");
+}
+
+Test(audio, a_stream_plays_what_comes)
+{
+    Studio studio;
+    auto stream = studio.mixer.createStream(16000, 1);
+    const std::int16_t frame[160] = {};
+
+    Assert(!studio.mixer.play(*stream), "nothing to play yet: an empty voice");
+    stream->push(frame);
+    stream->push(frame);
+    AssertEq(stream->buffered(), 320, "two frames of 10 ms are waiting (got %zu)", stream->buffered());
+    studio.mixer.reserveVoices(kuge::Bus::Dialogue, 1);
+    studio.mixer.setBusVolume(kuge::Bus::Dialogue, 0.5f);
+    const auto voice = studio.mixer.play(*stream, {.volume = 0.8f, .bus = kuge::Bus::Dialogue});
+
+    Assert(voice && studio.mixer.playing(voice), "it plays");
+    Assert(near(studio.audio.voice(voice.id)->volume, 0.4f) && studio.audio.voice(voice.id)->reserved, "as a line of the dialogue");
+    studio.audio.consume(stream->id(), 200);
+    Assert(studio.mixer.playing(voice), "it goes on while there is something");
+    studio.audio.consume(stream->id(), 200);
+    Assert(!studio.mixer.playing(voice), "and ends when it has nothing left");
+    studio.mixer.update();
+    Assert(studio.mixer.voices() == 0, "the mixer forgets it");
+    stream->push(frame);
+    Assert(studio.mixer.play(*stream), "and it can be played again");
+    bool refused = false;
+
+    try { studio.mixer.createStream(0, 1); } catch (const kuge::AudioError&) { refused = true; }
+    Assert(refused, "a stream with no rate is not one");
+}
