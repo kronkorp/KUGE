@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Loopback.hpp"
 #include "Reliable.hpp"
 #include "Transport.hpp"
 #include "Wire.hpp"
@@ -16,6 +17,8 @@
 
 namespace kuge::net
 {
+
+    class SimulatedTransport;
 
     enum class Role : std::uint8_t { Server, Client };
 
@@ -46,6 +49,8 @@ namespace kuge::net
         double                       cookieWindow   = 8.0;   //!< Server: how long the cookie of a challenge is good (it is accepted for this long and as long again)
         std::uint16_t                protocol       = 2;     //!< Version of what is said: both sides must have the same (a game sets its own; 2: KUGE's handshake and matchmaking of this version)
         ReliableChannel::Config      reliable;
+        //! Try the endpoint against a bad network, on any transport (see SimulatedTransport). Each packet, in each direction.
+        std::optional<LoopbackNetwork::Conditions> simulate;
     };
 
     struct EndpointStats
@@ -175,6 +180,10 @@ namespace kuge::net
             EndpointStats         stats(void) const;
             ITransport&           transport(void) noexcept { return *m_transport; }
 
+            //! Puts the endpoint behind a simulated bad network, or lifts it (nothing). Takes effect for the packets that come next,
+            //! and can be changed while playing.
+            void setSimulation(const std::optional<LoopbackNetwork::Conditions>& conditions);
+
         private:
             enum class State : std::uint8_t { Connecting, Handshaking, Connected };
 
@@ -233,6 +242,7 @@ namespace kuge::net
             void runDeferred(void);
 
             std::unique_ptr<ITransport>                 m_transport;
+            SimulatedTransport*                         m_simulated = nullptr;   //!< m_transport, when it is one
             Role                                        m_role;
             EndpointConfig                              m_config;
             std::function<double(void)>                 m_clock;

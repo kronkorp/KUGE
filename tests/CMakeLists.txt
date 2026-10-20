@@ -134,6 +134,7 @@ add_executable(kuge_net_tests
     net/net_scene_test.cpp
     net/socket_test.cpp
     net/reliable_test.cpp
+    net/simulated_transport_test.cpp
     net/unreliable_network_test.cpp
     net/wire_test.cpp
 )

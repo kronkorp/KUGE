@@ -3,6 +3,7 @@
 #include "Chat.hpp"
 #include "ChatRelay.hpp"
 #include "Net.hpp"
+#include "NetMeter.hpp"
 #include "Scene.hpp"
 #include "ServerConfig.hpp"
 #include <map>
@@ -170,6 +171,8 @@ namespace kuge::server
             std::map<std::uint32_t, Player>          m_players;
             std::map<std::uint64_t, Expected>        m_expected;
             std::unique_ptr<ChatRelay>               m_chat;
+            net::NetMeter                            m_meter{5.0};
+            double                                   m_nextStats = 0.0;
             std::map<net::ConnectionId, double>      m_unknown;      //!< Connected, no hello yet: since when
             std::vector<WaitingHello>                m_waiting;      //!< Hello with a token the room may not know yet
             std::uint32_t                            m_nextNetworkId = 1;
