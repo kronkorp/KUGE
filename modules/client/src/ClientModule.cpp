@@ -107,14 +107,14 @@ void kuge::ClientModule::beginFrame(Engine& engine)
     m_backend.renderer->begin(m_config.clearColor);
 }
 
-void kuge::ClientModule::endFrame(Engine&)
+void kuge::ClientModule::endFrame(Engine& engine)
 {
     if (m_screenshotRequested) {
         m_screenshotRequested = false;
         m_screenshot = m_backend.renderer->readPixels();
     }
     m_backend.renderer->present();
-    m_mixer.update();
+    m_mixer.update(engine.time().frameDt);
 }
 
 std::size_t kuge::ClientModule::reloadAssets(void)
