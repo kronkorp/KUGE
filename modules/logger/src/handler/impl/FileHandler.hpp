@@ -12,4 +12,9 @@ public:
     {
         *this->m_streamHandler << level << timeToStr() << " >> " << message << std::endl;
     }
+
+    void handle(const LogRecord& record) override
+    {
+        *this->m_streamHandler << record.level << record.time << " >> " << lineText(record) << std::endl;
+    }
 };

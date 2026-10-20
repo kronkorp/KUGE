@@ -12,4 +12,10 @@ public:
     {
         *this->m_streamHandler << ColorToLevel(level) << level  << "\033[0m" << timeToStr() << " >> " << message << std::endl;
     }
+
+    void handle(const LogRecord& record) override
+    {
+        *this->m_streamHandler << ColorToLevel(record.level) << record.level << "\033[0m" << record.time << " >> "
+                               << lineText(record) << std::endl;
+    }
 };

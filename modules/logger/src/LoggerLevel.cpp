@@ -41,3 +41,4 @@ std::string timeToStr(void)
     ss << std::put_time(&localTime, "%Y-%m-%d %H:%M:%S");
     return ss.str();
 }
+

@@ -51,7 +51,7 @@ namespace kuge::server
                 m_endpoint = &network.listen(m_init.address, loopback, config);
             }
         } catch (const std::exception& error) {
-            Logger::logger().error("room {}: cannot listen: {}", m_init.roomId, error.what());
+            Logger::logger().category("server").error("room {}: cannot listen: {}", m_init.roomId, error.what());
             tellLobby(detail::RoomFailed{m_init.roomId, error.what()});
             m_ended = true;
             ctx().scenes().pop();
@@ -64,7 +64,7 @@ namespace kuge::server
         addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<RoomHousekeeping>(*this));
         onRoomEnter();
         tellLobby(detail::RoomReady{m_init.roomId});
-        Logger::logger().info("room {} ({}) is open", m_init.roomId, m_init.roomType);
+        Logger::logger().category("server").info("room {} ({}) is open", m_init.roomId, m_init.roomType);
     }
 
     void RoomScene::onExit(void)
@@ -82,7 +82,7 @@ namespace kuge::server
             }
             tellLobby(detail::RoomEnded{m_init.roomId, m_endReason});
         }
-        Logger::logger().info("room {} is closed", m_init.roomId);
+        Logger::logger().category("server").info("room {} is closed", m_init.roomId);
     }
 
     void RoomScene::onMessage(const Message& message)

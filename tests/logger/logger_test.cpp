@@ -3,6 +3,9 @@ extern "C" {
 }
 #include "Logger.hpp"
 #include <atomic>
+#include <filesystem>
+#include <fstream>
+#include <unistd.h>
 #include <set>
 #include <sstream>
 #include <thread>
@@ -156,4 +159,154 @@ Test(logger, changes_while_logging)
     for (const auto& line : linesOf(first->str())) {
         Assert(saidBy(line).rfind("thread ", 0) == 0, "no line is cut: '%s'", line.c_str());
     }
+}
+
+namespace
+{
+    struct Keeper : ILoggerHandler
+    {
+        std::vector<std::string> lines;
+
+        void log(LoggerLevel, const std::string& message) override { lines.push_back(message); }
+    };
+}
+
+Test(logger, handlers_come_and_go)
+{
+    Logger logger;
+    auto keeper = std::make_shared<Keeper>();
+    const auto id = logger.addHandler(keeper);
+
+    logger.setLevel(LoggerLevel::DEBUG);
+    logger.info("one");
+    Assert(id != 0 && keeper->lines.size() == 1 && keeper->lines[0] == "one", "a handler of the game gets the lines");
+    Assert(logger.removeHandler(id), "it goes");
+    logger.info("two");
+    AssertEq(keeper->lines.size(), 1u, "and gets no more");
+    Assert(!logger.removeHandler(id) && !logger.removeHandler(999), "removing it again, or one that is not there, says no");
+    Assert(logger.addHandler(nullptr) == 0, "no handler, no id");
+    auto out = std::make_shared<std::ostringstream>();
+
+    logger.registerHandler(out);   // (the old way still works)
+    logger.warn("old way");
+    AssertStrEq(saidBy(linesOf(out->str()).at(0)).c_str(), "old way", "registerHandler(ostream) still works");
+}
+
+Test(logger, ring_keeps_the_last)
+{
+    Logger logger;
+    auto ring = std::make_shared<RingLogHandler>(3);
+
+    logger.addHandler(ring);
+    logger.setLevel(LoggerLevel::DEBUG);
+    for (int i = 1; i <= 5; ++i) {
+        logger.info("line {}", i);
+    }
+    auto lines = ring->snapshot();
+
+    AssertEq(lines.size(), 3u, "only the last 3");
+    AssertStrEq(lines.front().record.text.c_str(), "line 3", "the oldest kept");
+    AssertEq(lines.back().id, 5u, "ids count every line ever");
+    Assert(lines.front().record.level == LoggerLevel::INFO && !lines.front().record.time.empty(), "with level and time");
+    logger.warn("line 6");
+    lines = ring->snapshot(5);
+    AssertEq(lines.size(), 1u, "since 5: only the new one");
+    AssertStrEq(lines[0].record.text.c_str(), "line 6", "it is line 6");
+    AssertEq(ring->snapshot(6).size(), 0u, "nothing newer");
+    AssertEq(ring->lastId(), 6u, "last id");
+}
+
+Test(logger, ring_with_many_threads)
+{
+    Logger logger;
+    auto ring = std::make_shared<RingLogHandler>(100000);
+    std::vector<std::thread> threads;
+
+    logger.addHandler(ring);
+    logger.setLevel(LoggerLevel::DEBUG);
+    for (int t = 0; t < THREADS; ++t) {
+        threads.emplace_back([&logger, &ring, t] {
+            std::uint64_t seen = 0;
+
+            for (int i = 0; i < LINES; ++i) {
+                logger.info("thread {} line {}", t, i);
+                if (i % 50 == 0) {   // a reader at the same time
+                    for (const auto& line : ring->snapshot(seen)) {
+                        seen = line.id;
+                    }
+                }
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    const auto lines = ring->snapshot();
+    std::set<std::string> said;
+
+    AssertEq(lines.size(), THREADS * LINES, "every line is there");
+    for (const auto& line : lines) {
+        said.insert(line.record.text);
+    }
+    AssertEq(said.size(), THREADS * LINES, "each one whole and once");
+}
+
+Test(logger, categories_have_levels)
+{
+    Logger logger;
+    auto out = std::make_shared<std::ostringstream>();
+    auto ring = std::make_shared<RingLogHandler>(10);
+    auto net = logger.category("net");
+    auto audio = logger.category("audio");
+
+    logger.registerHandler(out);
+    logger.addHandler(ring);
+    logger.setLevel(LoggerLevel::WARN);
+    net.debug("hidden: the logger says warn");
+    logger.setLevel("net", LoggerLevel::DEBUG);
+    net.debug("shown {}", 1);
+    audio.debug("hidden: audio follows the logger");
+    audio.warn("shown too");
+    logger.debug("hidden: the program's own level is warn");
+    logger.setLevel("net", LoggerLevel::ERROR);
+    net.warn("hidden: net is at error now");
+    logger.clearLevel("net");
+    net.warn("net follows the logger again");
+    const auto lines = ring->snapshot();
+
+    AssertEq(lines.size(), 3u, "three lines got through, got %zu", lines.size());
+    Assert(lines[0].record.category == "net" && lines[0].record.text == "shown 1", "the category and the text are apart");
+    AssertStrEq(saidBy(linesOf(out->str()).at(0)).c_str(), "[net] shown 1", "a stream shows the category first");
+    AssertStrEq(net.name().c_str(), "net", "a category knows its name");
+    Assert(logger.category("net").name() == "net", "asking again gives the same one");
+    logger.warn("no category");
+    AssertStrEq(ring->snapshot().back().record.category.c_str(), "", "the lines of the program have none");
+    logger.enable(false);
+    audio.error("off");
+    AssertEq(ring->snapshot().size(), 4u, "enable(false) silences the categories too");
+}
+
+Test(logger, files_are_rotated)
+{
+    const auto folder = std::filesystem::temp_directory_path() / ("kuge_log_" + std::to_string(::getpid()));
+    Logger logger;
+
+    logger.setLevel(LoggerLevel::DEBUG);
+    logger.logToFile(folder / "latest.log", 400);
+    for (int i = 0; i < 30; ++i) {
+        logger.info("a line that takes some room, number {}", i);
+    }
+    const auto size = [&](const char* name) { return std::filesystem::exists(folder / name) ? std::filesystem::file_size(folder / name) : 0; };
+
+    Assert(size("previous.log") > 0, "the full file became previous.log");
+    Assert(size("latest.log") > 0 && size("latest.log") <= 400, "latest.log is under its limit: %zu", static_cast<std::size_t>(size("latest.log")));
+    Assert(size("previous.log") <= 400, "so is the old one");
+    std::ifstream in(folder / "latest.log");
+    std::string last, line;
+
+    while (std::getline(in, line)) {
+        last = line;
+    }
+    Assert(last.find("number 29") != std::string::npos, "the newest line is in latest.log: %s", last.c_str());
+    std::filesystem::remove_all(folder);
 }

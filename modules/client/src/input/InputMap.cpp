@@ -347,7 +347,7 @@ void kuge::InputMap::load(const ConfigFile& config)
                     loaded.push_back(*binding);
                 }
             } else {
-                Logger::logger().warn("keybinds: '{}' is not an input (for '{}')", part, m_names[action]);
+                Logger::logger().category("client").warn("keybinds: '{}' is not an input (for '{}')", part, m_names[action]);
             }
         }
         m_bindings[action] = std::move(loaded);
@@ -364,7 +364,7 @@ bool kuge::InputMap::loadBindings(const std::filesystem::path& path)
             return false;
         }
     } catch (const ConfigError& error) {
-        Logger::logger().error("keybinds: cannot use '{}': {}", path.string(), error.what());
+        Logger::logger().category("client").error("keybinds: cannot use '{}': {}", path.string(), error.what());
         return false;
     }
     load(config);

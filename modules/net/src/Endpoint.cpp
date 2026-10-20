@@ -429,7 +429,7 @@ namespace kuge::net
             if (*alive) {
                 ++m_stats.malformed;
             }
-            Logger::logger().warn("net: a malformed message from connection {} was dropped: {}", from, error.what());
+            Logger::logger().category("net").warn("net: a malformed message from connection {} was dropped: {}", from, error.what());
         }
     }
 

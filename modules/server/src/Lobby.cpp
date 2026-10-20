@@ -45,12 +45,12 @@ namespace kuge::server
 
         if (config.transport == Transport::Sockets) {
             m_endpoint = &network.listen(config.lobbyProtocol, config.lobbyPort, config.endpoint);
-            Logger::logger().info("lobby: listening on port {}", config.lobbyPort);
+            Logger::logger().category("server").info("lobby: listening on port {}", config.lobbyPort);
         } else {
             net::LoopbackNetwork& loopback = config.loopback ? *config.loopback : net::LoopbackNetwork::global();
 
             m_endpoint = &network.listen(config.lobbyName, loopback, config.endpoint);
-            Logger::logger().info("lobby: listening at '{}'", config.lobbyName);
+            Logger::logger().category("server").info("lobby: listening at '{}'", config.lobbyName);
         }
         m_state->stats.lobbyOpen = true;
         m_endpoint->onConnected([this](net::ConnectionId) { refreshStats(); });
@@ -163,7 +163,7 @@ namespace kuge::server
                 }
             }
             if (init.port == 0) {
-                Logger::logger().warn("lobby: no free port for a room of '{}'", type);
+                Logger::logger().category("server").warn("lobby: no free port for a room of '{}'", type);
                 return nullptr;
             }
             m_usedPorts.insert(init.port);
@@ -185,7 +185,7 @@ namespace kuge::server
             room.maxPlayers = kind.config.maxPlayers;
             room.handle = ctx().engine().spawnScene(kind.config.policy, std::move(scene), ctx().self());
         } catch (const std::exception& error) {
-            Logger::logger().error("lobby: cannot make a room of '{}': {}", type, error.what());
+            Logger::logger().category("server").error("lobby: cannot make a room of '{}': {}", type, error.what());
             m_usedPorts.erase(init.port);
             return nullptr;
         }

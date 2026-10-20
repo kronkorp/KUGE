@@ -16,10 +16,10 @@ namespace
     void logLikeKuge(k3::LogLevel level, std::string_view message)
     {
         switch (level) {
-            case k3::LogLevel::Debug:   Logger::logger().debug("{}", message); break;
-            case k3::LogLevel::Info:    Logger::logger().info("{}", message); break;
-            case k3::LogLevel::Warning: Logger::logger().warn("{}", message); break;
-            case k3::LogLevel::Error:   Logger::logger().error("{}", message); break;
+            case k3::LogLevel::Debug:   Logger::logger().category("render3d").debug("{}", message); break;
+            case k3::LogLevel::Info:    Logger::logger().category("render3d").info("{}", message); break;
+            case k3::LogLevel::Warning: Logger::logger().category("render3d").warn("{}", message); break;
+            case k3::LogLevel::Error:   Logger::logger().category("render3d").error("{}", message); break;
         }
     }
 
@@ -98,13 +98,13 @@ kuge::Render3DModule::Render3DModule(ClientModule* client, Render3DConfig config
             m_rasterizer = std::move(*created);
             m_gl = gl;
             m_rendererName = gl->description();
-            Logger::logger().info("3D: on the GPU, {}", m_rendererName);
+            Logger::logger().category("render3d").info("3D: on the GPU, {}", m_rendererName);
             return;
         }
         if (config.rendering == Rendering::OpenGL) {
             throw Render3DError(std::string("cannot start the 3D renderer on the GPU: ") + created.error());
         }
-        Logger::logger().warn("3D: not on the GPU ({}), on the CPU", created.error());
+        Logger::logger().category("render3d").warn("3D: not on the GPU ({}), on the CPU", created.error());
     }
     // (its size is the screen's: ModelRender sets it)
     auto created = k3::createRasterizer(k3::Backend::Software, rasterizer);
@@ -161,10 +161,10 @@ std::size_t kuge::Render3DModule::reloadAssets(void)
     const auto tell = [&count](const auto& report) {
         count += report.reloaded.size();
         for (const auto& [path, why] : report.failed) {
-            Logger::logger().warn("reload: '{}' kept as it was: {}", path.string(), why);
+            Logger::logger().category("render3d").warn("reload: '{}' kept as it was: {}", path.string(), why);
         }
         for (const auto& path : report.reloaded) {
-            Logger::logger().info("reload: '{}'", path.string());
+            Logger::logger().category("render3d").info("reload: '{}'", path.string());
         }
     };
 

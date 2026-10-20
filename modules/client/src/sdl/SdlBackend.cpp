@@ -570,13 +570,13 @@ kuge::Backend kuge::makeSdlBackend(const WindowConfig& config)
         try {
             backend.opengl = std::make_unique<SdlOpenGL>(context, config.width, config.height);
         } catch (const BackendError& error) {
-            Logger::logger().warn("no OpenGL for the 3D: {}", error.what());
+            Logger::logger().category("client").warn("no OpenGL for the 3D: {}", error.what());
         }
     }
     try {
         backend.audio = makeSdlAudio();
     } catch (const AudioError& error) {
-        Logger::logger().warn("no sound: {}", error.what());
+        Logger::logger().category("client").warn("no sound: {}", error.what());
     }
     return backend;
 }
