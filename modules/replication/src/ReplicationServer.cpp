@@ -118,7 +118,7 @@ namespace kuge::replication
         for (const Bytes& op : ops) {
             if (op.size() > m_config.maxPartBytes) {
                 if (m_stats.oversized++ == 0) {
-                    Logger::logger().warn("replication: a record of {} bytes is over maxPartBytes ({}): it is not sent. Raise maxPartBytes, or send less of the entity", op.size(), m_config.maxPartBytes);
+                    Logger::logger().category("replication").warn("replication: a record of {} bytes is over maxPartBytes ({}): it is not sent. Raise maxPartBytes, or send less of the entity", op.size(), m_config.maxPartBytes);
                 }
                 skipped = true;
                 continue;

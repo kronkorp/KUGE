@@ -113,4 +113,67 @@ list of mutations that were used in this project, and what caught them:
 5. **A player sees nothing?** Check, in order: did the client join (`state`)? Is the schema the same on both sides
    (`replication.stats().wrongSchema`)? Did the prefab add a `Sprite`? Is the camera looking at the right place?
 6. **The log.** `Logger::logger().info(...)` is thread-safe and writes to the terminal and to `latest.log` in the
-   current directory.
+   current directory (see "The log", below).
+
+## The console and the variables
+
+A developer who wants to try a boss, a level 8 weapon or another constant should not restart the game. Two pieces, in `kuge-core`, and a
+scene in the client:
+
+```cpp
+kuge::Cvars cvars;
+kuge::Commands commands(cvars);
+
+auto perKill = cvars.add("brainrot_per_kill", 2, kuge::CvarFlag::Cheat, "Rot a kill gives");   // bool, int, float or std::string
+const int rot = perKill.get();                                  // in a system: a handle, no lookup by name, no lock
+commands.add("spawn", [&](const std::vector<std::string>& args) { return spawn(args.at(0)); }, "spawn <enemy>");
+
+commands.run("brainrot_per_kill 5");        // a name alone reads the variable, with a value it sets it: "brainrot_per_kill = 5"
+commands.run("set tick_rate abc");          // "'abc' is not a whole number for tick_rate": the value is kept
+```
+
+`set()` never throws: it answers. Flags: `Persistent` (`cvars.save(config)` / `load(config)`, as `cvar.<name>` in a `ConfigFile`),
+`ServerOnly` and `ClientOnly` (refused on the other side: `setSide()`), `Cheat` (refused unless `setCheats(true)`). Built in: `help`,
+`cvars [filter]`, `set`, `get`, `echo`; words can be quoted: `echo "a b"`. An unknown command is an answer, so is a command that throws.
+
+**In the game:** push a `ConsoleScene(commands, logRing, font, toggleAction)` on a key of your own (the log ring is a `RingLogHandler`
+that you added to the logger, see below). Enter runs a line, Up and Down walk the history, Tab completes a name, Escape closes. The log
+shows in the colour of its level and with the level written; `console_log_level` and `console_log_category` filter it.
+
+**On a server** there is no window: `readCommandsFrom(std::cin, queue)` reads lines on a thread into a `CommandQueue`, and
+`installCommandQueue(setup(), commands, queue)` runs them **in the tick** (a command that changes the world must not run on the thread
+that reads). The answers go to the log under the category `console`. A command that is typed in the console of a client runs on the thread
+of the scenes, in the tick of the console.
+
+## The log
+
+A `Logger` sends every line to its **handlers**: the terminal, a file, and whatever else a game adds. The logger of the process
+(`Logger::logger()`) has the terminal and `latest.log`.
+
+```cpp
+auto& log = Logger::logger();
+
+auto ring = std::make_shared<RingLogHandler>(500);        // the last 500 lines, for a panel of the game
+const auto id = log.addHandler(ring);                     // from any thread; the id takes it away
+lines = ring->snapshot(seen);                             // once per frame, on the UI's thread: the lines newer than `seen`
+log.removeHandler(id);                                    // a scene that listens stops when it leaves
+
+log.logToFile("saves/game.log", 4 * 1024 * 1024);         // over 4 MB it becomes previous.log next to it: two files at most
+```
+
+A handler of your own derives from `ILoggerHandler` (`log(level, text)`, or `handle(record)` for the time and the category apart).
+**It is called with the mutex of the logger held, from any thread**: it must be quick and must not log. `registerHandler(ostream)`
+still works. Each line is made once (`LogRecord`: level, time, category, text), so the terminal, the file and the ring show the same.
+
+**Categories** give a part of the program its own name and level, so that `--debug` does not turn on the net, the physics and the
+game together:
+
+```cpp
+auto net = Logger::logger().category("net");              // a small handle; ask again or keep it
+net.warn("bad packet from {}", peer);                     // "[net] bad packet from 4"
+Logger::logger().setLevel("net", LoggerLevel::DEBUG);     // only the net talks at debug
+Logger::logger().clearLevel("net");                       // and follows the logger again
+```
+
+A category with no level of its own follows the logger's; the calls on `Logger::logger()` itself have no category. KUGE's modules log
+under `net`, `replication`, `server`, `core`, `audio`, `client` and `render3d`.

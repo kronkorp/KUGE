@@ -12,9 +12,9 @@ kuge::SceneManager::~SceneManager(void)
     try {
         clear();
     } catch (const std::exception& e) {
-        Logger::logger().error("A scene threw while being left: {}", e.what());
+        Logger::logger().category("core").error("A scene threw while being left: {}", e.what());
     } catch (...) {
-        Logger::logger().error("A scene threw while being left");
+        Logger::logger().category("core").error("A scene threw while being left");
     }
 }
 
@@ -61,7 +61,7 @@ void kuge::SceneManager::apply(void)
             }
             case Kind::Pop:
                 if (m_stack.empty()) {
-                    Logger::logger().warn("SceneManager::pop() with no scene to pop");
+                    Logger::logger().category("core").warn("SceneManager::pop() with no scene to pop");
                     break;
                 }
                 leaveTop();

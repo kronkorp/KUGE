@@ -1,9 +1,13 @@
 #pragma once
 
+#include "Chat.hpp"
+#include "ChatRelay.hpp"
 #include "Net.hpp"
 #include "Scene.hpp"
 #include "ServerConfig.hpp"
 #include <map>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -125,6 +129,15 @@ namespace kuge::server
             void setOpen(bool open);
             bool isOpen(void) const noexcept { return m_open; }
 
+            //! Turns the text chat on: a `ChatSend` from a player is checked by a ChatRelay (not empty, not too long, valid UTF-8,
+            //! no control character, a rate limit per player) and relayed to everybody as a `ChatLine` whose `from` is the network id
+            //! of the player. Call it in onRoomEnter().
+            void enableChat(ChatConfig config = {});
+
+            //! A line that passed the checks, before it is relayed: the game may refuse it (return nothing: a muted player, a
+            //! command) or change it (a name, a filter of words). By default it goes as it is.
+            virtual std::optional<std::string> onChatLine(const Player&, std::string text) { return text; }
+
             //! Ends the game: the players are told, then the room is left. Only the first call counts.
             //! The players are told `ServerConfig::closeDelay` later, not at once: the room goes on running, and
             //! what the game does as it ends (a result, a last state) is in the snapshots that leave first. A client
@@ -156,6 +169,7 @@ namespace kuge::server
             net::Endpoint*                           m_endpoint = nullptr;
             std::map<std::uint32_t, Player>          m_players;
             std::map<std::uint64_t, Expected>        m_expected;
+            std::unique_ptr<ChatRelay>               m_chat;
             std::map<net::ConnectionId, double>      m_unknown;      //!< Connected, no hello yet: since when
             std::vector<WaitingHello>                m_waiting;      //!< Hello with a token the room may not know yet
             std::uint32_t                            m_nextNetworkId = 1;

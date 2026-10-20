@@ -51,7 +51,7 @@ namespace kuge::server
                 m_endpoint = &network.listen(m_init.address, loopback, config);
             }
         } catch (const std::exception& error) {
-            Logger::logger().error("room {}: cannot listen: {}", m_init.roomId, error.what());
+            Logger::logger().category("server").error("room {}: cannot listen: {}", m_init.roomId, error.what());
             tellLobby(detail::RoomFailed{m_init.roomId, error.what()});
             m_ended = true;
             ctx().scenes().pop();
@@ -64,7 +64,7 @@ namespace kuge::server
         addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<RoomHousekeeping>(*this));
         onRoomEnter();
         tellLobby(detail::RoomReady{m_init.roomId});
-        Logger::logger().info("room {} ({}) is open", m_init.roomId, m_init.roomType);
+        Logger::logger().category("server").info("room {} ({}) is open", m_init.roomId, m_init.roomType);
     }
 
     void RoomScene::onExit(void)
@@ -82,7 +82,7 @@ namespace kuge::server
             }
             tellLobby(detail::RoomEnded{m_init.roomId, m_endReason});
         }
-        Logger::logger().info("room {} is closed", m_init.roomId);
+        Logger::logger().category("server").info("room {} is closed", m_init.roomId);
     }
 
     void RoomScene::onMessage(const Message& message)
@@ -159,8 +159,27 @@ namespace kuge::server
         }
     }
 
+    void RoomScene::enableChat(ChatConfig config)
+    {
+        m_chat = std::make_unique<ChatRelay>(config);
+        on<net::ChatSend>([this](const Player& who, const net::ChatSend& said) {
+            auto line = m_chat->accept(who.connection, said.text, now());
+
+            if (!line) {
+                Logger::logger().category("server").debug("room {}: chat from player {} refused", m_init.roomId, who.networkId);
+                return;
+            }
+            if (auto relayed = onChatLine(who, std::move(*line))) {
+                broadcast(net::ChatLine{who.networkId, std::move(*relayed)});
+            }
+        });
+    }
+
     void RoomScene::playerGone(net::ConnectionId connection, net::DisconnectReason reason)
     {
+        if (m_chat) {
+            m_chat->forget(connection);
+        }
         m_unknown.erase(connection);
         std::erase_if(m_waiting, [connection](const WaitingHello& hello) { return hello.connection == connection; });
         for (auto it = m_players.begin(); it != m_players.end(); ++it) {

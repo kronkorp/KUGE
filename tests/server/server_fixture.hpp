@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Chat.hpp"
 #include "GameServer.hpp"
 #include "Matchmaking.hpp"
 #include "SocketTransport.hpp"
@@ -65,6 +66,7 @@ class TestRoom : public kuge::server::RoomScene
                 roomLog().roomNames.emplace_back(init().roomName, init().isPrivate);
                 roomLog().roomOptions.push_back(init().options);
             }
+            enableChat({.maxBytes = 40, .burst = 2, .refillSeconds = 1000.0});   // (a bucket that does not refill in a test)
             on<Echo>([this](const Player& who, const Echo& echo) { send(who.networkId, Echo{who.name + ": " + echo.text}); });
             on<SetDoor>([this](const Player&, const SetDoor& door) { setOpen(door.open); });
             on<WinNow>([this](const Player&, const WinNow&) { finish(kuge::net::RoomEnd::Victory); ++roomLog().finished; });
@@ -156,6 +158,7 @@ struct TestClient
     std::uint32_t                   roomId = 0;
     std::uint32_t                   networkId = 0;
     std::vector<std::string>        echoes;
+    std::vector<kuge::net::ChatLine> chats;
     std::vector<kuge::net::RoomEnd> closed;
     std::vector<std::string>        failures;
     std::vector<kuge::net::RoomList> lists;   //!< What the lobby said when asked for the rooms
@@ -169,6 +172,7 @@ struct TestClient
             roomId = welcome.roomId;
             networkId = welcome.networkId;
             room.on<Echo>([this](kuge::net::ConnectionId, const Echo& echo) { echoes.push_back(echo.text); });
+            room.on<kuge::net::ChatLine>([this](kuge::net::ConnectionId, const kuge::net::ChatLine& line) { chats.push_back(line); });
         });
         matchmaking.onRoomClosed([this](kuge::net::RoomEnd why) { closed.push_back(why); });
         matchmaking.onFailed([this](const std::string& why) { failures.push_back(why); });

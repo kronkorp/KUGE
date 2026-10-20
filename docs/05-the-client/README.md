@@ -237,6 +237,29 @@ call. **Ctrl+V** (Cmd+V on macOS) pastes the first line of the clipboard, **Ctrl
 **Ctrl+X** cuts it; a game reaches the clipboard with `Ref<IWindow>` (`clipboardText()`, `setClipboardText()`).
 There is no selection or multi-line text yet. The details are in the README (User interface).
 
+### A chat box
+
+`UiChatLog` is the last lines of a chat in a corner, each one fading after a while, and a field to say one:
+
+```cpp
+UiChatLog chat(world(), {.anchor = Anchor::BottomLeft, .lines = 6, .showSeconds = 8.0});     // after installUi()
+
+if (actions.wasPressed(Action::Chat) && !chat.isOpen()) chat.open(world());         // the character of the key that opened it is dropped
+if (auto line = chat.submitted(world())) endpoint.send(room, kuge::net::ChatSend{*line});   // Enter: the field closes
+if (chat.isOpen() && cancelled) chat.close(world());
+room.on<kuge::net::ChatLine>([&](auto, const auto& line) { chat.push(nameOf(line.from) + ": " + line.text, colourOf(line.from)); });
+chat.update(world(), dt);                                                           // each tick: the lines fade
+```
+
+While the field is open every line stays shown. The game decides what an open field stops (the movement): ask `chat.isOpen()`.
+`InputMap::discardTyped()` is what drops the typed character that waits; use it for any field that a key opens.
+
+### The developer console
+
+`ConsoleScene` is a scene pushed over the game (it is `Transparent`, see [03](../03-scenes-systems-and-the-ecs/README.md): the game
+is still drawn but stands still while the console has the keyboard). Its commands and variables are the game's: see "The console" in
+[12](../12-testing-and-debugging/README.md).
+
 ## Tilemaps and animations
 
 - A **`TileMap`** (in the core, so a server can load one to know where the walls are) is a grid of layers of

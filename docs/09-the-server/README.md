@@ -141,6 +141,26 @@ matchmaking.joinRoom(12, "Secret", "Ben");                           // the id A
   `init().options`.
 - The lobby does not limit how often a client asks for the list.
 
+## A text chat
+
+`enableChat()` in `onRoomEnter()` is all a room writes:
+
+```cpp
+void onRoomEnter() override { enableChat({.maxBytes = 200, .burst = 4, .refillSeconds = 1.0}); }
+
+std::optional<std::string> onChatLine(const Player& who, std::string text) override
+{
+    return isMuted(who) ? std::nullopt : std::optional(std::move(text));      // refuse or change a line that passed
+}
+```
+
+A client sends `kuge::net::ChatSend{text}`; the room relays `ChatLine{from, text}` to everybody (`from` is the network id of the speaker).
+A client is not trusted, so before that a `ChatRelay` checks the line: not empty once its spaces are cut, at most `maxBytes` (bytes, not
+characters), **well-formed UTF-8**, **no control character** (a line break, a tab, an escape, the C1 controls), and a rate limit per
+player (`burst` lines, one more every `refillSeconds`). A line that fails costs nothing; the bucket of a player is forgotten when it
+leaves. Names, channels (team, all), commands and a mute list are the game's. `utf8Valid`, `utf8Length` and `trimSpaces` (`Utf8.hpp`)
+are there for your own checks. On the client, `UiChatLog` is the widget (see [05](../05-the-client/README.md)).
+
 ## A room that starts
 
 A game with a start (a match, a round, a race) is open, then closed. When it starts, the room calls

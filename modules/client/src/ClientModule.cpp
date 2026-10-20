@@ -123,10 +123,10 @@ std::size_t kuge::ClientModule::reloadAssets(void)
     const auto tell = [&count](const auto& report) {
         count += report.reloaded.size();
         for (const auto& [path, why] : report.failed) {
-            Logger::logger().warn("reload: '{}' kept as it was: {}", path.string(), why);
+            Logger::logger().category("client").warn("reload: '{}' kept as it was: {}", path.string(), why);
         }
         for (const auto& path : report.reloaded) {
-            Logger::logger().info("reload: '{}'", path.string());
+            Logger::logger().category("client").info("reload: '{}'", path.string());
         }
     };
 
