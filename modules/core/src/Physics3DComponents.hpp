@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <vector>
 #include <kronk3d/math/Vector.hpp>
 
 namespace kuge
@@ -120,6 +122,70 @@ namespace kuge
                 && linearDamping == o.linearDamping && angularDamping == o.angularDamping
                 && lockRotation == o.lockRotation && grounded == o.grounded;
         }
+    };
+
+    ////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief  A part of a body that a shot can hit, with its own value (a component of many)
+     *
+     * A head, a body and legs are three hitboxes of one player: a ray that hits the head is worth more
+     * (`damageScale`). The room reads the part that was hit (Physics3D::shoot()); the client never decides.
+     * A part is placed from the entity, or from one of its bones (`bone`, see Hitboxes::bones).
+     */
+    ////////////////////////////////////////////////////////////////////////////
+    struct Hitbox
+    {
+        enum class Shape : std::uint8_t { Box, Sphere, Capsule };
+
+        std::string        name;                          //!< "head", "body"...: for the game's rules and its logs
+        Shape              shape = Shape::Capsule;
+        //! As Collider3D::size: a box (width, height, depth), a sphere (x is the radius), a capsule standing along y (x is
+        //! the radius, y the whole height)
+        k3::Math::Vector3f size{0.3f, 1.0f, 0.3f};
+        k3::Math::Vector3f offset{};                      //!< From the entity (or from its bone), in the space of the entity
+        std::string        bone;                          //!< A name in Hitboxes::bones; empty: follows the entity
+        float              damageScale = 1.0f;            //!< 2 for a head, 0.5 for a leg
+    };
+
+    //! Where a bone is, in the space of the entity: what the animation (kuge-animation) writes, when the room samples the pose
+    struct BonePlace
+    {
+        std::string        name;
+        k3::Math::Vector3f translation{};
+        k3::Math::Vector4f rotation{0.0f, 0.0f, 0.0f, 1.0f};   //!< Unit quaternion x y z w
+    };
+
+    //! The parts of an entity that a shot can hit (with a Transform3D), in the order the game gave them: the index of the
+    //! part that was hit is the index in `parts`
+    struct Hitboxes
+    {
+        std::vector<Hitbox>    parts;
+        std::vector<BonePlace> bones;   //!< Only needed by parts that name a bone
+    };
+
+    ////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief  A character that walks (a component): a capsule moved by Physics3D::moveCharacter(), not a rigid body
+     *
+     * Its Transform3D::translation is where its **feet** are. The settings are the game's; `velocity`, `onGround`
+     * and `crouching` are written by moveCharacter() (the client and the room call it with the same inputs, so
+     * they agree). Do not give it a Collider3D or a Body3D: it is not a body of the physics.
+     */
+    ////////////////////////////////////////////////////////////////////////////
+    struct Character3D
+    {
+        float         radius = 0.35f;
+        float         height = 1.8f;              //!< Standing, feet to top
+        float         crouchHeight = 1.0f;
+        float         stepHeight = 0.4f;          //!< It climbs a step this high without jumping
+        float         maxSlope = 50.0f;           //!< Degrees. A steeper slope is a wall: it cannot be climbed.
+        float         jumpSpeed = 5.0f;           //!< Meters per second up
+        float         gravityScale = 1.0f;
+        std::uint32_t mask = 0xFFFFFFFFu;         //!< The layers it meets
+
+        k3::Math::Vector3f velocity{};            //!< Written: how it moved during the last call
+        bool          onGround = false;           //!< Written: stands on something it can stand on
+        bool          crouching = false;          //!< Written: it is crouched (it stays so under a ceiling)
     };
 
 }

@@ -205,6 +205,37 @@ world().add<kuge::Collider3D>(zone, kuge::Collider3D::sphere(2).asTrigger());   
 - **Questions**: `physics.raycast(origin, direction, maxDistance, mask, triggers)`, `overlapSphere(center, radius)`
   and `physics.events()` (a `TriggerEvent3D` for each trigger entered or left in the last tick).
 
+### A character that walks
+
+A shooter's player is not a rigid body: give it a `Character3D` (and a `Transform3D`, its **feet**), no `Collider3D`, and move it
+once per tick with the same call on the client and in the room:
+
+```cpp
+world().add<kuge::Character3D>(player, kuge::Character3D{.radius = 0.35f, .height = 1.8f, .stepHeight = 0.4f, .jumpSpeed = 5.0f});
+
+physics.moveCharacter(world, player, {.wish = {walk.x, 0, walk.z}, .jump = actions.wasPressed(Action::Jump),
+                                     .crouch = actions.isDown(Action::Crouch)}, dt);       // in the Simulation stage
+// then: transform.translation, character.velocity, character.onGround, character.crouching
+```
+
+It is Jolt's `CharacterVirtual`: the capsule slides along what it hits (a wall at a shallow angle is followed), climbs a step of
+`stepHeight` (a round capsule climbs a little more), sticks to a slope up to `maxSlope` degrees (a steeper one is a wall), falls with
+the gravity of the physics, jumps at `jumpSpeed` from the ground, and crouches to `crouchHeight`; **it stands up again only where
+there is room** (`crouching` stays true under a ceiling). It does not tunnel at 100 m/s. It sees the world as the last `step()` left
+it, and the same inputs on the same world give the same positions on one machine. `wish` is a speed on the ground, x and z only.
+
+### Shots and sweeps
+
+`physics.shoot(world, origin, direction, maxDistance, mask, ignore)` is a hitscan: the first of the walls and bodies **and** the
+parts of the entities that have a `Hitboxes` component, with the entity, the point, the normal, the distance, the **index of the part**
+(`hitbox`) and its `damageScale`. Each `Hitbox` is a box, sphere or capsule with an `offset` from the entity, a name and a damage scale
+(a head is worth double); an entity with `Hitboxes` is only hit through them. A part that names a `bone` is placed at that bone's
+`BonePlace` (in `Hitboxes::bones`, which the animation writes when the room samples the pose, see `kuge-animation`). The `ignore`
+filter lets a shot through an entity (the shooter, a window). A ray that starts inside a part does not hit it.
+
+`physics.sweepCapsule(center, direction, maxDistance, radius, height)` slides a capsule along a line and says how far it went before
+touching something, and the normal of what stopped it (a ground check, a ledge test). `raycast` takes the same `ignore` filter.
+
 Jolt comes from vcpkg (`vcpkg.json`, feature `physics3d`) and is built the first time; `-DKUGE_BUILD_PHYSICS3D=OFF`
 leaves it out. The same world gives the same result, bit for bit, on one machine; Jolt is not built to agree
 across platforms (Jolt has a `CROSS_PLATFORM_DETERMINISTIC` build option, which the vcpkg port does not offer),

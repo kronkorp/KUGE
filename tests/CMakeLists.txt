@@ -195,7 +195,8 @@ if(TARGET kuge-render3d)
 endif()
 
 if(TARGET kuge-physics3d)
-    add_executable(kuge_physics3d_tests physics3d/physics3d_test.cpp physics3d/physics3d_net_test.cpp)
+    add_executable(kuge_physics3d_tests physics3d/physics3d_test.cpp physics3d/physics3d_net_test.cpp
+        physics3d/character_test.cpp physics3d/hitbox_test.cpp)
     target_link_libraries(kuge_physics3d_tests PRIVATE kuge-physics3d kuge-replication kronklab-static)
     target_include_directories(kuge_physics3d_tests PRIVATE replication)
     target_compile_options(kuge_physics3d_tests PRIVATE ${KUGE_WARNINGS})
