@@ -59,7 +59,12 @@ namespace kuge::server
                 std::uint32_t      playerId;     //!< Server-wide
                 std::string        name;
                 std::uint32_t      networkId;    //!< In this room: 1, 2, 3... (never used again)
-                net::ConnectionId  connection;
+                net::ConnectionId  connection;   //!< 0 while the player is away
+                //! The group this player is in (a team, a squad): a number the game sets with setTeam(), 0 for none. KUGE only uses
+                //! it to pick who a message goes to (broadcastTeam()); what a team is, and what it may do, is the game's.
+                std::uint32_t      team = 0;
+                bool               away = false;   //!< Its connection was lost and the room keeps its place (RoomTypeConfig::reconnectSeconds)
+                double             awaySince = 0.0;
             };
 
             explicit RoomScene(RoomInit init);
@@ -76,6 +81,13 @@ namespace kuge::server
             virtual void onRoomExit(void) {}
             virtual void onPlayerJoined(const Player&) {}
             virtual void onPlayerLeft(const Player&, net::DisconnectReason) {}
+            //! The connection of a player was lost, and the room keeps its place for RoomTypeConfig::reconnectSeconds. The player is still
+            //! in players(), `away`, with no connection: messages to it are not sent. What it does meanwhile (stands, is driven by a bot,
+            //! dies) is the game's. Remove its replication client and its input here. onPlayerLeft follows if the time runs out.
+            virtual void onPlayerAway(const Player&, net::DisconnectReason) {}
+            //! A player that was away is back, on a new connection (`previous` is the old one): the same Player, with the same network id.
+            //! Give it again to the replication and the input (addClient with player.connection): it is sent the whole world.
+            virtual void onPlayerRejoined(const Player&, net::ConnectionId previous) { (void)previous; }
             //! A message of another scene (the lobby's own are not given)
             virtual void onRoomMessage(const Message&) {}
 
@@ -103,20 +115,36 @@ namespace kuge::server
             {
                 const Player* who = playerByNetworkId(networkId);
 
-                return who && m_endpoint->send(who->connection, message, channel);
+                return who && !who->away && m_endpoint->send(who->connection, message, channel);
             }
 
-            //! To every player (not to a client that has not said hello yet)
+            //! To every player that is there (not to a client that has not said hello yet, nor one that is away)
             template<net::NetMessage T>
             std::size_t broadcast(const T& message, net::Channel channel = net::Channel::Reliable)
             {
                 std::size_t count = 0;
 
                 for (const auto& [id, who] : m_players) {
-                    count += m_endpoint->send(who.connection, message, channel) ? 1 : 0;
+                    count += !who.away && m_endpoint->send(who.connection, message, channel) ? 1 : 0;
                 }
                 return count;
             }
+
+            //! To the players of a team (the number the game gave with setTeam()): team chat, what only allies may know
+            template<net::NetMessage T>
+            std::size_t broadcastTeam(std::uint32_t team, const T& message, net::Channel channel = net::Channel::Reliable)
+            {
+                std::size_t count = 0;
+
+                for (const auto& [id, who] : m_players) {
+                    count += who.team == team && !who.away && m_endpoint->send(who.connection, message, channel) ? 1 : 0;
+                }
+                return count;
+            }
+
+            //! Puts a player in a group (0: none). KUGE does nothing with it but pick the receivers of broadcastTeam().
+            //! @return  false if there is no such player
+            bool setTeam(std::uint32_t networkId, std::uint32_t team);
 
             //! Sends a player away
             void kick(std::uint32_t networkId, net::RoomEnd reason = net::RoomEnd::Kicked);
@@ -149,7 +177,7 @@ namespace kuge::server
         private:
             friend class RoomHousekeeping;
 
-            struct Expected { std::string name; std::uint32_t playerId; double expires; };
+            struct Expected { std::string name; std::uint32_t playerId; double expires; bool rejoin = false; };
             struct WaitingHello { net::ConnectionId connection; std::uint64_t token; double since; };
 
             template<typename T>
@@ -165,6 +193,7 @@ namespace kuge::server
             void announceEnd(void);
             void completeFinish(void);
             void playerGone(net::ConnectionId connection, net::DisconnectReason reason);
+            void letGo(std::uint32_t networkId, net::DisconnectReason reason);   //!< A player is out for good
 
             RoomInit                                 m_init;
             net::Endpoint*                           m_endpoint = nullptr;

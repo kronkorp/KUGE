@@ -199,6 +199,10 @@ namespace kuge::net
             }
         });
         lobby.on<JoinRefused>([this](ConnectionId, const JoinRefused& refused) {
+            if (m_rejoining) {
+                m_rejoin.reset();   // the room does not keep the place any more: that is the end of it
+                m_rejoining = false;
+            }
             m_state = State::InLobby;
             m_error = describe(refused.reason);
             if (m_onFailed) {
@@ -209,6 +213,7 @@ namespace kuge::net
             // The lobby says it when the room never saw us, or we were sent away
             if (m_state == State::ConnectingRoom || m_state == State::InRoom || m_state == State::Joining) {
                 dropRoom();
+                m_rejoin.reset();
                 m_state = State::InLobby;
                 if (m_onRoomClosed) {
                     m_onRoomClosed(closed.reason);
@@ -292,11 +297,26 @@ namespace kuge::net
         }
     }
 
+    void MatchmakingClient::rejoin(void)
+    {
+        if (!m_rejoin) {
+            m_error = "there is no room to come back to";
+            if (m_onFailed) {
+                m_onFailed(m_error);
+            }
+            return;
+        }
+        m_rejoining = true;
+        start(*m_rejoin);
+    }
+
     void MatchmakingClient::connectRoom(const RoomAssigned& assigned)
     {
         if (m_state != State::Joining) {
             return;
         }
+        m_rejoining = false;
+        m_rejoin = RejoinRoom{assigned.roomId, assigned.playerId, assigned.rejoinKey, MATCHMAKING_VERSION};
         m_state = State::ConnectingRoom;
         m_networkId = 0;
         const std::uint64_t token = assigned.token;
@@ -326,6 +346,7 @@ namespace kuge::net
         });
         room->on<RoomClosed>([this](ConnectionId, const RoomClosed& closed) {
             dropRoom();
+            m_rejoin.reset();   // the room is over: there is nothing to come back to
             m_state = State::InLobby;
             if (m_onRoomClosed) {
                 m_onRoomClosed(closed.reason);
@@ -363,6 +384,7 @@ namespace kuge::net
 
     void MatchmakingClient::leave(void)
     {
+        m_rejoin.reset();
         m_pending.reset();
         m_pendingList.reset();
         if (m_state == State::Joining || m_state == State::ConnectingRoom || m_state == State::InRoom) {
@@ -376,6 +398,7 @@ namespace kuge::net
 
     void MatchmakingClient::disconnect(void)
     {
+        m_rejoin.reset();
         m_pending.reset();
         dropRoom();
         if (m_lobby) {

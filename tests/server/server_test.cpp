@@ -333,7 +333,7 @@ Test(server, a_client_that_never_comes)
     Assert(raw.until([&raw] { return !raw.assigned.empty(); }), "assigned a place");
     Assert(waitUntil([&] { return harness.server->stats().players == 1; }), "which is kept for it");
     Assert(raw.until([&] { return harness.server->stats().players == 0; }, 5.0), "but not for ever");
-    Assert(!raw.closed.empty(), "and it is told");
+    Assert(raw.until([&] { return !raw.closed.empty(); }), "and it is told");   // (the stat goes down a moment before the message arrives)
 }
 
 Test(server, many_clients_many_rooms)

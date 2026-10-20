@@ -127,6 +127,17 @@ namespace kuge::replication
             //! Each frame: moves the time of the interpolation, and places the interpolated components
             void update(double frameSeconds);
 
+            //! A snapshot that did not come from the network (a replay): the same as one that did
+            void receive(const SnapshotPacket& packet) { onPacket(packet); }
+
+            //! Called with the whole state of the world each time a snapshot was applied (what a Recorder keeps)
+            using Tap = std::function<void(std::uint32_t tick, std::uint32_t inputAck, const WorldState& state)>;
+            void setTap(Tap tap) { m_tap = std::move(tap); }
+
+            //! Forgets everything it knows, and removes the entities it made (with the hooks of onDestroy): the next snapshot
+            //! must be a full one. A replay that goes back in time starts like that.
+            void reset(void);
+
             //! Seconds behind the newest snapshot that others are drawn now (the adaptive part included)
             double                        delay(void) const noexcept;
             //! Ticks between two snapshots, as the client measures them
@@ -175,6 +186,7 @@ namespace kuge::replication
             std::set<EntityType>                    m_predictedTypes;
             OwnedHook                               m_owned;
             OwnedGoneHook                           m_ownedGone;
+            Tap                                     m_tap;
 
             std::map<std::uint32_t, WorldState>     m_states;        //!< Applied snapshots, by tick
             WorldState                              m_current;       //!< What the World shows (the last applied)

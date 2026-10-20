@@ -33,6 +33,9 @@ namespace kuge::server
                 std::string        name;
                 double             issuedAt;
                 bool               joined = false;   //!< The room welcomed it
+                std::uint64_t      rejoinKey = 0;    //!< What lets this player back into its room (RejoinRoom)
+                bool               away = false;     //!< Its connection to the lobby was lost, and the room keeps its place
+                double             awaySince = 0.0;
             };
 
             struct Room
@@ -73,7 +76,8 @@ namespace kuge::server
             void request(net::ConnectionId from, Want want);
             void handleList(net::ConnectionId from, const net::ListRooms& request);
             void handleLeave(net::ConnectionId from);
-            void handleGone(net::ConnectionId from);
+            void handleGone(net::ConnectionId from, net::DisconnectReason reason);
+            void handleRejoin(net::ConnectionId from, const net::RejoinRoom& rejoin);
             Room* findRoom(const std::string& type);
             Room* makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate, const std::string& options);
             void enter(net::ConnectionId from, Room& room, const std::string& playerName);

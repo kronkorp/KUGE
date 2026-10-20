@@ -17,6 +17,10 @@ namespace kuge::server
         std::size_t maxPlayers  = 8;
         double      idleTimeout = 30.0;                       //!< A room with no player for this long closes (seconds)
         RunPolicy   policy      = RunPolicy::Dedicated;       //!< Where the rooms run: a thread each, or the workers
+        //! A player whose connection is lost (a timeout; not one who leaves, is sent away, or when the game ends) keeps its place this long
+        //! (seconds) and can come back with MatchmakingClient::rejoin(), as the same player with the same network id. The room is told
+        //! `onPlayerAway` at once and `onPlayerLeft` when the time is up. 0: a lost connection is a player who left (as always).
+        double      reconnectSeconds = 0.0;
     };
 
     //! How the server is reached and what it is allowed to do
@@ -88,7 +92,7 @@ namespace kuge::server
     // -- What lobby and rooms say to each other (scene messages: no network) ----------------------
     namespace detail
     {
-        struct ExpectPlayer  { std::uint32_t playerId; std::string name; std::uint64_t token; };
+        struct ExpectPlayer  { std::uint32_t playerId; std::string name; std::uint64_t token; bool rejoin = false; };
         struct KickPlayer    { std::uint32_t playerId; net::RoomEnd reason; };
         struct RoomReady     { std::uint32_t roomId; };
         struct RoomOpen      { std::uint32_t roomId; bool open; };   //!< The room takes newcomers again, or no more (RoomScene::setOpen)
