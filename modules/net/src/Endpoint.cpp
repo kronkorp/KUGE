@@ -1,4 +1,5 @@
 #include "Endpoint.hpp"
+#include "Auth.hpp"
 #include "Logger.hpp"
 #include <algorithm>
 #include <random>
@@ -11,27 +12,40 @@ namespace kuge::net
         constexpr std::uint32_t MAGIC = 0x4547554Bu;   // "KUGE"
 
         // The first byte of a packet
-        enum PacketType : std::uint8_t { Connect = 1, Accept = 2, Reject = 3, Data = 4, Goodbye = 5 };
+        enum PacketType : std::uint8_t { Connect = 1, Accept = 2, Reject = 3, Data = 4, Goodbye = 5, Challenge = 6 };
 
-        // Data: type, channel, ack, ack bits, then (reliable) the number of the message
+        // Data: type, channel, ack, ack bits, then (reliable) the number of the message, then the message, then the tag
         constexpr std::size_t DATA_HEADER = 1 + 1 + 4 + 4;
         constexpr std::size_t RELIABLE_HEADER = DATA_HEADER + 4;
+        constexpr std::size_t TAG_SIZE = 4;   // the end of every Data and Goodbye packet: see tagOf()
         constexpr std::uint8_t CONTROL = 2;   // a Data packet with no message: an ack, or a keep-alive
 
-        // A full server answers Reject to the connections that come too many. Not more than this wait for it
-        // at a time: the others are dropped, as if the server did not answer.
-        constexpr std::size_t MAX_REFUSING = 64;
+        // The tag of a packet from the server is not the tag of the same bytes from a client: a packet is not sent back to its sender
+        constexpr std::uint64_t FROM_SERVER = 0x5352565253525652ull;
+
+        // The addresses that the server counts Connect packets of: bounded, so that spoofed ones cannot grow it
+        constexpr std::size_t MAX_COUNTED_ADDRESSES = 4096;
 
         double steadySeconds(void)
         {
             return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
         }
 
-        std::uint32_t randomSalt(void)
+        // 64 bits from the system's source of randomness: the salt of a client, and the secret of a server. (Not
+        // seeded: they are what an attacker must not be able to guess.)
+        std::uint64_t randomWord(void)
         {
-            static std::random_device device;
+            static thread_local std::random_device device;
 
-            return device();
+            return (static_cast<std::uint64_t>(device()) << 32) | device();
+        }
+
+        // "10.0.0.7:4242" and "[::1]:4242" are the address 10.0.0.7 and [::1]; a peer with no port (the loopback's) is its own
+        std::string addressOf(const std::string& peer)
+        {
+            const auto colon = peer.rfind(':');
+
+            return colon == std::string::npos ? peer : peer.substr(0, colon);
         }
     }
 
@@ -48,8 +62,10 @@ namespace kuge::net
         }
         m_clock = m_config.clock ? m_config.clock : std::function<double(void)>(steadySeconds);
         m_config.reliable.resend = !m_transport->reliable();
+        m_secret[0] = randomWord();
+        m_secret[1] = randomWord();
         if (m_role == Role::Client) {
-            Connection connection{CLIENT_CONNECTION, State::Connecting, now(), 0.0, 0.0, 0.0, randomSalt(), false,
+            Connection connection{CLIENT_CONNECTION, State::Connecting, now(), 0.0, 0.0, 0.0, randomWord(), 0, false, false,
                 ReliableChannel(m_config.reliable), m_transport->describe()};
 
             connection.lastReceived = connection.created;
@@ -65,7 +81,7 @@ namespace kuge::net
         // Whoever is connected is told: they need not wait for a timeout
         for (auto& [id, connection] : m_connections) {
             if (connection.state == State::Connected) {
-                sendSimple(connection, Goodbye, 0, time);
+                sendGoodbye(connection, time);
             }
         }
     }
@@ -93,17 +109,146 @@ namespace kuge::net
         }
     }
 
-    void Endpoint::sendSimple(Connection& connection, std::uint8_t type, std::uint32_t value, double time)
+    // -- The handshake -------------------------------------------------------------------------
+    //
+    //   client                                          server
+    //     |-- Connect(magic, version, salt, cookie 0) ---> |  (23 bytes)   nothing is kept for it
+    //     |<-- Challenge(salt, cookie) ------------------- |  (17 bytes)   cookie = MAC(secret, address, salt, time)
+    //     |-- Connect(magic, version, salt, cookie) -----> |  the address answered: the connection is made
+    //     |<-- Accept(salt, cookie) ---------------------- |  (17 bytes)
+    //
+    // Whatever the server answers to a Connect is smaller than the Connect, so an address that is spoofed gets less
+    // than what was sent in its name, and the server keeps no state for it. The salt and the cookie are the two halves
+    // of the key of the packets that follow (see tagOf()). Over TCP the address is proved by TCP itself: no Challenge.
+    void Endpoint::sendConnect(Connection& connection, double time)
     {
         ByteWriter out;
 
-        out.write<std::uint8_t>(type);
-        if (type == Connect) {
-            out.write<std::uint32_t>(MAGIC);
-            out.write<std::uint16_t>(m_config.protocol);
-        }
-        out.write<std::uint32_t>(value);
+        out.write<std::uint8_t>(Connect);
+        out.write<std::uint32_t>(MAGIC);
+        out.write<std::uint16_t>(m_config.protocol);
+        out.write<std::uint64_t>(connection.salt);
+        out.write<std::uint64_t>(connection.haveCookie ? connection.serverSalt : 0);
         transmit(connection, out.bytes(), time);
+    }
+
+    void Endpoint::sendChallenge(Connection& connection, std::uint64_t salt, std::uint64_t cookie, double time)
+    {
+        ByteWriter out;
+
+        out.write<std::uint8_t>(Challenge);
+        out.write<std::uint64_t>(salt);
+        out.write<std::uint64_t>(cookie);
+        ++m_stats.challenges;
+        transmit(connection, out.bytes(), time);
+    }
+
+    void Endpoint::sendAccept(Connection& connection, double time)
+    {
+        ByteWriter out;
+
+        out.write<std::uint8_t>(Accept);
+        out.write<std::uint64_t>(connection.salt);
+        out.write<std::uint64_t>(connection.serverSalt);
+        transmit(connection, out.bytes(), time);
+    }
+
+    // (Not authenticated, and as small as can be: a refusal is also the answer to an address that proved nothing)
+    void Endpoint::sendReject(Connection& connection, double time)
+    {
+        ByteWriter out;
+
+        out.write<std::uint8_t>(Reject);
+        out.write<std::uint32_t>(0);
+        transmit(connection, out.bytes(), time);
+    }
+
+    void Endpoint::sendGoodbye(Connection& connection, double time)
+    {
+        ByteWriter out;
+
+        out.write<std::uint8_t>(Goodbye);
+        seal(connection, out);
+        transmit(connection, out.bytes(), time);
+    }
+
+    // -- The tag of a packet ---------------------------------------------------------------------
+    // Every Data and Goodbye packet ends with 4 bytes: the SipHash of the rest, with a key made of the client's salt and
+    // the server's cookie, which the two know and a third party that does not see the handshake does not. A packet
+    // that does not carry the right tag is dropped (counted in `malformed`). It stops an attacker who is not on the
+    // path from injecting a packet in a connection by guessing its address and sequence; it does not stop one who reads
+    // the handshake, and it hides nothing (nothing is encrypted).
+    std::uint32_t Endpoint::tagOf(const Connection& connection, std::span<const std::uint8_t> body, bool fromServer) const
+    {
+        return static_cast<std::uint32_t>(sipHash24(connection.salt ^ (fromServer ? FROM_SERVER : 0), connection.serverSalt, body));
+    }
+
+    void Endpoint::seal(const Connection& connection, ByteWriter& out) const
+    {
+        out.write<std::uint32_t>(tagOf(connection, out.bytes(), m_role == Role::Server));
+    }
+
+    // Is the tag at the end of this packet the one that the other side would have put?
+    bool Endpoint::opens(const Connection& connection, std::span<const std::uint8_t> packet) const
+    {
+        if (packet.size() < 1 + TAG_SIZE) {
+            return false;
+        }
+        const auto body = packet.first(packet.size() - TAG_SIZE);
+        std::uint32_t tag = 0;
+
+        for (std::size_t i = 0; i < TAG_SIZE; ++i) {
+            tag |= static_cast<std::uint32_t>(packet[body.size() + i]) << (8 * i);
+        }
+        return tag == tagOf(connection, body, m_role == Role::Client);
+    }
+
+    // What proves that an address receives what is sent to it: only a cookie that the server made can be sent back. It
+    // changes every cookieWindow seconds; the previous one is still good (see the Connect case of handlePacket).
+    std::uint64_t Endpoint::cookieOf(const std::string& peer, std::uint64_t salt, std::uint64_t window) const
+    {
+        ByteWriter in;
+
+        in.write<std::uint64_t>(window);
+        in.write<std::uint64_t>(salt);
+        in.writeBytes(std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t*>(peer.data()), peer.size()));
+        return sipHash24(m_secret[0], m_secret[1], in.bytes());
+    }
+
+    // Connect packets from one address, in windows of a second. Bounded: when the table is full of recent addresses,
+    // a new one is not counted (a flood of thousands of distinct addresses is held by the cookie and maxHalfOpen, not by this).
+    bool Endpoint::allowConnect(const std::string& peer, double time)
+    {
+        if (m_config.connectsPerSecond == 0) {
+            return true;
+        }
+        if (m_connects.size() >= MAX_COUNTED_ADDRESSES) {
+            std::erase_if(m_connects, [time](const auto& entry) { return time - entry.second.start >= 1.0; });
+        }
+        const std::string address = addressOf(peer);
+        auto found = m_connects.find(address);
+
+        if (found == m_connects.end()) {
+            if (m_connects.size() >= MAX_COUNTED_ADDRESSES) {
+                return true;
+            }
+            found = m_connects.emplace(address, ConnectCount{time, 0}).first;
+        } else if (time - found->second.start >= 1.0) {
+            found->second = ConnectCount{time, 0};
+        }
+        return ++found->second.count <= m_config.connectsPerSecond;
+    }
+
+    std::size_t Endpoint::halfOpen(void) const
+    {
+        return static_cast<std::size_t>(std::count_if(m_connections.begin(), m_connections.end(),
+            [](const auto& entry) { return entry.second.state == State::Handshaking; }));
+    }
+
+    std::size_t Endpoint::established(void) const
+    {
+        return static_cast<std::size_t>(std::count_if(m_connections.begin(), m_connections.end(),
+            [](const auto& entry) { return entry.second.state == State::Connected; }));
     }
 
     // A Data packet. Every one carries what we received (ack), so acks flow with the traffic.
@@ -123,6 +268,7 @@ namespace kuge::net
             out.writeBytes(*payload);
         }
         connection.reliable.ackSent();
+        seal(connection, out);
         transmit(connection, out.bytes(), time);
     }
 
@@ -141,7 +287,7 @@ namespace kuge::net
         const auto found = m_connections.find(to);
         const std::size_t header = channel == Channel::Reliable ? RELIABLE_HEADER : DATA_HEADER;
 
-        if (found == m_connections.end() || found->second.state != State::Connected || payload.size() + header > MAX_PACKET) {
+        if (found == m_connections.end() || found->second.state != State::Connected || payload.size() + header + TAG_SIZE > MAX_PACKET) {
             ++m_stats.refusedSends;
             return false;
         }
@@ -181,7 +327,7 @@ namespace kuge::net
         const bool wasConnected = found->second.state == State::Connected;
 
         if (tellPeer && wasConnected) {
-            sendSimple(found->second, Goodbye, 0, now());
+            sendGoodbye(found->second, now());
         }
         m_closedResends += found->second.reliable.resends();
         m_closedDuplicates += found->second.reliable.duplicates();
@@ -289,11 +435,15 @@ namespace kuge::net
 
     void Endpoint::handlePacket(Connection& connection, std::span<const std::uint8_t> packet, double time)
     {
-        ByteReader in(packet);
         const ConnectionId id = connection.id;
 
+        if (packet.empty()) {
+            ++m_stats.malformed;
+            return;
+        }
         try {
-            const std::uint8_t type = in.read<std::uint8_t>();
+            const std::uint8_t type = packet[0];
+            ByteReader in(packet.subspan(1));
 
             switch (type) {
                 case Connect: {
@@ -301,66 +451,118 @@ namespace kuge::net
                         ++m_stats.malformed;
                         return;
                     }
-                    const std::uint16_t version = in.read<std::uint16_t>();
-                    const std::uint32_t salt = in.read<std::uint32_t>();
-
-                    connection.lastReceived = time;
-                    if (connection.refusing || version != m_config.protocol) {
-                        sendSimple(connection, Reject, 0, time);
+                    // The version first: what follows is not the same in another one
+                    if (in.read<std::uint16_t>() != m_config.protocol) {
+                        sendReject(connection, time);
                         close(id, DisconnectReason::Refused, false, true);
                         return;
                     }
-                    if (connection.state == State::Handshaking) {
-                        connection.salt = salt;
-                        establish(connection);
+                    const std::uint64_t salt = in.read<std::uint64_t>();
+                    const std::uint64_t cookie = in.read<std::uint64_t>();
+
+                    if (!allowConnect(connection.peer, time)) {
+                        ++m_stats.rateLimited;
+                        return;
                     }
-                    if (connection.state == State::Connected && connection.salt == salt) {
-                        sendSimple(connection, Accept, salt, time);   // (again, if the first one was lost)
+                    if (connection.state == State::Connected) {
+                        // The Accept was lost: the client asks again with the same salt and cookie (a stranger knows neither)
+                        if (salt == connection.salt && cookie == connection.serverSalt) {
+                            connection.lastReceived = time;
+                            sendAccept(connection, time);
+                        }
+                        return;
+                    }
+                    // This address has said that it is there. Has it also heard us? Only a cookie that we made, for this
+                    // address and this salt, in this window or the last, can come back. Nothing is kept for the ones that do not.
+                    const auto window = static_cast<std::uint64_t>(time / std::max(m_config.cookieWindow, 0.001));
+                    const std::uint64_t current = cookieOf(connection.peer, salt, window);
+                    const bool tcp = m_transport->reliable();   // (TCP has proved the address already)
+                    const bool proved = tcp || cookie == current || (window > 0 && cookie == cookieOf(connection.peer, salt, window - 1));
+
+                    if (!proved) {
+                        sendChallenge(connection, salt, current, time);
+                        return;
+                    }
+                    if (established() >= m_config.maxConnections) {
+                        sendReject(connection, time);
+                        close(id, DisconnectReason::Refused, false, true);
+                        return;
+                    }
+                    connection.salt = salt;
+                    connection.serverSalt = tcp ? current : cookie;
+                    connection.lastReceived = time;
+                    establish(connection);
+                    sendAccept(connection, time);
+                    return;
+                }
+                case Challenge: {
+                    const std::uint64_t salt = in.read<std::uint64_t>();
+                    const std::uint64_t cookie = in.read<std::uint64_t>();
+
+                    // (Again when the cookie ran out: the server sends a new one, and the next Connect carries it)
+                    if (m_role == Role::Client && connection.state == State::Connecting && salt == connection.salt) {
+                        connection.serverSalt = cookie;
+                        connection.haveCookie = true;
+                        connection.nextConnect = time;
                     }
                     return;
                 }
                 case Accept: {
-                    const std::uint32_t salt = in.read<std::uint32_t>();
+                    const std::uint64_t salt = in.read<std::uint64_t>();
+                    const std::uint64_t cookie = in.read<std::uint64_t>();
 
                     if (m_role == Role::Client && connection.state == State::Connecting && salt == connection.salt) {
+                        connection.serverSalt = cookie;
+                        connection.haveCookie = true;
                         connection.lastReceived = time;
                         establish(connection);
-                    } else if (connection.state == State::Connected) {
-                        connection.lastReceived = time;
                     }
-                    return;
+                    return;   // (A copy of the Accept, once connected, proves nothing and keeps nothing alive)
                 }
                 case Reject:
-                    if (m_role == Role::Client) {
+                    // Only while connecting: it has no tag, so it must not end a connection that is made
+                    if (m_role == Role::Client && connection.state == State::Connecting) {
                         close(id, DisconnectReason::Refused, false, true);
                     }
                     return;
                 case Goodbye:
-                    close(id, DisconnectReason::Remote, false, true);
+                    if (connection.state == State::Connected && opens(connection, packet)) {
+                        close(id, DisconnectReason::Remote, false, true);
+                    } else {
+                        ++m_stats.malformed;
+                    }
                     return;
                 case Data: {
-                    // A client that gets Data before Accept knows the server sees it as connected: the Accept was lost
-                    if (connection.state == State::Connecting && m_role == Role::Client) {
+                    // A client that gets Data before Accept knows the server sees it as connected: the Accept was lost.
+                    // (It has the key already, from the Challenge: the packet shows whether it is the server's.)
+                    if (connection.state == State::Connecting && m_role == Role::Client && connection.haveCookie && opens(connection, packet)) {
                         establish(connection);
                     }
                     if (connection.state != State::Connected) {
                         return;
                     }
+                    if (!opens(connection, packet)) {
+                        ++m_stats.malformed;   // not from the other end of this connection
+                        return;
+                    }
+                    const auto body = packet.first(packet.size() - TAG_SIZE);
+                    ByteReader data(body.subspan(1));
+
                     connection.lastReceived = time;
-                    const std::uint8_t channel = in.read<std::uint8_t>();
-                    const std::uint32_t ack = in.read<std::uint32_t>();
-                    const std::uint32_t bits = in.read<std::uint32_t>();
+                    const std::uint8_t channel = data.read<std::uint8_t>();
+                    const std::uint32_t ack = data.read<std::uint32_t>();
+                    const std::uint32_t bits = data.read<std::uint32_t>();
 
                     connection.reliable.onAck(ack, bits, time);
                     if (channel == static_cast<std::uint8_t>(Channel::Unreliable)) {
-                        deferMessage(id, packet.subspan(in.position()));
+                        deferMessage(id, body.subspan(1 + data.position()));
                     } else if (channel == static_cast<std::uint8_t>(Channel::Reliable)) {
-                        const std::uint32_t seq = in.read<std::uint32_t>();
-                        const auto body = packet.subspan(in.position());
+                        const std::uint32_t seq = data.read<std::uint32_t>();
+                        const auto message = body.subspan(1 + data.position());
 
-                        connection.reliable.onData(seq, std::vector<std::uint8_t>(body.begin(), body.end()));
-                        for (const auto& message : connection.reliable.takeDelivered()) {
-                            deferMessage(id, message);
+                        connection.reliable.onData(seq, std::vector<std::uint8_t>(message.begin(), message.end()));
+                        for (const auto& delivered : connection.reliable.takeDelivered()) {
+                            deferMessage(id, delivered);
                         }
                     } else if (channel != CONTROL) {
                         ++m_stats.malformed;
@@ -391,21 +593,26 @@ namespace kuge::net
                         }
                     }
                 } else {
-                    // The ones that wait for their Reject do not count as taking a place
-                    const auto refusing = static_cast<std::size_t>(std::count_if(m_connections.begin(), m_connections.end(),
-                        [](const auto& entry) { return entry.second.refusing; }));
-                    const bool full = m_connections.size() - refusing >= m_config.maxConnections;
+                    // A peer that has not yet proved its address (see the handshake) takes no place of maxConnections, only
+                    // one of the maxHalfOpen: when they are all taken, the oldest goes (a flood of Connect from addresses that
+                    // never answer must not keep the real ones out, and does not grow without end).
+                    std::size_t halfOpen = 0;
+                    const Connection* oldest = nullptr;
 
-                    if (full && refusing >= MAX_REFUSING) {
-                        m_transport->close(event.connection);   // no room, and a crowd already waits for its Reject: it finds out by itself
-                        return;
+                    for (const auto& [id, other] : m_connections) {
+                        if (other.state == State::Handshaking) {
+                            ++halfOpen;
+                            if (!oldest || other.created < oldest->created) {
+                                oldest = &other;
+                            }
+                        }
                     }
-                    Connection connection{event.connection, State::Handshaking, time, time, 0.0, 0.0, 0, true,
+                    if (halfOpen >= std::max<std::size_t>(m_config.maxHalfOpen, 1) && oldest) {
+                        close(oldest->id, DisconnectReason::Unreachable, false, true);   // (not reported: it never got through)
+                    }
+                    Connection connection{event.connection, State::Handshaking, time, time, 0.0, 0.0, 0, 0, false, true,
                         ReliableChannel(m_config.reliable), event.peer};
 
-                    // No room: it is not dropped in silence (the client would wait for its timeout, or think the
-                    // server is not there), it is answered Reject when its Connect arrives
-                    connection.refusing = full;
                     m_connections.emplace(event.connection, std::move(connection));
                 }
                 return;
@@ -440,7 +647,7 @@ namespace kuge::net
                     close(connection.id, DisconnectReason::Timeout, false, true);
                 } else if (connection.transportUp && time >= connection.nextConnect) {
                     connection.nextConnect = time + m_config.connectRetry;
-                    sendSimple(connection, Connect, connection.salt, time);
+                    sendConnect(connection, time);
                 }
                 return;
             case State::Handshaking:

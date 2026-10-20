@@ -34,7 +34,10 @@ namespace kuge::net
         Kind                       kind;
         ConnectionId               connection;
         std::vector<std::uint8_t>  packet;   //!< Kind::Packet
-        std::string                peer;     //!< Kind::Connected: where it comes from, for humans
+        //! Kind::Connected: where it comes from. For humans, and for the endpoint: its cookies are made for this text, and it
+        //! counts the Connect packets by what comes before the last ':' ("10.0.0.7:4242" is the address 10.0.0.7). A server transport
+        //! must give each address its own.
+        std::string                peer;
     };
 
     ////////////////////////////////////////////////////////////////////////////

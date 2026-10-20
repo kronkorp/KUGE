@@ -87,6 +87,20 @@ or to make smaller. The endpoint counts the packets it sent over `DATAGRAM_PAYLO
 - A client sends `Connect` until the server answers `Accept`. So **"connected" means the other side answered**,
   even over UDP, where a socket knows nothing about who is at the other end. A server that is full, or that has
   another `protocol` version, refuses (`DisconnectReason::Refused`).
+- **The server checks the address before it keeps anything.** Over UDP the first `Connect` is answered with a small
+  `Challenge` (a cookie that only this server can make, for this address and this client); the client repeats its
+  `Connect` with it, and only then is the connection made. A `Connect` from a forged address, which never receives
+  the `Challenge`, leaves no connection, takes none of the `maxConnections` places (the peers that have not answered are
+  at most `maxHalfOpen`, the oldest dropped first) and is answered by less than it sent. The connection costs one more
+  round trip. TCP has proved the address already and skips this. `Connect` packets are counted by address
+  (`connectsPerSecond`, 64 by default, per IP whatever the port: players behind one NAT share it) and the ones
+  over are dropped. See `stats().challenges` and `stats().rateLimited`.
+- **Every packet after the handshake ends with a 4-byte tag** (SipHash-2-4 with a key made of the two sides' secrets
+  of the handshake): a packet with a wrong tag is dropped and counted in `stats().malformed`. **What this protects:**
+  a connection against someone who is not on the path, who knows the addresses and guesses the sequence numbers, and
+  tries to slip a message or a `Goodbye` in. **What it does not:** nothing is encrypted (a message can be read), and
+  someone who reads the handshake has the key, so he can forge packets and replay old ones. A real encryption and the
+  login of players are for later, and need a library. A game with accounts must not count on this alone.
 - A silent connection sends something every second, and a peer that says nothing for 10 seconds is gone
   (`Timeout`). Leaving (`disconnect`, or destroying the endpoint) tells the peer at once, so it need not wait.
 - All the delays are in `EndpointConfig`, with a clock you can replace (tests do).

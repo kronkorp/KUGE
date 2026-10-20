@@ -8,30 +8,39 @@ times it has to be sent), and handlers that are safe to run. This step reads `En
 
 ```
 client                                                   server
-Connecting ── Connect (every 0.25 s, for 5 s) ─────────▶ (transport "Connected": Handshaking, not reported)
-                                                          right magic and protocol: Connected, onConnected
+Connecting ── Connect (every 0.25 s, for 5 s) ─────────▶ (transport "Connected": Handshaking, not reported, not a connection)
+           ◀──────────────────────────────── Challenge ──   (a cookie; the server keeps nothing)
+           ── Connect, with the cookie ────────────────▶   right magic, protocol and cookie: Connected, onConnected
 Connected ◀────────────────────────────────── Accept ──   (sent again if the same Connect comes again)
-  (or on the first Data: the Accept was lost, but the server obviously sees us as connected)
+  (or on the first Data whose tag is the server's: the Accept was lost, but the client has the key already)
 ```
 
 ```cpp
 // modules/net/src/Endpoint.cpp, Endpoint::handlePacket, case Connect (server side)
-if (version != m_config.protocol) {
-    sendSimple(connection, Reject, 0, time);             // another version of the protocol: refused
+if (version != m_config.protocol) {                      // (read first: the rest of a Connect is not the same in another version)
+    sendReject(connection, time);                        // another version of the protocol: refused
     close(id, DisconnectReason::Refused, false, true);
     return;
 }
-if (connection.state == State::Handshaking) {
-    connection.salt = salt;
-    establish(connection);                               // Connected, and onConnected is queued
+... allowConnect(): more than connectsPerSecond from this address: dropped, unanswered
+if (connection.state == State::Connected) {              // the Accept was lost: same salt and same cookie, again
+    if (salt == connection.salt && cookie == connection.serverSalt) { sendAccept(connection, time); }
+    return;
 }
-if (connection.state == State::Connected && connection.salt == salt) {
-    sendSimple(connection, Accept, salt, time);          // (again, if the first one was lost)
+const bool proved = tcp || cookie == cookieOf(peer, salt, window) || cookie == cookieOf(peer, salt, window - 1);
+if (!proved) {
+    sendChallenge(connection, salt, current, time);      // 17 bytes for a 23-byte Connect, and nothing kept
+    return;
 }
+connection.salt = salt;
+connection.serverSalt = cookie;                          // the two halves of the key of the tags
+establish(connection);                                   // Connected, and onConnected is queued
+sendAccept(connection, time);
 ```
 
-A server keeps the connections of peers that never finished the handshake out of sight: they are not reported,
-and are dropped after `connectTimeout`. Only a peer that answered becomes a connection the game sees.
+A server keeps the peers that never finished the handshake out of sight: they are not reported, take no place of
+`maxConnections`, are at most `maxHalfOpen` (the oldest goes first), and are dropped after `connectTimeout`. Only a
+peer that answered with its cookie becomes a connection the game sees.
 
 ## One `poll()`
 

@@ -52,6 +52,12 @@ Every item here was met while building the engine and the games. Reading them is
 - **Do not keep a pointer to an endpoint that can go away.** A room's endpoint is destroyed when the room ends or the
   lobby is lost. Everything that holds it (prediction, replication client) must be dropped in `onRoomClosed`. This
   caused a use-after-free.
+- **A UDP datagram over about 1200 bytes is cut by IP**, and one lost fragment loses it all. A transport carries up to
+  8192 bytes, but on UDP keep a message (and a snapshot part) under `DATAGRAM_PAYLOAD`; KUGE does not fragment for you.
+  `endpoint.stats().bigPackets` counts what you sent over it.
+- **A packet with a wrong tag is dropped.** Every `Data` and `Goodbye` ends with 4 bytes that the other end checks, so a
+  transport, a proxy or a test that edits packets in flight must edit through an endpoint (or not at all). A UDP
+  connection also takes one more round trip to make (the cookie).
 - **`send` can return `false`.** Not connected, too big, or the reliable queue is full. For a message that must not
   be lost, check.
 - **A socket read gives one datagram per call in kronknet.** The transport loops until the socket is empty; if you write

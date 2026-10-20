@@ -40,7 +40,10 @@ namespace kuge::net
         double                       keepAlive      = 1.0;   //!< A silent connection sends something this often
         double                       connectRetry   = 0.25;  //!< A client asks again this often
         double                       connectTimeout = 5.0;   //!< ... and gives up after this
-        std::size_t                  maxConnections = 64;    //!< Server: the next ones are refused
+        std::size_t                  maxConnections = 64;    //!< Server: the next ones are refused (connections that went through the handshake)
+        std::size_t                  maxHalfOpen    = 256;   //!< Server: peers that have not yet proved their address. Past this, the oldest is dropped, so a flood cannot take the places of real ones.
+        std::size_t                  connectsPerSecond = 64; //!< Server: `Connect` packets taken from one address (IP, whatever the port) in a second. The others are dropped, unanswered. 0: no limit. (Several players behind one address: keep it above their number.)
+        double                       cookieWindow   = 8.0;   //!< Server: how long the cookie of a challenge is good (it is accepted for this long and as long again)
         std::uint16_t                protocol       = 2;     //!< Version of what is said: both sides must have the same (a game sets its own; 2: KUGE's handshake and matchmaking of this version)
         ReliableChannel::Config      reliable;
     };
@@ -55,6 +58,8 @@ namespace kuge::net
         std::uint64_t malformed = 0;         //!< Packets or messages that made no sense (dropped)
         std::uint64_t unknownMessages = 0;   //!< Messages nobody listens to (dropped)
         std::uint64_t refusedSends = 0;      //!< Messages that could not be sent (too big, full, not connected)
+        std::uint64_t challenges = 0;        //!< Server: `Challenge` sent (a Connect from an address that had not proved itself)
+        std::uint64_t rateLimited = 0;       //!< Server: `Connect` dropped for coming too often from one address (connectsPerSecond)
         std::uint64_t bigPackets = 0;        //!< Packets sent over DATAGRAM_PAYLOAD on a transport that can lose them (UDP, loopback): IP cuts them on a real path
     };
 
@@ -159,6 +164,10 @@ namespace kuge::net
             //! The peers that are connected (a client has at most one: the server)
             std::vector<ConnectionId> connections(void) const;
 
+            //! Server: the peers that reached the transport and have not proved their address yet (see the handshake). At most
+            //! maxHalfOpen, and they are not connections: they cannot be sent to, and are not reported.
+            std::size_t halfOpen(void) const;
+
             //! Seconds a packet takes to go and come back, as the acks show (nothing before the first)
             std::optional<double> rtt(ConnectionId connection) const;
 
@@ -174,11 +183,19 @@ namespace kuge::net
                 ConnectionId     id;
                 State            state;
                 double           created = 0.0, lastReceived = 0.0, lastSent = 0.0, nextConnect = 0.0;
-                std::uint32_t    salt = 0;
+                std::uint64_t    salt = 0;         //!< Chosen by the client
+                std::uint64_t    serverSalt = 0;   //!< The cookie of the handshake: the server's half of the key of the packets
+                bool             haveCookie = false;   //!< Client: the server has challenged us, and `serverSalt` is its cookie
                 bool             transportUp = false;
                 ReliableChannel  reliable;
                 std::string      peer;
-                bool             refusing = false;   //!< Server: it came when there was no room. It gets its Reject, and goes.
+            };
+
+            //! How many `Connect` an address sent in the window that started at `start`
+            struct ConnectCount
+            {
+                double        start = 0.0;
+                std::size_t   count = 0;
             };
 
             struct Handler
@@ -200,7 +217,17 @@ namespace kuge::net
             void flushReliable(Connection& connection, double time);
             void transmit(Connection& connection, const std::vector<std::uint8_t>& packet, double time);
             void sendData(Connection& connection, Channel channel, bool control, std::uint32_t seq, const std::vector<std::uint8_t>* payload, double time);
-            void sendSimple(Connection& connection, std::uint8_t type, std::uint32_t value, double time);
+            void sendConnect(Connection& connection, double time);
+            void sendChallenge(Connection& connection, std::uint64_t salt, std::uint64_t cookie, double time);
+            void sendAccept(Connection& connection, double time);
+            void sendReject(Connection& connection, double time);
+            void sendGoodbye(Connection& connection, double time);
+            void seal(const Connection& connection, ByteWriter& out) const;
+            bool opens(const Connection& connection, std::span<const std::uint8_t> packet) const;
+            std::uint32_t tagOf(const Connection& connection, std::span<const std::uint8_t> body, bool fromServer) const;
+            std::uint64_t cookieOf(const std::string& peer, std::uint64_t salt, std::uint64_t window) const;
+            bool allowConnect(const std::string& peer, double time);
+            std::size_t established(void) const;
             void establish(Connection& connection);
             void close(ConnectionId id, DisconnectReason reason, bool tellPeer, bool closeTransport);
             void runDeferred(void);
@@ -210,6 +237,8 @@ namespace kuge::net
             EndpointConfig                              m_config;
             std::function<double(void)>                 m_clock;
             std::map<ConnectionId, Connection>          m_connections;
+            std::uint64_t                               m_secret[2] = {0, 0};   //!< Server: what cookies are made with (new at each start)
+            std::unordered_map<std::string, ConnectCount> m_connects;           //!< Server: by address
             std::unordered_map<std::uint32_t, Handler>  m_handlers;
             ConnectedHandler                            m_onConnected;
             DisconnectedHandler                         m_onDisconnected;

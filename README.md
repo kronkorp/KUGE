@@ -746,7 +746,9 @@ server.poll();                 // once per tick: reads, sends what is due, calls
   are full, instead of growing. Over TCP nothing is ever sent twice.
 - **Handshake.** A client sends `Connect` until the server answers `Accept`; "connected" therefore
   means that the other side answered, even over UDP where a socket knows nothing. A server that is
-  full, or has another `protocol` version, refuses (`DisconnectReason::Refused`).
+  full, or has another `protocol` version, refuses (`DisconnectReason::Refused`). Over UDP the server
+  first sends a `Challenge` (a cookie) and makes the connection only when the client has sent it back, so
+  a forged address leaves nothing behind; every packet after that ends with a 4-byte tag (see 08).
 - **Keep-alive and timeouts.** A silent connection sends something every second, and a peer that says
   nothing for 10 seconds is gone (`Timeout`). Leaving (`disconnect`, or destroying the endpoint) tells
   the peer at once. All the delays are in `EndpointConfig`, with a clock you can replace.

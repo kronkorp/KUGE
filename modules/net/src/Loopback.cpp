@@ -127,7 +127,8 @@ namespace kuge::net
 
                         link->announced = true;
                         m_links[id] = link;
-                        out.push_back(TransportEvent{TransportEvent::Kind::Connected, id, {}, "loopback '" + m_name + "'"});
+                        // (Each link is its own address, as each machine is on a network: the endpoint counts Connect by address)
+                        out.push_back(TransportEvent{TransportEvent::Kind::Connected, id, {}, "loopback #" + std::to_string(id) + " '" + m_name + "'"});
                     }
                     m_listener->arriving.clear();
                     for (auto it = m_links.begin(); it != m_links.end();) {
