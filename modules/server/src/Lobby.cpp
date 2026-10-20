@@ -133,7 +133,7 @@ namespace kuge::server
 
         for (auto& [id, room] : m_rooms) {
             // The fullest room that still has a place: games start sooner. A private room is never filled by chance.
-            if (room.type == type && !room.isPrivate && !room.closing && room.members.size() < room.maxPlayers && (!best || room.members.size() > best->members.size())) {
+            if (room.type == type && !room.isPrivate && room.open && !room.closing && room.members.size() < room.maxPlayers && (!best || room.members.size() > best->members.size())) {
                 best = &room;
             }
         }
@@ -228,7 +228,7 @@ namespace kuge::server
             ++reply.total;
             if (reply.rooms.size() < net::MAX_LISTED_ROOMS) {
                 reply.rooms.push_back(net::RoomInfo{room.id, room.type, room.name, static_cast<std::uint32_t>(room.members.size()),
-                    static_cast<std::uint32_t>(room.maxPlayers), room.options});
+                    static_cast<std::uint32_t>(room.maxPlayers), room.options, room.open});
             }
         }
         m_endpoint->send(from, reply);
@@ -329,6 +329,10 @@ namespace kuge::server
                     return true;
                 }
                 room = &found->second;
+                if (!room->open) {
+                    refuse(from, net::JoinError::Started);
+                    return true;
+                }
                 if (room->members.size() >= room->maxPlayers) {
                     refuse(from, net::JoinError::Full);
                     return true;
@@ -450,6 +454,12 @@ namespace kuge::server
         } else if (const auto* left = message.as<detail::PlayerLeft>()) {
             // The player left the room (not the lobby): it can join again
             removeMember(left->playerId, false, net::RoomEnd::Kicked);
+        } else if (const auto* opening = message.as<detail::RoomOpen>()) {
+            const auto room = m_rooms.find(opening->roomId);
+
+            if (room != m_rooms.end()) {
+                room->second.open = opening->open;
+            }
         } else if (const auto* closing = message.as<detail::RoomClosing>()) {
             const auto room = m_rooms.find(closing->roomId);
 

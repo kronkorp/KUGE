@@ -53,6 +53,7 @@ you:
 | `send(networkId, message)`, `broadcast(message)` | To one player, or to all |
 | `players()`, `player(connection)` | Who is in the room |
 | `kick(networkId)` | Sends a player away |
+| `setOpen(bool)` | Opens or closes the room to newcomers (see "A room that starts" below) |
 | `finish(reason)` | Ends the game: players are told, then the room is left |
 | `init()` | The `RoomInit`: room id, type, settings |
 | hooks | `onRoomEnter`, `onRoomExit`, `onPlayerJoined`, `onPlayerLeft`, `onRoomMessage` |
@@ -93,7 +94,7 @@ int main()
 ## What the lobby does
 
 - It finds a room of the asked kind that has a free place (**the fullest first**: games start sooner), or makes
-  one, up to `maxRooms`. It refuses with a reason (`JoinError`): unknown kind, full, room could not start.
+  one, up to `maxRooms`. It refuses with a reason (`JoinError`): unknown kind, full, room could not start, room closed to newcomers (`Started`).
 - It can also be told which room to use (see "Naming, listing and choosing rooms" below). It never fills a private
   room by chance.
 - It keeps the TCP connection of each client: **losing it takes the player out of the room**.
@@ -139,6 +140,16 @@ matchmaking.joinRoom(12, "Secret", "Ben");                           // the id A
 - The room sees its own name, whether it is private and its options in `init().roomName`, `init().isPrivate` and
   `init().options`.
 - The lobby does not limit how often a client asks for the list.
+
+## A room that starts
+
+A game with a start (a match, a round, a race) is open, then closed. When it starts, the room calls
+`setOpen(false)`: it tells the lobby, which from then on gives no place in it. The room stays in the lists with
+`RoomInfo::open == false` (a menu can grey it out: "in progress"); a client that asks for it by id and name gets
+`JoinError::Started` ("this game has already started"), and the automatic matchmaking (`join()`, a quick play) skips it
+and makes another room. The players that are in it are not affected, nor the ones already on their way with a token;
+the lobby learns it a moment after the room calls it, so a join that is already in flight can still get in.
+`setOpen(true)` opens it again; a room is open when it is made. `isOpen()` says where it is.
 
 ## The door of a room
 

@@ -38,6 +38,7 @@ namespace kuge::net
         InvalidName,       //!< The name of the room is not one (see validRoomName())
         UnknownRoom,       //!< No room has this id and this name (or it is ending). Same answer for a private room.
         InvalidOptions,    //!< The options of the room are not some (see validRoomOptions())
+        Started,           //!< The room asked for is closed to newcomers (its game started: see RoomScene::setOpen())
     };
 
     // -- Naming, listing and choosing rooms ---------------------------------------------------------
@@ -102,13 +103,14 @@ namespace kuge::net
     //! What the lobby says of a room that anyone can join: enough to choose one
     struct RoomInfo
     {
-        KUGE_MESSAGE(RoomInfo, roomId, roomType, name, players, maxPlayers, options)
+        KUGE_MESSAGE(RoomInfo, roomId, roomType, name, players, maxPlayers, options, open)
         std::uint32_t roomId = 0;
         std::string   roomType;
         std::string   name;          //!< What its creator called it ("<type> #<id>" for a room that the lobby made)
         std::uint32_t players = 0;   //!< Who is in it, or on the way
         std::uint32_t maxPlayers = 0;
         std::string   options;       //!< What its creator set (CreateRoom::options), for a list to show; empty for a room the lobby made
+        bool          open = true;   //!< false: its game started and it takes no one more (join it and get JoinError::Started). A menu can grey it out.
     };
 
     //! The client asks which rooms it can join

@@ -21,6 +21,7 @@ struct Echo
 
 struct FinishNow { KUGE_MESSAGE(FinishNow) };
 struct WinNow { KUGE_MESSAGE(WinNow) };
+struct SetDoor { KUGE_MESSAGE(SetDoor, open) bool open = true; };
 
 // What the rooms of the tests did (they run on other threads: everything is under the mutex)
 struct RoomLog
@@ -65,6 +66,7 @@ class TestRoom : public kuge::server::RoomScene
                 roomLog().roomOptions.push_back(init().options);
             }
             on<Echo>([this](const Player& who, const Echo& echo) { send(who.networkId, Echo{who.name + ": " + echo.text}); });
+            on<SetDoor>([this](const Player&, const SetDoor& door) { setOpen(door.open); });
             on<WinNow>([this](const Player&, const WinNow&) { finish(kuge::net::RoomEnd::Victory); ++roomLog().finished; });
             on<FinishNow>([this](const Player&, const FinishNow&) { finish(kuge::net::RoomEnd::GameOver); ++roomLog().finished; });
         }

@@ -188,6 +188,14 @@ namespace kuge::server
         }
     }
 
+    void RoomScene::setOpen(bool open)
+    {
+        if (open != m_open) {
+            m_open = open;
+            tellLobby(detail::RoomOpen{m_init.roomId, open});
+        }
+    }
+
     // -- The end -----------------------------------------------------------------------------------
     void RoomScene::finish(net::RoomEnd reason)
     {

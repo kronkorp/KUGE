@@ -116,6 +116,15 @@ namespace kuge::server
             //! Sends a player away
             void kick(std::uint32_t networkId, net::RoomEnd reason = net::RoomEnd::Kicked);
 
+            //! Opens or closes the room to newcomers (it is open when made). A room that is not open stays in the lists
+            //! (`RoomInfo::open` is false, so a menu can grey it out) but the lobby gives no place in it: a client that asks
+            //! for it by id gets `JoinError::Started`, and the automatic matchmaking (`join`) makes another room instead.
+            //! The players already in it, and the ones on their way with a token, are not affected. Use it when the game
+            //! starts (a match, a round, a race). Tells the lobby, which learns it a moment later: a join that is already
+            //! on its way can still get in.
+            void setOpen(bool open);
+            bool isOpen(void) const noexcept { return m_open; }
+
             //! Ends the game: the players are told, then the room is left. Only the first call counts.
             //! The players are told `ServerConfig::closeDelay` later, not at once: the room goes on running, and
             //! what the game does as it ends (a result, a last state) is in the snapshots that leave first. A client
@@ -151,6 +160,7 @@ namespace kuge::server
             std::vector<WaitingHello>                m_waiting;      //!< Hello with a token the room may not know yet
             std::uint32_t                            m_nextNetworkId = 1;
             double                                   m_lastActive = 0.0;
+            bool                                     m_open = true;
             bool                                     m_finishing = false;
             bool                                     m_ended = false;
             bool                                     m_announced = false;   //!< The players were told (RoomClosed)

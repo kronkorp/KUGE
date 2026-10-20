@@ -47,6 +47,7 @@ namespace kuge::server
                 std::string              address;
                 std::size_t              maxPlayers;
                 bool                     ready = false;
+                bool                     open = true;       //!< The room takes newcomers (RoomScene::setOpen)
                 bool                     closing = false;   //!< The game ended: it takes no one more
                 net::RoomEnd             endReason = net::RoomEnd::GameOver;   //!< Why, once it is closing
                 std::set<std::uint32_t>  members;      //!< Player ids: joined, or on their way

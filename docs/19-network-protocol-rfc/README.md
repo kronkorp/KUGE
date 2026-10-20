@@ -151,7 +151,7 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 | `JoinNamedRoom` | C→L | roomId (u32), roomName, playerName (chaînes), protocol (u16) | entre dans la salle dont l'id et le nom correspondent |
 | `ListRooms` | C→L | roomType (chaîne, vide pour tous) | demande les salles publiques |
 | `RoomList` | L→C | total (u32), rooms (vecteur de `RoomInfo`) | réponse : 64 salles au plus, `total` les compte toutes |
-| `RoomInfo` | dans `RoomList` | roomId (u32), roomType, name (chaînes), players (u32), maxPlayers (u32), options (chaîne) | décrit une salle publique |
+| `RoomInfo` | dans `RoomList` | roomId (u32), roomType, name (chaînes), players (u32), maxPlayers (u32), options (chaîne), open (bool) | décrit une salle publique ; `open` est faux quand la salle est fermée aux nouveaux venus |
 | `RoomAssigned` | L→C | roomId (u32), address (chaîne), port (u16), token (u64), tickRate (u32) | où se trouve la salle, et la clé pour y entrer |
 | `JoinRefused` | L→C | reason (`JoinError`, u8) | la demande échoue |
 | `LeaveRoom` | C→L | aucun | quitte la salle, ou renonce à en rejoindre une |
@@ -178,7 +178,7 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 
 | Énumération | Valeurs |
 | --- | --- |
-| `JoinError` | 0 UnknownRoomType, 1 Full, 2 AlreadyJoined, 3 RoomFailed, 4 Protocol, 5 InvalidName, 6 UnknownRoom, 7 InvalidOptions |
+| `JoinError` | 0 UnknownRoomType, 1 Full, 2 AlreadyJoined, 3 RoomFailed, 4 Protocol, 5 InvalidName, 6 UnknownRoom, 7 InvalidOptions, 8 Started |
 | `HelloError` | 0 UnknownToken, 1 Closing |
 | `RoomEnd` | 0 GameOver, 1 Idle, 2 ServerStopping, 3 Kicked, 4 Error, 5 Victory |
 

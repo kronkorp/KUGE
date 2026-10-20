@@ -894,3 +894,44 @@ Test(server, victory_honours_closeDelay)
     Assert(std::chrono::steady_clock::now() - sent >= std::chrono::milliseconds(500), "not before the delay");
     AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::Victory), "with the reason of the game");
 }
+
+// -- A room that is closed to newcomers (ticket 018) -------------------------------------------------
+Test(server, a_closed_room_takes_no_one)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben"), carl("Carl");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    carl.connect(harness);
+    ana.create("Match");
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens a room");
+    const auto id = ana.roomId;
+    const auto* list = ben.list();
+
+    Assert(list != nullptr && list->rooms.size() == 1 && list->rooms[0].open, "it is open");
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, SetDoor{false});
+    Assert(ben.until([&] { const auto* l = ben.list(); return l && l->rooms.size() == 1 && !l->rooms[0].open; }), "the game starts: the list says it is not open (but still lists it)");
+
+    ben.joinNamed(id, "Match");
+    Assert(ben.until([&] { return !ben.failures.empty(); }), "a join by id is refused");
+    AssertStrEq(ben.failures[0].c_str(), "this game has already started", "because the game started");
+    Assert(ben.inLobby() && ben.joined == 0, "Ben never got a Welcome");
+    {
+        std::lock_guard lock(roomLog().mutex);
+        AssertEq(roomLog().joined.size(), 1, "and the room never saw him");
+    }
+
+    // The automatic matchmaking has a room of its own made, instead of putting Carl in the one that runs
+    carl.join();
+    Assert(carl.until([&] { return carl.inRoom(); }), "a quick play lands somewhere");
+    Assert(carl.roomId != id, "in a new room");
+    AssertEq(harness.server->stats().rooms, 2, "which was made for him");
+
+    // Open again: the room takes newcomers
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, SetDoor{true});
+    Assert(ben.until([&] { const auto* l = ben.list(); return l && l->rooms.size() == 2 && l->rooms[0].open; }), "the room is open again");
+    ben.joinNamed(id, "Match");
+    Assert(ben.until([&] { return ben.inRoom(); }), "Ben joins it");
+    AssertEq(ben.roomId, id, "it is Ana's");
+}

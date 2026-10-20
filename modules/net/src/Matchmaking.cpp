@@ -16,6 +16,7 @@ namespace kuge::net
                 case JoinError::InvalidName:     return "this is not a name for a room";
                 case JoinError::UnknownRoom:     return "no such room";
                 case JoinError::InvalidOptions:  return "these are not options for a room";
+                case JoinError::Started:         return "this game has already started";
             }
             return "refused";
         }
