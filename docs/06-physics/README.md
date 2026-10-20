@@ -78,6 +78,19 @@ This is not a nicety. It is what lets:
 - a **test** assert exact positions;
 - a **replay** exist.
 
+**Across platforms.** Bit for bit also needs the compiler not to change the arithmetic. The 2D physics uses only
+`+ - * /` and `sqrt`, which IEEE 754 makes exact, so it gives the same bits on Linux, Windows and ARM as long as the
+code is built without fast-math and without fused multiply-add: that is what the `kuge-determinism` target sets
+(`-ffp-contract=off -fno-fast-math`, `/fp:precise`), and every KUGE module links it. A game that predicts its own code
+links it too. The test `float_determinism` runs 10 000 ticks of a scripted scene (dynamic and kinematic bodies,
+tiles, a trigger, pushes from a fixed integer generator), hashes the final state and compares it with a constant;
+the CI of Linux and of Windows must both reach it. If you change the physics on purpose, the constant changes, and
+it must be the same on both. (Checked: on x86 with `-march=haswell` and `-ffp-contract=fast` the hash differs and the
+test fails.)
+
+**Not covered:** the 3D physics (Jolt) is bit for bit on one machine only, and is not part of that test; `sin`,
+`cos`, `pow`... in your own predicted code, which come from each platform's maths library.
+
 ## Using it without a scene
 
 `Physics2D::step(World&, float dt)` is public. A world that is not a scene (the private world a client

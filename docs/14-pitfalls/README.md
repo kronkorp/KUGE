@@ -34,6 +34,13 @@ Every item here was met while building the engine and the games. Reading them is
   test walked the hero into a coin.)
 - **Bodies do not stop each other.** Use triggers, or your own overlap test.
 - **Physics needs the same order every time**, and it has it. Do not use an `unordered_map` iteration in code you predict.
+- **Predicted code needs the same floats on every platform.** The modules are built with `-ffp-contract=off -fno-fast-math`
+  (GCC, Clang) or `/fp:precise` (MSVC), through the `kuge-determinism` target. Without them an ARM machine, or an x86 one
+  built with `-march=native`, fuses `a * b + c` into one rounding and a client and a server drift apart by a bit that
+  the prediction then "corrects" for ever. A game links `kuge-determinism` for its own predicted code, and never builds
+  with `-ffast-math` or `-Ofast` (the configuration refuses a build with them). `sin`, `cos` and `pow` come from each
+  platform's maths library and can differ in the last bit: the 2D physics only uses `+ - * /` and `sqrt`, which are
+  exact; keep your predicted code to the same, or to a table. `float_determinism` checks it (see the 2D physics chapter).
 
 ## Serialization and messages
 

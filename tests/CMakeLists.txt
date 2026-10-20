@@ -2,6 +2,13 @@
 add_subdirectory(boundaries)
 add_subdirectory(dll_ids)
 
+# Ticket 023: the same floats on every platform. A plain program (no kronklab), so Windows runs it too:
+# the final state of a scripted 2D simulation is hashed, and Linux and Windows must reach the same constant
+add_executable(kuge_float_determinism determinism/float_determinism.cpp)
+target_link_libraries(kuge_float_determinism PRIVATE kuge-physics)
+target_compile_options(kuge_float_determinism PRIVATE ${KUGE_WARNINGS})
+add_test(NAME float_determinism COMMAND kuge_float_determinism)
+
 # The real game, started for real (on SDL's dummy screen), plays a scripted match
 if(TARGET kuge_pong)
     add_test(NAME pong_smoke

@@ -155,6 +155,29 @@ unset(BUILD_TESTING)
 # rest (their shared libraries, kronklab) only when something needs it.
 set_property(DIRECTORY "${kronkflow_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL ON)
 
+# Ticket 023: what the room and the client both run (physics, replication, prediction) must give the same
+# floats on every platform. An interface target that every module links PUBLIC, so that a game linking a
+# module gets the flags for its own predicted code too (or links kuge-determinism itself):
+#  - no fast-math: it reorders operations and assumes there is no NaN;
+#  - no fused multiply-add: GCC and Clang fuse a * b + c into one rounding by default where the CPU has
+#    FMA (ARM always, x86 with -march=haswell or native), which two machines that differ will not both do.
+#    MSVC's /fp:precise does not fuse (it is the default, spelt out so that nobody changes it by accident).
+# Not covered: sin, cos, pow... come from each platform's maths library and may differ in the last bit
+# (the 2D physics only uses + - * / and sqrt, which are exact); and Jolt (3D physics), see docs/06-physics.
+add_library(kuge-determinism INTERFACE)
+add_library(kuge::determinism ALIAS kuge-determinism)
+if(MSVC)
+    target_compile_options(kuge-determinism INTERFACE $<$<COMPILE_LANGUAGE:CXX>:/fp:precise>)
+else()
+    target_compile_options(kuge-determinism INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off -fno-fast-math>)
+endif()
+foreach(flags CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_MINSIZEREL)
+    if("${${flags}}" MATCHES "-ffast-math|-Ofast|/fp:fast")
+        message(FATAL_ERROR "${flags} has a fast-math option ('${${flags}}'): the physics would no longer give "
+            "the same floats on every platform (ticket 023, docs/14-pitfalls)")
+    endif()
+endforeach()
+
 include(cmake/KugeModule.cmake)
 
 # Vendored libraries, compiled from the submodules.

@@ -207,7 +207,8 @@ world().add<kuge::Collider3D>(zone, kuge::Collider3D::sphere(2).asTrigger());   
 
 Jolt comes from vcpkg (`vcpkg.json`, feature `physics3d`) and is built the first time; `-DKUGE_BUILD_PHYSICS3D=OFF`
 leaves it out. The same world gives the same result, bit for bit, on one machine; Jolt is not built to agree
-across platforms.
+across platforms (Jolt has a `CROSS_PLATFORM_DETERMINISTIC` build option, which the vcpkg port does not offer),
+so nothing checks that Linux and Windows agree in 3D: do not predict across them.
 
 ## On a network
 
