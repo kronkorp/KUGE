@@ -247,11 +247,15 @@ namespace kuge::net
             //! The room is over, or lost: the endpoint that onJoined gave is gone (drop whatever holds it). Called
             //! for every way a room ends but leave() and disconnect(), which the caller asked for.
             void onRoomClosed(std::function<void(RoomEnd)> handler) { m_onRoomClosed = std::move(handler); }
-            //! Joining did not work, or the lobby is lost
+            //! Joining did not work, or the lobby is lost. The text is for the player (error()); to decide what to do
+            //! (stop trying again on DisconnectReason::Refused), read lastReason() instead of parsing it.
             void onFailed(std::function<void(const std::string&)> handler) { m_onFailed = std::move(handler); }
 
             State                state(void) const noexcept { return m_state; }
             const std::string&   error(void) const noexcept { return m_error; }
+            //! Why the lobby or the room was last lost (Refused: another version, or the server is full; Timeout:
+            //! it does not answer; Unreachable: nobody there). Local until something was lost; reset by connectLobby().
+            DisconnectReason     lastReason(void) const noexcept { return m_lastReason; }
             Endpoint*            room(void) noexcept { return m_room; }
             Endpoint*            lobby(void) noexcept { return m_lobby; }
             std::uint32_t        networkId(void) const noexcept { return m_networkId; }
@@ -270,6 +274,7 @@ namespace kuge::net
             Endpoint*               m_room = nullptr;
             State                   m_state = State::Idle;
             std::string             m_error;
+            DisconnectReason        m_lastReason = DisconnectReason::Local;
             std::uint32_t           m_networkId = 0;
 
             // How the lobby was reached, to reach the rooms the same way

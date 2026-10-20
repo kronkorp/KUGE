@@ -722,3 +722,43 @@ Test(server, named_rooms_over_sockets)
     Assert(ben.until([&] { ana.poll(); return ben.inRoom(); }), "the right one gets in");
     AssertEq(ben.roomId, ana.roomId, "into the same room");
 }
+
+// -- Why a client could not join (ticket 001) ---------------------------------------------------
+Test(server, a_refusal_says_why)
+{
+    Harness harness([](ServerConfig& c) { c.endpoint.protocol = 50; });   // another version than the client's
+    TestClient ana("Ana");
+
+    ana.matchmaking.connectLobby("lobby", harness.network);
+    ana.join();
+    Assert(ana.until([&] { return ana.matchmaking.state() == State::Failed; }), "the lobby refuses the client");
+    AssertEq(static_cast<int>(ana.matchmaking.lastReason()), static_cast<int>(net::DisconnectReason::Refused), "for a refusal");
+    Assert(ana.matchmaking.error().find("refused") != std::string::npos, "and the text says it: %s", ana.matchmaking.error().c_str());
+    Assert(!ana.failures.empty() && ana.failures.back() == ana.matchmaking.error(), "onFailed gets the same text");
+}
+
+Test(server, a_lobby_nobody_runs)
+{
+    net::LoopbackNetwork nowhere;
+    TestClient ana("Ana");
+
+    ana.matchmaking.connectLobby("lobby", nowhere);
+    Assert(ana.until([&] { return ana.matchmaking.state() == State::Failed; }), "there is nobody");
+    AssertEq(static_cast<int>(ana.matchmaking.lastReason()), static_cast<int>(net::DisconnectReason::Unreachable), "it cannot be reached");
+    AssertStrEq(ana.matchmaking.error().c_str(), "the server cannot be reached", "and the text says it");
+}
+
+Test(server, a_silent_lobby)
+{
+    // A lobby that accepts the connection and never answers the handshake: the client gives up after connectTimeout
+    net::LoopbackNetwork network;
+    auto deaf = network.listen("lobby");
+    TestClient ana("Ana");
+    net::EndpointConfig config;
+
+    config.connectTimeout = 0.3;
+    ana.matchmaking.connectLobby("lobby", network, config);
+    Assert(ana.until([&] { return ana.matchmaking.state() == State::Failed; }), "the client gives up");
+    AssertEq(static_cast<int>(ana.matchmaking.lastReason()), static_cast<int>(net::DisconnectReason::Timeout), "it timed out");
+    AssertStrEq(ana.matchmaking.error().c_str(), "the server does not answer", "and the text says it");
+}

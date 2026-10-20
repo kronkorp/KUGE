@@ -19,6 +19,19 @@ namespace kuge::net
             return "refused";
         }
 
+        // What a player can be told when the lobby or the room is lost, whatever the transport said
+        std::string lostText(DisconnectReason reason, const char* otherwise)
+        {
+            switch (reason) {
+                case DisconnectReason::Refused:     return "refused by the server (another version of the game, or it is full)";
+                case DisconnectReason::Timeout:     return "the server does not answer";
+                case DisconnectReason::Unreachable: return "the server cannot be reached";
+                case DisconnectReason::Local:
+                case DisconnectReason::Remote:      break;
+            }
+            return otherwise;
+        }
+
         // The length of the UTF-8 character that starts at text[i] (0: it is not one), as RFC 3629 has them:
         // no overlong form, no surrogate, nothing past U+10FFFF
         std::size_t characterLength(std::string_view text, std::size_t i)
@@ -134,7 +147,7 @@ namespace kuge::net
                 m_pending.reset();
             }
         });
-        lobby.onDisconnected([this](ConnectionId, DisconnectReason) {
+        lobby.onDisconnected([this](ConnectionId, DisconnectReason reason) {
             const bool inRoom = m_state == State::ConnectingRoom || m_state == State::InRoom;
             Endpoint* gone = m_lobby;
 
@@ -146,7 +159,8 @@ namespace kuge::net
             if (inRoom && m_onRoomClosed) {
                 m_onRoomClosed(RoomEnd::Error);   // the game holds the room's endpoint: it must hear that it is gone
             }
-            fail("the lobby was lost");
+            m_lastReason = reason;
+            fail(lostText(reason, "the lobby was lost"));
         });
         lobby.on<RoomAssigned>([this](ConnectionId, const RoomAssigned& assigned) { connectRoom(assigned); });
         lobby.on<RoomList>([this](ConnectionId, const RoomList& list) {
@@ -176,6 +190,7 @@ namespace kuge::net
     void MatchmakingClient::connectLobby(Protocol protocol, const std::string& host, std::uint16_t port, EndpointConfig config)
     {
         m_sockets = true;
+        m_lastReason = DisconnectReason::Local;
         m_host = host;
         m_config = config;
         bindLobby(m_net.connect(protocol, host, port, std::move(config)));
@@ -184,6 +199,7 @@ namespace kuge::net
     void MatchmakingClient::connectLobby(const std::string& name, LoopbackNetwork& network, EndpointConfig config)
     {
         m_sockets = false;
+        m_lastReason = DisconnectReason::Local;
         m_network = &network;
         m_host = name;
         m_config = config;
@@ -283,7 +299,7 @@ namespace kuge::net
                 m_onRoomClosed(closed.reason);
             }
         });
-        room->onDisconnected([this, room](ConnectionId, DisconnectReason) {
+        room->onDisconnected([this, room](ConnectionId, DisconnectReason reason) {
             if (m_room != room) {
                 return;   // (already left)
             }
@@ -291,7 +307,8 @@ namespace kuge::net
             m_net.remove(*room);
             if (m_state == State::ConnectingRoom || m_state == State::InRoom) {
                 m_state = State::InLobby;
-                m_error = "the connection to the room was lost";
+                m_lastReason = reason;
+                m_error = lostText(reason, "the connection to the room was lost");
                 if (m_onRoomClosed) {
                     m_onRoomClosed(RoomEnd::Error);
                 }

@@ -140,6 +140,12 @@ matchmaking.onFailed([](const std::string& why) { ... });
 matchmaking.join("deathmatch", "Ana");       // may be called at once: it waits for the lobby
 ```
 
+**Why it failed.** `matchmaking.error()` is a text for the player, and `matchmaking.lastReason()` is the same
+thing for the code: the `DisconnectReason` of the lobby (or room) that was lost. `Refused` means another version
+of the game or a server that is full, and retrying in a loop is pointless; `Timeout` is a server that does not
+answer ("the server does not answer"); `Unreachable` is nobody at that address ("the server cannot be reached").
+`Local` means nothing was lost yet. `onFailed` gets the text, with no change of signature.
+
 The server side is in [09 The server](../09-the-server/README.md).
 
 ## Things to remember
