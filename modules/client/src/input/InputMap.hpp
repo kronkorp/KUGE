@@ -81,6 +81,17 @@ namespace kuge
             Vec2 mouseDelta(void) const noexcept { return m_mouseDelta; }
             void beginFrame(void) noexcept { m_mouseDelta = {}; }
 
+            //! The analog value of an action: the sum, over its bindings, of how far the mouse moved during
+            //! the frame along a bound mouse axis ("Mouse.X"), and of how far a bound stick is pushed
+            //! ("Pad.RightX+", towards that way only), each times its sensitivity. No acceleration, no
+            //! smoothing. A mouse gives a distance (turn by it at once, whatever the frame rate), a stick a speed
+            //! (multiply by the time of the frame). A stick below `setStickDeadzone()` counts as zero.
+            template<typename A>
+            float axisValue(A action) const { return axisOf(actionId(action)); }
+
+            //! A stick pushed less than this is at rest (default 0.15: sticks drift)
+            void setStickDeadzone(float deadzone) noexcept { m_stickDeadzone = deadzone; }
+
             // -- Typing: what a text field needs, which actions are not ------------------
 
             //! What was typed since the last call (UTF-8), once. Kept apart from the actions: typing "w" in a
@@ -140,6 +151,7 @@ namespace kuge
             std::optional<Binding> capturedBy(const Event& event) const;
             void apply(const Event& event);
             bool commandHeld(void) const;
+            float axisOf(ActionId action) const;
 
             std::array<std::vector<Binding>, MAX_ACTIONS> m_bindings;
             std::array<std::string, MAX_ACTIONS>          m_names;
@@ -151,6 +163,7 @@ namespace kuge
             Vec2                                                      m_mouse;
             Vec2                                                      m_mouseDelta;
             float                                                     m_axisThreshold = 0.5f;
+            float                                                     m_stickDeadzone = 0.15f;
 
             // What was typed, for a text field (bounded: nobody may be reading it)
             std::string                                               m_typed;

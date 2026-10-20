@@ -15,16 +15,21 @@ namespace kuge
      *         button, a gamepad button, or a gamepad stick pushed one way
      *
      * As text (for the keybinds file): "Space", "Mouse.Left", "Pad.A",
-     * "Pad.LeftX-" (stick to the left), "Pad.LeftTrigger+", "Wheel.Up", "Wheel.Down".
+     * "Pad.LeftX-" (stick to the left), "Pad.LeftTrigger+", "Wheel.Up", "Wheel.Down", "Mouse.X", "Mouse.Y"
+     * (the mouse moved along an axis, for a mouse look: see InputMap::axisValue()).
+     *
+     * An axis (a stick, the mouse) can end with "*" and a sensitivity: "Mouse.X*2", "Pad.RightY-*0.5". A negative
+     * one inverts it ("Mouse.Y*-1").
      */
     ////////////////////////////////////////////////////////////////////////////
     struct Binding
     {
-        enum class Kind : std::uint8_t { Key, MouseButton, GamepadButton, GamepadAxis, MouseWheel };
+        enum class Kind : std::uint8_t { Key, MouseButton, GamepadButton, GamepadAxis, MouseWheel, MouseAxis };
 
         Kind          kind      = Kind::Key;
         std::uint16_t code      = 0;   //!< The key / button / axis, as a number
-        std::int8_t   direction = 0;   //!< Axes only: -1 or +1
+        std::int8_t   direction = 0;   //!< Gamepad axes only: -1 or +1
+        float         sensitivity = 1.0f;   //!< Axes only (a stick, the mouse): what axisValue() multiplies by. Negative: inverted.
 
         constexpr Binding(void) = default;
 
@@ -51,6 +56,18 @@ namespace kuge
 
             binding.kind = Kind::MouseWheel;
             binding.direction = direction < 0 ? -1 : 1;
+            return binding;
+        }
+
+        //! The mouse moved along x (axis 0) or y (axis 1, down is positive). Not held and not pressed: it only
+        //! has a value (InputMap::axisValue()).
+        static constexpr Binding mouseAxis(int axis, float sensitivity = 1.0f)
+        {
+            Binding binding;
+
+            binding.kind = Kind::MouseAxis;
+            binding.code = axis == 0 ? 0 : 1;
+            binding.sensitivity = sensitivity;
             return binding;
         }
 
