@@ -1,4 +1,5 @@
 #include "render/Systems.hpp"
+#include "DebugDraw.hpp"
 #include "Ref.hpp"
 #include "Time.hpp"
 #include "backend/IRenderer2D.hpp"
@@ -133,6 +134,67 @@ bool kuge::SpriteRender::handle(kw::World& world)
     }
     if (clipped) {
         renderer.setClip(std::nullopt);
+    }
+    return true;
+}
+
+bool kuge::DebugRender::handle(kw::World& world)
+{
+    const DebugDraw& debug = world.getResource<DebugDraw>();
+
+    if (!debug.colliders && !debug.bounds && !debug.camera) {
+        return true;
+    }
+    IRenderer2D& renderer = *world.getResource<Ref<IRenderer2D>>();
+    const Vec2 screen = renderer.outputSize();
+    const CameraView view = world.getResource<Camera2D>().view(screen);
+    const auto place = [&](Vec2 center, Vec2 size) {
+        const Vec2 at = view.worldToScreen(center);
+        const Vec2 pixels{size.x * view.scale.x, size.y * view.scale.y};
+
+        return Rect{at.x - pixels.x * 0.5f, at.y - pixels.y * 0.5f, pixels.x, pixels.y};
+    };
+
+    renderer.setClip(view.area);
+    if (debug.colliders) {
+        for (const DebugShape& shape : debug.shapes) {
+            const Color color = shape.kind == DebugKind::Static ? Color{80, 140, 255, 255}
+                : shape.kind == DebugKind::Dynamic ? Color{90, 230, 110, 255}
+                : shape.kind == DebugKind::Sensor ? Color{250, 220, 70, 255} : Color{255, 255, 255, 255};
+            // A circle is shown by its box: the renderer draws rectangles
+            const Vec2 size = shape.form == DebugShape::Form::Circle ? Vec2{shape.size.x * 2.0f, shape.size.x * 2.0f} : shape.size;
+
+            renderer.strokeRect(place(shape.center, size), color);
+        }
+    }
+    if (debug.bounds) {
+        for (kw::Entity entity : world.view<Transform2D, Sprite>()) {
+            const Sprite& sprite = world.get<Sprite>(entity);
+            const Transform2D& transform = world.get<Transform2D>(entity);
+            const std::shared_ptr<Texture>& texture = sprite.sheet ? sprite.sheet->texture : sprite.texture;
+            const Rect source = sprite.sheet ? sprite.sheet->frame(sprite.frame) : sprite.source;
+            Vec2 size = sprite.size;
+
+            if (!sprite.visible) {
+                continue;
+            }
+            if (size.x == 0.0f && size.y == 0.0f) {
+                size = source.w > 0.0f ? Vec2{source.w, source.h} : (texture ? texture->size() : Vec2{});
+            }
+            size = {size.x * transform.scale.x, size.y * transform.scale.y};
+            // The pivot is the point of the sprite at its position
+            const Vec2 center{transform.position.x + (0.5f - sprite.pivot.x) * size.x, transform.position.y + (0.5f - sprite.pivot.y) * size.y};
+
+            renderer.strokeRect(place(center, size), Color{255, 130, 220, 255});
+        }
+    }
+    renderer.setClip(std::nullopt);
+    if (debug.camera) {
+        renderer.strokeRect(view.area, Color{255, 60, 60, 255});
+        const Vec2 middle = view.center();
+
+        renderer.fillRect({middle.x - 6.0f, middle.y - 1.0f, 12.0f, 2.0f}, Color{255, 60, 60, 255});
+        renderer.fillRect({middle.x - 1.0f, middle.y - 6.0f, 2.0f, 12.0f}, Color{255, 60, 60, 255});
     }
     return true;
 }

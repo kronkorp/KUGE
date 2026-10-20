@@ -261,6 +261,16 @@ namespace kuge::server
     {
         const double time = now();
 
+        // The numbers of the network, in the log: the same line for every game (see NetMeter and describe())
+        if (m_init.server.statsEvery > 0.0 && time >= m_nextStats) {
+            const NetReport& report = m_meter.update(*m_endpoint, std::nullopt, time, m_players.size());
+
+            if (m_nextStats > 0.0 && !m_players.empty()) {
+                Logger::logger().category("server").info("room {} ({}): {} players, {}", m_init.roomId, m_init.roomName, m_players.size(), describe(report));
+            }
+            m_nextStats = time + m_init.server.statsEvery;
+        }
+
         if (m_finishing) {
             if (time >= m_announceAt) {
                 announceEnd();

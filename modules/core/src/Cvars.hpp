@@ -152,6 +152,7 @@ namespace kuge
             void setCheats(bool on) noexcept { m_cheats = on; }
             bool cheats(void) const noexcept { return m_cheats; }
             void setSide(Side side) noexcept { m_side = side; }
+            Side side(void) const noexcept { return m_side; }
 
             //! Writes the Persistent variables as "cvar.<name>"
             void save(ConfigFile& config) const;

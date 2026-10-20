@@ -192,3 +192,22 @@ void Logger::enable(bool enabled)
 {
     this->m_enable = enabled;
 }
+
+void Logger::debugCategories(std::string_view list)
+{
+    while (!list.empty()) {
+        const auto comma = list.find(',');
+        std::string_view word = list.substr(0, comma);
+
+        while (!word.empty() && word.front() == ' ') {
+            word.remove_prefix(1);
+        }
+        while (!word.empty() && word.back() == ' ') {
+            word.remove_suffix(1);
+        }
+        if (!word.empty()) {
+            this->setLevel(word, LoggerLevel::DEBUG);
+        }
+        list = comma == std::string_view::npos ? std::string_view() : list.substr(comma + 1);
+    }
+}

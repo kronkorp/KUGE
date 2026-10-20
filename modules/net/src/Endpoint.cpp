@@ -1,4 +1,5 @@
 #include "Endpoint.hpp"
+#include "SimulatedTransport.hpp"
 #include "Auth.hpp"
 #include "Logger.hpp"
 #include <algorithm>
@@ -62,6 +63,9 @@ namespace kuge::net
         }
         m_clock = m_config.clock ? m_config.clock : std::function<double(void)>(steadySeconds);
         m_config.reliable.resend = !m_transport->reliable();
+        if (m_config.simulate) {
+            setSimulation(m_config.simulate);
+        }
         m_secret[0] = randomWord();
         m_secret[1] = randomWord();
         if (m_role == Role::Client) {
@@ -71,6 +75,22 @@ namespace kuge::net
             connection.lastReceived = connection.created;
             m_connections.emplace(CLIENT_CONNECTION, std::move(connection));
         }
+    }
+
+    void Endpoint::setSimulation(const std::optional<LoopbackNetwork::Conditions>& conditions)
+    {
+        if (!m_simulated) {
+            if (!conditions) {
+                return;
+            }
+            // The endpoint's own clock, so that a test with a made-up one has a bad network in its time
+            auto wrapper = std::make_unique<SimulatedTransport>(std::move(m_transport), *conditions, m_clock);
+
+            m_simulated = wrapper.get();
+            m_transport = std::move(wrapper);
+            return;
+        }
+        m_simulated->setConditions(conditions ? *conditions : LoopbackNetwork::Conditions{});
     }
 
     Endpoint::~Endpoint(void)

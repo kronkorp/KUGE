@@ -11,6 +11,7 @@
 #include "render/Texture.hpp"
 #include "ui/TextRenderer.hpp"
 #include <chrono>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -83,6 +84,10 @@ namespace kuge
             //! The image asked for, once. Empty if the backend cannot read it.
             std::optional<Image> takeScreenshot(void);
 
+            //! Writes what the next frame draws to a PPM file (P6) after it is drawn, during play, and says so in the log. The file is
+            //! written by the thread of the frame, once; the picture of a backend that cannot read its pixels is not written.
+            void saveScreenshot(const std::filesystem::path& file);
+
             // Module
             void onAttach(Engine& engine) override;
             void inject(kw::World& world) override;
@@ -104,6 +109,7 @@ namespace kuge
             std::chrono::steady_clock::time_point m_lastWatch = std::chrono::steady_clock::now();
             bool                      m_screenshotRequested = false;
             std::optional<Image>      m_screenshot;
+            std::optional<std::filesystem::path> m_screenshotFile;   //!< Where saveScreenshot() writes the next frame
     };
 
 }

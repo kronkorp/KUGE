@@ -71,6 +71,7 @@ add_executable(kuge_tests
     core/engine_test.cpp
     core/fixed_timestep_test.cpp
     core/mailbox_test.cpp
+    core/profiler_test.cpp
     core/math2d_test.cpp
     core/module_test.cpp
     core/save_test.cpp
@@ -79,6 +80,7 @@ add_executable(kuge_tests
     core/snapshot_test.cpp
     core/spawn_test.cpp
     core/tilemap_test.cpp
+    core/time_control_test.cpp
     core/transform3d_test.cpp
 )
 target_link_libraries(kuge_tests PRIVATE kuge-core kronklab-static)
@@ -132,6 +134,7 @@ add_executable(kuge_net_tests
     net/net_scene_test.cpp
     net/socket_test.cpp
     net/reliable_test.cpp
+    net/simulated_transport_test.cpp
     net/unreliable_network_test.cpp
     net/wire_test.cpp
 )
@@ -171,6 +174,7 @@ if(TARGET kuge-client)
         client/camera_test.cpp
         client/chat_log_test.cpp
         client/client_module_test.cpp
+        client/debug_test.cpp
         client/console_test.cpp
         client/hot_reload_test.cpp
         client/image_test.cpp
