@@ -83,6 +83,11 @@ and `EndpointConfig::clock` lets an endpoint use the same clock, so a test can m
 by adding 10.0 to `now`, in no time. Look at `tests/net/net_fixture.hpp` (`Sim`) and
 `tests/replication/rep_fixture.hpp` (`RepSim`): both are small and copyable.
 
+`.mtu = 1200` makes the network drop any packet over that size, as a path does that cannot carry more (counted in
+`packetsTooBig()`): it is how a test shows that a message or a snapshot part is too big for the Internet, which the
+loopback would otherwise carry. To play the attacker, write the packets by hand through a raw transport (`network.connect`
+and `send`), or wrap an endpoint's transport in one that spoils or slips in packets: `tests/net/handshake_test.cpp` does both.
+
 ## Making a test that can fail
 
 After writing a test, **break the code on purpose** and check that the test fails, then put it back. A short

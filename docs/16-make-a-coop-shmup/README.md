@@ -53,7 +53,7 @@ cleanly. Every file is given whole: create them in order and it builds.
              | on a private world, at once                                 | hits, lives, the result
              v                                                             v
       your ship, drawn now <------ snapshots, 30/s ----------------- ReplicationServer: what changed
-      the rest, 0.1 s in the past                                     since what you acknowledged
+      the rest, in the past                                           since what you acknowledged
       (interpolated)
 ```
 
