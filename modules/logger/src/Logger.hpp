@@ -237,6 +237,10 @@ public:
     //! The category follows the level of the logger again
     void clearLevel(std::string_view category);
 
+    //! The words of a list ("net,physics", for `--debug net,physics`): those categories go to the debug level, the others stay as
+    //! they are, instead of turning every message on.
+    void debugCategories(std::string_view list);
+
 
     ////////////////////////////////////////////////////////////////////////////
     /**

@@ -71,6 +71,7 @@ add_executable(kuge_tests
     core/engine_test.cpp
     core/fixed_timestep_test.cpp
     core/mailbox_test.cpp
+    core/profiler_test.cpp
     core/math2d_test.cpp
     core/module_test.cpp
     core/save_test.cpp
@@ -79,6 +80,7 @@ add_executable(kuge_tests
     core/snapshot_test.cpp
     core/spawn_test.cpp
     core/tilemap_test.cpp
+    core/time_control_test.cpp
     core/transform3d_test.cpp
 )
 target_link_libraries(kuge_tests PRIVATE kuge-core kronklab-static)

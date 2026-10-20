@@ -117,6 +117,16 @@ namespace kuge
             SceneManager&  scenes(void) noexcept;
             //! The clock of the main scenes
             const Time&    time(void) const noexcept;
+
+            //! How the main loop goes: frames per second, the cost of a tick (see FrameStats)
+            const FrameStats& stats(void) const noexcept;
+
+            // -- Time, for a developer (the main scenes; see SceneLoop) --------------------------------
+            void   setPaused(bool paused) noexcept;
+            bool   paused(void) const noexcept;
+            void   advance(std::uint32_t ticks) noexcept;     //!< The next ticks run even if paused
+            void   setTimeScale(double scale) noexcept;
+            double timeScale(void) const noexcept;
             const Config&  config(void) const noexcept;
 
             //! Runs until stop() is called, SIGINT / SIGTERM is received (Ctrl+C or

@@ -138,6 +138,13 @@ const kuge::Time& kuge::Engine::time(void) const noexcept
     return m_main.time();
 }
 
+const kuge::FrameStats& kuge::Engine::stats(void) const noexcept { return m_main.stats(); }
+void kuge::Engine::setPaused(bool paused) noexcept { m_main.setPaused(paused); }
+bool kuge::Engine::paused(void) const noexcept { return m_main.paused(); }
+void kuge::Engine::advance(std::uint32_t ticks) noexcept { m_main.advance(ticks); }
+void kuge::Engine::setTimeScale(double scale) noexcept { m_main.setTimeScale(scale); }
+double kuge::Engine::timeScale(void) const noexcept { return m_main.timeScale(); }
+
 const kuge::Engine::Config& kuge::Engine::config(void) const noexcept
 {
     return m_config;
