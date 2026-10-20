@@ -98,10 +98,17 @@ namespace kuge
             //! text field does not press the action that W is bound to, for whoever reads this instead.
             std::string takeTyped(void);
 
-            //! The keys that edit a text (Backspace, Delete, the arrows, Home, End, Enter, Tab, and V, C, X while
+            //! Forgets what was typed and is waiting: the key that opened a text field also typed its character, which must
+            //! not land in it
+            void discardTyped(void) { m_typed.clear(); }
+
+            //! The keys that edit a text (Backspace, Delete, the arrows, Home, End, Enter, Tab, Escape, and V, C, X while
             //! Ctrl or Cmd is held: paste, copy, cut), pressed since the last call, **with the repeats** of a key that
             //! is held, once. Independent of the actions.
             std::vector<Key> takeEditKeys(void);
+
+            //! The same keys, without taking them: a console reads Up, Down and Tab before the interface takes them
+            const std::vector<Key>& editKeys(void) const noexcept { return m_editKeys; }
 
             //! The notches of the mouse wheel since the last call (up is positive, a free wheel gives fractions),
             //! once. For a list that scrolls by the amount; to react to a notch as an action, bind

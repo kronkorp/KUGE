@@ -143,7 +143,8 @@ namespace
         using kuge::Key;
 
         return key == Key::Backspace || key == Key::Delete || key == Key::Left || key == Key::Right || key == Key::Home
-            || key == Key::End || key == Key::Enter || key == Key::KpEnter || key == Key::Tab;
+            || key == Key::End || key == Key::Enter || key == Key::KpEnter || key == Key::Tab || key == Key::Up
+            || key == Key::Down || key == Key::Escape;
     }
 }
 
