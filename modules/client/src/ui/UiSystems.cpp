@@ -18,7 +18,8 @@ namespace
 {
     using namespace kuge;
 
-    constexpr float CHECK_GAP = 8.0f;   // between the box of a check box and its text
+    constexpr float CHECK_GAP = 8.0f;      // between the box of a check box and its text
+    constexpr float HANDLE_WIDTH = 12.0f;  // of a slider
 
     Rect rectAt(Vec2 position, Vec2 size) { return {position.x, position.y, size.x, size.y}; }
 
@@ -134,6 +135,12 @@ namespace
                     const Vec2 letter = measureText(fieldFont(field, m_theme), "n", 0);
 
                     return {letter.x * static_cast<float>(std::max(field.columns, 1)) + 2.0f * m_theme.padding, letter.y + 2.0f * m_theme.padding};
+                }
+                if (m_world.has<UiSlider>(entity)) {
+                    const Vec2 letter = measureText(m_theme.font.get(), "n", 0);
+
+                    return {letter.x * static_cast<float>(std::max(m_world.get<UiSlider>(entity).columns, 1)) + 2.0f * m_theme.padding,
+                        letter.y + 2.0f * m_theme.padding};
                 }
                 if (m_world.has<UiCheckbox>(entity)) {
                     const Vec2 text = measureText(m_theme.font.get(), m_world.get<UiCheckbox>(entity).text, 0);
@@ -410,6 +417,14 @@ namespace
         return best;
     }
 
+    // -- Sliders: where the value is in the rectangle, from 0 (left) to 1 (right) ----------------------------
+    float slidRatio(const UiSlider& slider)
+    {
+        const float range = slider.max - slider.min;
+
+        return range > 0.0f ? std::clamp((slider.value - slider.min) / range, 0.0f, 1.0f) : 0.0f;
+    }
+
     // -- Interaction ------------------------------------------------------------------------------
     bool pressed(const ActionState& state, int action)
     {
@@ -507,7 +522,7 @@ bool kuge::UiInteract::handle(kw::World& world)
     InputMap& inputMap = *world.getResource<Ref<InputMap>>();
     const Vec2 mouse = inputMap.mousePosition();
     std::vector<kw::Entity> all;
-    std::vector<kw::Entity> usable;   // what can take the focus: buttons, check boxes and text fields, shown and enabled
+    std::vector<kw::Entity> usable;   // what can take the focus: buttons, check boxes, sliders and text fields, shown and enabled
 
     events.clear();
     // What was typed since the last tick. Taken even if nothing reads it, so that it does not wait for a field
@@ -526,6 +541,10 @@ bool kuge::UiInteract::handle(kw::World& world)
     for (kw::Entity entity : boxes) {
         all.push_back(entity);
     }
+    auto sliders = world.view<UiNode, UiSlider>();
+    for (kw::Entity entity : sliders) {
+        all.push_back(entity);
+    }
     std::sort(all.begin(), all.end());   // (the order of the entities: the order of Tab)
     for (kw::Entity entity : all) {
         bool enabled = false;
@@ -540,6 +559,12 @@ bool kuge::UiInteract::handle(kw::World& world)
 
             box.hovered = box.focused = false;
             enabled = box.enabled;
+        } else if (world.has<UiSlider>(entity)) {
+            UiSlider& slider = world.get<UiSlider>(entity);
+
+            slider.hovered = slider.focused = false;
+            slider.dragging = slider.dragging && slider.enabled && held(input, actions.click);   // (let go, or no longer usable)
+            enabled = slider.enabled;
         } else {
             UiTextField& field = world.get<UiTextField>(entity);
 
@@ -571,6 +596,10 @@ bool kuge::UiInteract::handle(kw::World& world)
         state.hasFocus = false;   // it went, or cannot be pressed any more
     }
     const bool typing = onField();   // (before the mouse and the actions move the focus)
+    // The slider that left / right move: they step its value instead of moving the focus
+    const bool sliding = state.hasFocus && world.has<UiSlider>(state.focus);
+    const kw::Entity slid = state.focus;
+    const bool dragging = std::any_of(all.begin(), all.end(), [&](kw::Entity e) { return world.has<UiSlider>(e) && world.get<UiSlider>(e).dragging; });
     // The button under the mouse: the one drawn last (on top) among those under it
     std::optional<kw::Entity> hovered;
     for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend() && !hovered; ++it) {
@@ -581,7 +610,7 @@ bool kuge::UiInteract::handle(kw::World& world)
     const bool moved = mouse.x != state.lastMouse.x || mouse.y != state.lastMouse.y;
 
     state.lastMouse = mouse;
-    if (moved && hovered && !typing) {
+    if (moved && hovered && !typing && !dragging) {
         focusOn(*hovered);         // the mouse takes the focus only when it moves: the keyboard keeps it otherwise
     }                              // (and not from a text field: a click is what takes the focus away from what is typed in)
     if (!state.hasFocus) {
@@ -592,14 +621,50 @@ bool kuge::UiInteract::handle(kw::World& world)
     };
     for (const auto& move : moves) {
         // In a text field the keys that a game binds to moving the focus are letters too: they type
-        if (!onField() && pressed(input, move.action)) {
+        if (!onField() && !(sliding && move.direction.x != 0.0f) && pressed(input, move.action)) {
             if (const auto next = neighbour(usable, layout, state.focus, move.direction)) {
                 focusOn(*next);
             }
         }
     }
-    // A button was pressed; a check box flips instead
+    // A slider takes a new value: one Changed per tick at most, and none if it did not move
+    const auto slideTo = [&](kw::Entity entity, float value) {
+        UiSlider& slider = world.get<UiSlider>(entity);
+
+        value = std::clamp(value, slider.min, std::max(slider.min, slider.max));
+        if (value == slider.value) {
+            return;
+        }
+        slider.value = value;
+        const auto same = [&](const UiEvent& e) { return e.kind == UiEvent::Kind::Changed && e.entity == entity; };
+
+        if (std::none_of(events.begin(), events.end(), same)) {
+            events.push_back({UiEvent::Kind::Changed, entity, true});
+        }
+    };
+    const auto slideToMouse = [&](kw::Entity entity) {
+        const UiSlider& slider = world.get<UiSlider>(entity);
+        const Rect& rect = layout.rects.at(entity);
+        const float ratio = rect.w > 0.0f ? std::clamp((mouse.x - rect.x) / rect.w, 0.0f, 1.0f) : 0.0f;
+
+        slideTo(entity, slider.min + ratio * (slider.max - slider.min));
+    };
+
+    if (sliding && slid == state.focus) {
+        const UiSlider& slider = world.get<UiSlider>(slid);
+
+        if (pressed(input, actions.left)) {
+            slideTo(slid, slider.value - slider.step);
+        }
+        if (pressed(input, actions.right)) {
+            slideTo(slid, slider.value + slider.step);
+        }
+    }
+    // A button was pressed; a check box flips instead, and a slider has nothing to press
     const auto activate = [&](kw::Entity entity) {
+        if (world.has<UiSlider>(entity)) {
+            return;
+        }
         if (world.has<UiCheckbox>(entity)) {
             UiCheckbox& box = world.get<UiCheckbox>(entity);
 
@@ -620,8 +685,15 @@ bool kuge::UiInteract::handle(kw::World& world)
 
             settleCaret(field);
             field.caret = caretAt(fieldFont(field, theme), field, room, mouse.x - (rect.x + theme.padding));
+        } else if (world.has<UiSlider>(*hovered)) {
+            world.get<UiSlider>(*hovered).dragging = true;   // the handle goes to the mouse, and follows it while it is held
         } else {
             activate(*hovered);
+        }
+    }
+    for (kw::Entity entity : usable) {
+        if (world.has<UiSlider>(entity) && world.get<UiSlider>(entity).dragging) {
+            slideToMouse(entity);
         }
     }
     if (pressed(input, actions.accept) && !onField()) {
@@ -680,6 +752,11 @@ bool kuge::UiInteract::handle(kw::World& world)
 
             box.focused = focused;
             box.hovered = over;
+        } else if (world.has<UiSlider>(entity)) {
+            UiSlider& slider = world.get<UiSlider>(entity);
+
+            slider.focused = focused;
+            slider.hovered = over;
         } else {
             UiTextField& field = world.get<UiTextField>(entity);
 
@@ -738,6 +815,31 @@ bool kuge::UiRender::handle(kw::World& world)
 
                 text.draw(*theme.font, button.text, {std::round(rect.x + (rect.w - size.x) / 2.0f), std::round(rect.y + (rect.h - size.y) / 2.0f)},
                     button.enabled ? theme.buttonText : theme.disabledText);
+            }
+        }
+        if (world.has<UiSlider>(entity)) {
+            const UiSlider& slider = world.get<UiSlider>(entity);
+            const float centre = rect.x + slidRatio(slider) * rect.w;
+            const Rect handle{std::clamp(centre - HANDLE_WIDTH / 2.0f, rect.x, std::max(rect.x, rect.right() - HANDLE_WIDTH)), rect.y, HANDLE_WIDTH, rect.h};
+            const Rect track{rect.x, std::round(rect.y + rect.h / 4.0f), rect.w, std::round(rect.h / 2.0f)};
+            Color grip = theme.buttonFill;
+
+            if (!slider.enabled) {
+                grip = theme.buttonDisabled;
+            } else if (slider.dragging) {
+                grip = theme.buttonPressed;
+            } else if (slider.hovered || slider.focused) {
+                grip = theme.buttonHover;
+            }
+            renderer.fillRect(track, slider.enabled ? theme.fieldFill : theme.buttonDisabled);
+            if (centre > track.x) {
+                renderer.fillRect({track.x, track.y, std::min(centre - track.x, track.w), track.h}, slider.enabled ? theme.sliderFill : theme.disabledText);
+            }
+            border(renderer, track, theme.fieldBorder, 1.0f);
+            renderer.fillRect(handle, grip);
+            border(renderer, handle, slider.enabled ? theme.fieldBorder : theme.disabledText, 1.0f);
+            if (slider.focused) {
+                border(renderer, rect, theme.focusRing, theme.focusWidth);
             }
         }
         if (world.has<UiCheckbox>(entity)) {

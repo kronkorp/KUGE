@@ -23,7 +23,7 @@ namespace kuge
      * parent (or in the screen, if it has none), or by the **stack** of its
      * parent (UiStack: a column or a row). What it shows is another component of
      * the same entity: UiPanel (a background), UiLabel (text), UiButton (a
-     * button with its text), UiTextField (a line of text that the player types), UiProgress (a bar), UiCheckbox.
+     * button with its text), UiTextField (a line of text that the player types), UiProgress (a bar), UiCheckbox, UiSlider.
      *
      *     kuge::installUi(setup(), {.up = kuge::actionId(Action::Up), .down = kuge::actionId(Action::Down),
      *                               .accept = kuge::actionId(Action::Confirm), .click = kuge::actionId(Action::Click)});
@@ -142,6 +142,24 @@ namespace kuge
         bool        focused = false;    //!< The keyboard or the gamepad is on it
     };
 
+    //! A value in a range, set with left / right (your UiActions), the gamepad or the mouse (a click, then drag). The
+    //! size of its node is its own if it has one, else `columns` letters wide and one line high. It does not show the
+    //! number: a UiLabel next to it does, rewritten when `Changed` says so.
+    struct UiSlider
+    {
+        float value = 0.0f;
+        float min   = 0.0f;
+        float max   = 1.0f;
+        float step  = 0.05f;    //!< Added or removed by one press of left / right
+        int   columns = 16;     //!< How wide it is when its node has no size
+        bool  enabled = true;
+
+        // What the interaction found, at the last tick
+        bool  hovered  = false;   //!< The mouse is over it
+        bool  focused  = false;   //!< The keyboard or the gamepad is on it
+        bool  dragging = false;   //!< The mouse holds the handle
+    };
+
     //! A line of text that the player types, edited in place (one line, no selection: Ctrl+C / Cmd+C copies the
     //! whole text, Ctrl+X cuts it, Ctrl+V pastes the first line of the clipboard at the caret).
     //! The size of its node is its own if it has one, else `columns` letters wide and one line high.
@@ -183,6 +201,9 @@ namespace kuge
         // Check boxes (the border is the text fields', the focus ring and the disabled colors the buttons')
         Color checkMark{255, 214, 90, 255};
 
+        // Sliders (the track is the text fields', the handle the buttons')
+        Color sliderFill{90, 140, 230, 255};   //!< The track, up to the value
+
         // Progress bars (the size of a bar whose node has none)
         float progressWidth = 200.0f;
         float progressHeight = 20.0f;
@@ -209,7 +230,7 @@ namespace kuge
             Activated,   //!< A button was pressed
             Focused,     //!< The focus moved to a button
             Cancelled,   //!< "back" was asked (entity: what had the focus, if anything)
-            Changed,     //!< What is in a text field changed, or a check box was flipped (at most once a tick: read it in the component)
+            Changed,     //!< What is in a text field changed, or a check box was flipped or a slider moved (at most once a tick: read it in the component)
             Submitted,   //!< Enter was pressed in a text field
         };
 

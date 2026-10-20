@@ -163,3 +163,168 @@ Test(uibox, it_is_drawn)
 
     AssertEq(texts, 1, "and its text");
 }
+
+// -- Slider -------------------------------------------------------------------------------------------------------
+namespace
+{
+    kw::Entity slider(kw::World& w, kw::Entity parent, kuge::UiSlider value = {})
+    {
+        const kw::Entity entity = uiChild(w, parent);
+
+        w.add<kuge::UiSlider>(entity, value);
+        return entity;
+    }
+
+    bool near(float a, float b) { return std::fabs(a - b) < 1e-4f; }
+}
+
+Test(uislider, arrows_step_the_value)
+{
+    kw::Entity s = 0;
+    Widgets ui([&](kw::World& w, kw::Entity column) { s = slider(w, column, {.value = 0.5f, .step = 0.25f}); });
+
+    ui.tick();
+    ui.tap(kuge::Key::Right);
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 0.75f), "right: up by one step");
+    AssertEq(ui.count(Kind::Changed, s), 0, "(the event was for the tick of the press)");
+    ui.press(kuge::Key::Right);
+    ui.release(kuge::Key::Right);
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 1.0f), "up to the max");
+    AssertEq(ui.count(Kind::Changed, s), 1, "and it says so");
+    ui.press(kuge::Key::Right);
+    ui.release(kuge::Key::Right);
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 1.0f), "never beyond it");
+    AssertEq(ui.count(Kind::Changed, s), 0, "and it has nothing to say");
+    ui.press(kuge::Key::Left);
+    ui.release(kuge::Key::Left);
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 0.75f), "left: the other way");
+    AssertEq(ui.count(Kind::Changed, s), 1, "and says so");
+    for (int i = 0; i < 5; ++i) {
+        ui.tap(kuge::Key::Left);
+    }
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 0.0f), "down to the min and no further, got %f", ui.get<kuge::UiSlider>(s).value);
+}
+
+Test(uislider, left_and_right_keep_the_focus)
+{
+    kw::Entity s = 0;
+    kw::Entity button = 0;
+    Widgets ui([&](kw::World& w, kw::Entity column) {
+        const kw::Entity row = uiChild(w, column);
+
+        w.add<kuge::UiStack>(row, kuge::UiStack{.direction = kuge::Direction::Horizontal});
+        s = slider(w, row);
+        button = uiButton(w, "Reset", row);
+    });
+
+    ui.tick();
+    Assert(ui.state().focus == s, "the slider has the focus");
+    ui.tap(kuge::Key::Right);
+    Assert(ui.state().focus == s, "right moves its value, not the focus, though a button is on its right");
+    Assert(ui.get<kuge::UiSlider>(s).value > 0.0f, "");
+    ui.tap(kuge::Key::Tab);
+    Assert(ui.state().focus == button, "Tab leaves it");
+    ui.tap(kuge::Key::Left);
+    Assert(ui.state().focus == s, "from a button left still moves the focus to it");
+}
+
+Test(uislider, a_click_sets_the_value)
+{
+    kw::Entity s = 0;
+    Widgets ui([&](kw::World& w, kw::Entity column) { s = slider(w, column); });
+
+    ui.tick();
+    const kuge::Rect rect = ui.rectOf(s);
+
+    ui.click({rect.x + 0.75f * rect.w, rect.center().y});
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 0.75f), "three quarters: 0.75, got %f", ui.get<kuge::UiSlider>(s).value);
+    ui.click({rect.x + 0.25f * rect.w, rect.center().y});
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 0.25f), "a quarter");
+    ui.click({5.0f, 5.0f});
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 0.25f), "a click elsewhere leaves it");
+}
+
+Test(uislider, a_range_that_is_not_0_to_1)
+{
+    kw::Entity s = 0;
+    Widgets ui([&](kw::World& w, kw::Entity column) { s = slider(w, column, {.value = 10.0f, .min = 10.0f, .max = 20.0f}); });
+
+    ui.tick();
+    const kuge::Rect rect = ui.rectOf(s);
+
+    ui.click({rect.x + 0.5f * rect.w, rect.center().y});
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 15.0f), "the middle of 10 to 20, got %f", ui.get<kuge::UiSlider>(s).value);
+}
+
+Test(uislider, dragging_follows_the_mouse)
+{
+    kw::Entity s = 0;
+    Widgets ui([&](kw::World& w, kw::Entity column) { s = slider(w, column, {.value = 0.5f}); });
+
+    ui.tick();
+    const kuge::Rect rect = ui.rectOf(s);
+    const float y = rect.center().y;
+
+    ui.mouseTo({rect.x + 0.5f * rect.w, y});
+    ui.mouseDown({rect.x + 0.5f * rect.w, y});
+    Assert(ui.get<kuge::UiSlider>(s).dragging, "the mouse holds the handle");
+    ui.mouseTo({rect.x + 0.8f * rect.w, y});
+    ui.tick();
+    Assert(near(ui.get<kuge::UiSlider>(s).value, 0.8f), "it follows the mouse, got %f", ui.get<kuge::UiSlider>(s).value);
+    AssertEq(ui.count(Kind::Changed, s), 1, "one Changed for the tick");
+    ui.mouseTo({rect.x - 100.0f, y + 300.0f});
+    ui.tick();
+    AssertEq(ui.get<kuge::UiSlider>(s).value, 0.0f, "to the left of the slider (and far from it): the min");
+    ui.mouseTo({rect.right() + 100.0f, y});
+    ui.tick();
+    AssertEq(ui.get<kuge::UiSlider>(s).value, 1.0f, "to the right: the max");
+    ui.mouseUp({rect.right() + 100.0f, y});
+    Assert(!ui.get<kuge::UiSlider>(s).dragging, "let go");
+    ui.mouseTo({rect.x + 0.3f * rect.w, y});
+    ui.tick();
+    AssertEq(ui.get<kuge::UiSlider>(s).value, 1.0f, "and it stays where it was left");
+}
+
+Test(uislider, a_disabled_one_stays)
+{
+    kw::Entity off = 0;
+    kw::Entity on = 0;
+    Widgets ui([&](kw::World& w, kw::Entity column) {
+        off = slider(w, column, {.value = 0.5f, .enabled = false});
+        on = slider(w, column, {.value = 0.5f});
+    });
+
+    ui.tick();
+    const kuge::Rect rect = ui.rectOf(off);
+
+    Assert(ui.state().focus == on, "the focus skips it");
+    ui.click({rect.x + 0.9f * rect.w, rect.center().y});
+    AssertEq(ui.get<kuge::UiSlider>(off).value, 0.5f, "a click does not move it");
+    AssertEq(ui.get<kuge::UiSlider>(on).value, 0.5f, "nor the other");
+    ui.get<kuge::UiSlider>(off).enabled = true;
+    ui.tick();
+    ui.tap(kuge::Key::Up);
+    Assert(ui.state().focus == off, "up reaches it once it is enabled");
+    ui.tap(kuge::Key::Right);
+    Assert(ui.get<kuge::UiSlider>(off).value > 0.5f, "and right moves it");
+}
+
+Test(uislider, the_handle_is_drawn)
+{
+    kw::Entity s = 0;
+    Widgets ui([&](kw::World& w, kw::Entity column) { s = slider(w, column, {.value = 0.5f}); });
+    const auto& calls = ui.tick();
+    const kuge::Rect rect = ui.rectOf(s);
+    const kuge::UiTheme theme;
+    const Call* handle = nullptr;
+    const Call* filled = nullptr;
+
+    for (const Call& call : calls) {
+        if (call.kind == Call::Kind::Fill && call.color == theme.buttonHover && call.destination.w == 12.0f) { handle = &call; }
+        if (call.kind == Call::Kind::Fill && call.color == theme.sliderFill) { filled = &call; }
+    }
+    Assert(handle != nullptr, "a handle");
+    AssertEq(handle->destination.center().x, rect.center().x, "in the middle of the track at 0.5");
+    Assert(filled != nullptr, "and the track up to it");
+    AssertEq(filled->destination.w, rect.w / 2.0f, "half of it");
+}

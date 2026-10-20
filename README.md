@@ -569,6 +569,7 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
 | `UiCheckbox` | A box that is ticked or not, with its `text` after it: `checked`, `enabled`; `hovered` / `focused` are filled in by the interaction. Focused and pressed like a button, it flips `checked` and says `Changed`. |
+| `UiSlider` | A value from `min` to `max` (`step` per press of left / right, `columns` letters wide if the node has no size): `value`, `enabled`; `hovered` / `focused` / `dragging` are filled in by the interaction. |
 | `UiProgress` | A bar filled for `value / max` (from the left, or from the bottom if `vertical`): `fill`, `back`, `border`. Its size is the node's, else `UiTheme::progressWidth` x `progressHeight`. |
 | `UiTextField` | A line of text that the player types: `text`, `placeholder`, `maxLength` (in characters), `caret`, `columns` (its width if the node has no size), `enabled`; `hovered` / `focused` are filled in by the interaction. |
 
@@ -633,6 +634,19 @@ world.add<kuge::UiNode>(hurry, kuge::UiNode{.parent = form, .hasParent = true});
 world.add<kuge::UiCheckbox>(hurry, kuge::UiCheckbox{.text = "Hurry mode"});
 // ... in a system: Changed, then
 const bool on = world.get<kuge::UiCheckbox>(event.entity).checked;
+```
+
+**Slider.** `UiSlider` is a number in a range, for a volume or a sensitivity. With the focus on it, your `left` and
+`right` actions move `value` by `step` (and no longer move the focus; up, down and Tab still do); a click puts the
+handle at the mouse, which drags it while the button is held (even outside the slider, clamped to `min` and `max`).
+Every change is a `Changed` for its entity, at most one per tick, and none when it did not move (at `max`, a press of
+right says nothing). The number is not drawn: a `UiLabel` next to it, rewritten on `Changed`, does that.
+
+```cpp
+world.add<kuge::UiNode>(music, kuge::UiNode{.parent = menu, .hasParent = true});
+world.add<kuge::UiSlider>(music, kuge::UiSlider{.value = 0.4f});
+// ... on Changed for `music`:
+audio.setBusVolume(kuge::Bus::Music, world.get<kuge::UiSlider>(music).value);
 ```
 
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus
