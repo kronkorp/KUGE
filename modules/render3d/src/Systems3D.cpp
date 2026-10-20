@@ -61,6 +61,24 @@ namespace
 
 }
 
+bool kuge::DriveAnimationGraphs::handle(kw::World& world)
+{
+    const float dt = static_cast<float>(world.getResource<Time>().dt);
+
+    m_entities.clear();
+    for (kw::Entity entity : world.view<Animator3D, AnimationGraph3D>()) {
+        m_entities.push_back(entity);
+    }
+    std::sort(m_entities.begin(), m_entities.end());
+    for (kw::Entity entity : m_entities) {
+        if (const auto change = world.get<AnimationGraph3D>(entity).machine.update(dt)) {
+            world.get<Animator3D>(entity).play(change->state->clip,
+                k3::PlayOptions{.loop = change->state->loop, .fade = change->fade, .speed = change->state->speed});
+        }
+    }
+    return true;
+}
+
 bool kuge::PlayReplicatedClips::handle(kw::World& world)
 {
     for (kw::Entity entity : world.view<Animator3D, AnimationState3D>()) {

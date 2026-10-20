@@ -154,6 +154,13 @@ target_link_libraries(kuge_logger_init_tests PRIVATE kuge-logger kronklab-static
 target_compile_options(kuge_logger_init_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_logger_init_tests kuge_logger_init_tests)
 
+if(TARGET kuge-physics3d)
+    add_executable(kuge_animation_tests animation/animation_test.cpp)
+    target_link_libraries(kuge_animation_tests PRIVATE kuge-animation kuge-physics3d kronklab-static)
+    target_compile_options(kuge_animation_tests PRIVATE ${KUGE_WARNINGS})
+    kuge_add_test(kuge_animation_tests kuge_animation_tests)
+endif()
+
 if(TARGET kuge-client)
     add_executable(kuge_client_tests
         client/animation_test.cpp
