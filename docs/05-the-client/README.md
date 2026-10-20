@@ -92,8 +92,7 @@ view.turn(input.axisValue(Action::LookX), input.axisValue(Action::LookY));   // 
 message.yaw = kuge::packAngle(view.yaw);                                       // each tick: 16 bits, 0.0055 degrees
 ```
 
-A key can also be bound by its **place** on the keyboard rather than by the letter it makes: `keyFromScancode`
-(`Key::W` is the key at the place of W on a QWERTY keyboard, whatever the layout), which a shooter wants for WASD.
+Keys are named after their **place** on the keyboard, not the letter printed on it (`Key::W` is the key where a QWERTY keyboard has W, on any layout): a shooter's WASD works for everybody, and the text typed in a field is a separate event.
 
 The player can rebind everything: `input.saveBindings("keybinds.cfg")` writes
 `input.fire = Space, Pad.A`, and `startCapture()` / `takeCaptured()` implement "press the key you want".
