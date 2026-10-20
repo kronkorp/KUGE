@@ -30,7 +30,16 @@ else()
     set(KUGE_WARNINGS -Wall -Wextra)
 endif()
 
-option(KUGE_BUILD_SHARED  "Also build kuge.so, an aggregate of every module" ON)
+# Ticket 039: OFF by default on Windows. kronkworld numbers its resource and component types with a
+# counter in its headers, and a DLL and a program each have their own copy: kuge.dll and the game would
+# give two ids to the same type (UiTheme...) and the game reads garbage. Link the static modules there.
+# Needs kronkworld to number its types by name (see tests/dll_ids, which turns red when it does).
+if(WIN32)
+    set(KUGE_BUILD_SHARED_DEFAULT OFF)
+else()
+    set(KUGE_BUILD_SHARED_DEFAULT ON)
+endif()
+option(KUGE_BUILD_SHARED  "Also build kuge.so (kuge.dll: see ticket 039, OFF by default on Windows), an aggregate of every module" ${KUGE_BUILD_SHARED_DEFAULT})
 option(KUGE_BUILD_CLIENT  "Build the client module (window, inputs, 2D rendering: needs SDL2)" ON)
 option(KUGE_BUILD_PHYSICS3D "Build the 3D physics module (needs Jolt)" ON)
 option(BUILD_EXAMPLES     "Build the example/ executables" OFF)
@@ -181,6 +190,11 @@ endif()
 # kuge.so: every module in one shared library (games can also link the modules
 # they use directly, which is what the example does)
 if(KUGE_BUILD_SHARED)
+    if(WIN32)
+        message(WARNING "kuge.dll: a program that links it and uses a resource or a component type on both "
+            "sides (installUi puts UiTheme, the game reads it) gets two ids for it and crashes. "
+            "Link the static modules instead (ticket 039).")
+    endif()
     add_library(kuge SHARED cmake/aggregate.cpp)
     set_target_properties(kuge PROPERTIES
         PREFIX ""

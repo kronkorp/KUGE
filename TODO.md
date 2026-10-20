@@ -10,6 +10,12 @@ each with its pull request.
   sections) would also need the tests' own POSIX parts (`unistd.h`, raw sockets, `--wrap` at link time) made
   portable. Until then, Windows runs the boundaries and the three games played for real (`*_smoke`).
 
+- [ ] **`kuge.dll` gives other ids than the program** (ticket 039, kronkworld). `KUGE_BUILD_SHARED` is off by default on
+  Windows as a workaround. The fix is in `vendor/kronkworld`: `ResourceManager::id<R>()` and `ComponentManager::id<C>()`
+  must take their number from a function defined in a `.cpp` and exported (a map type name -> id under a mutex; the
+  name from `__PRETTY_FUNCTION__` / `__FUNCSIG__`), and `get<R>()` should check the type it returns. When it is in,
+  the test `dll_ids_differ` turns red: delete it with the guard in `CMakeLists.txt`.
+
 ## 3D
 
 What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet:

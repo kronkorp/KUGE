@@ -1,5 +1,6 @@
 # What needs no test framework runs on every platform: the boundaries, and the games played for real.
 add_subdirectory(boundaries)
+add_subdirectory(dll_ids)
 
 # The real game, started for real (on SDL's dummy screen), plays a scripted match
 if(TARGET kuge_pong)

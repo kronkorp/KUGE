@@ -85,6 +85,12 @@ Every item here was met while building the engine and the games. Reading them is
 
 ## Building
 
+- **`kuge.dll` and a program disagree about ids on Windows.** kronkworld numbers each resource and component type
+  with a counter in its headers (`ResourceManager::id<R>()`, `ComponentManager::id<C>()`). A DLL and a program each
+  have their own copy of that `static` (Linux merges them), so a type that one puts in the World and the other reads
+  has two ids, and `get<R>()` reads whatever sits at the wrong one: a crash with nothing in the log. So `KUGE_BUILD_SHARED`
+  is off by default on Windows: link the static modules (`KUGE_MODULES`). Fixing it takes kronkworld numbering its
+  types by name; the test `dll_ids_differ` reproduces it (with hidden symbols on Linux) and turns red the day it is fixed.
 - **Do not build in the source folder** (CMake refuses). Use `build/`.
 - **A server-only build** (`-DKUGE_BUILD_CLIENT=OFF`) is the cheap way to check that nothing client-side leaked into the
   server. Do it before releasing.
