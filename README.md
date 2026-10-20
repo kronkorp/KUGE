@@ -86,7 +86,7 @@ ctest --test-dir build --output-on-failure
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build `kuge-client` (needs SDL2, SDL2_mixer, SDL2_ttf). Turn it off for a server. |
 | `KUGE_BUILD_PHYSICS3D` | `ON` | Build `kuge-physics3d` (needs Jolt, from vcpkg). A server of a 2D game can turn it off. |
-| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. |
+| `KUGE_BUILD_SHARED` | `ON` (`OFF` on Windows) | Also build `kuge.so`, every module in one shared library. Off by default on Windows: a program that links `kuge.dll` and shares a resource or component type with it gets two ids for it (see [14 pitfalls](docs/14-pitfalls/README.md)); link the static modules there. |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. |

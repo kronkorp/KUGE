@@ -45,7 +45,7 @@ function(kuge_module name)
 
     foreach(target kuge-${name}-obj kuge-${name})
         target_include_directories(${target} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-        target_link_libraries(${target} PUBLIC ${M_DEPENDS})
+        target_link_libraries(${target} PUBLIC ${M_DEPENDS} kuge-determinism)
         if(MSVC)
             # The headers use __VA_OPT__ (KUGE_MESSAGE): MSVC only has it with its conforming
             # preprocessor. Public: a game's own headers use them too.

@@ -50,7 +50,7 @@ is not set, `cmake/Vcpkg.cmake` clones vcpkg at that baseline into `.vcpkg/`.
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build the client module. Turn it off for a server: no SDL needed. |
 | `KUGE_BUILD_PHYSICS3D` | `ON` | Build the 3D physics module (Jolt, from vcpkg). |
-| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. |
+| `KUGE_BUILD_SHARED` | `ON` (`OFF` on Windows) | Also build `kuge.so`, every module in one shared library. Off by default on Windows: a program that links `kuge.dll` and shares a resource or component type with it gets two ids for it (see [14 pitfalls](../14-pitfalls/README.md)); link the static modules there. |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. See [testing](../12-testing-and-debugging/README.md). |

@@ -34,6 +34,13 @@ Every item here was met while building the engine and the games. Reading them is
   test walked the hero into a coin.)
 - **Bodies do not stop each other.** Use triggers, or your own overlap test.
 - **Physics needs the same order every time**, and it has it. Do not use an `unordered_map` iteration in code you predict.
+- **Predicted code needs the same floats on every platform.** The modules are built with `-ffp-contract=off -fno-fast-math`
+  (GCC, Clang) or `/fp:precise` (MSVC), through the `kuge-determinism` target. Without them an ARM machine, or an x86 one
+  built with `-march=native`, fuses `a * b + c` into one rounding and a client and a server drift apart by a bit that
+  the prediction then "corrects" for ever. A game links `kuge-determinism` for its own predicted code, and never builds
+  with `-ffast-math` or `-Ofast` (the configuration refuses a build with them). `sin`, `cos` and `pow` come from each
+  platform's maths library and can differ in the last bit: the 2D physics only uses `+ - * /` and `sqrt`, which are
+  exact; keep your predicted code to the same, or to a table. `float_determinism` checks it (see the 2D physics chapter).
 
 ## Serialization and messages
 
@@ -85,6 +92,12 @@ Every item here was met while building the engine and the games. Reading them is
 
 ## Building
 
+- **`kuge.dll` and a program disagree about ids on Windows.** kronkworld numbers each resource and component type
+  with a counter in its headers (`ResourceManager::id<R>()`, `ComponentManager::id<C>()`). A DLL and a program each
+  have their own copy of that `static` (Linux merges them), so a type that one puts in the World and the other reads
+  has two ids, and `get<R>()` reads whatever sits at the wrong one: a crash with nothing in the log. So `KUGE_BUILD_SHARED`
+  is off by default on Windows: link the static modules (`KUGE_MODULES`). Fixing it takes kronkworld numbering its
+  types by name; the test `dll_ids_differ` reproduces it (with hidden symbols on Linux) and turns red the day it is fixed.
 - **Do not build in the source folder** (CMake refuses). Use `build/`.
 - **A server-only build** (`-DKUGE_BUILD_CLIENT=OFF`) is the cheap way to check that nothing client-side leaked into the
   server. Do it before releasing.
