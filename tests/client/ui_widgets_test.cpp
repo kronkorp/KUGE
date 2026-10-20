@@ -485,3 +485,103 @@ Test(uiscroll, what_is_cut_is_not_hovered)
     ui.tick();
     Assert(ui.get<kuge::UiButton>(list.items[3]).hovered, "under it where it shows");
 }
+
+// -- Image --------------------------------------------------------------------------------------------------------
+namespace
+{
+    std::shared_ptr<kuge::Texture> picture(kw::World& w, int width, int height)
+    {
+        const std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width * height * 4), 255);
+
+        return kuge::Texture::fromPixels(*w.getResource<kuge::Ref<kuge::IRenderer2D>>(), width, height, pixels);
+    }
+
+    std::vector<Call> textureCalls(const std::vector<Call>& calls)
+    {
+        std::vector<Call> found;
+
+        std::copy_if(calls.begin(), calls.end(), std::back_inserter(found), [](const Call& c) { return c.kind == Call::Kind::Texture; });
+        return found;
+    }
+}
+
+Test(uiimage, drawn_in_its_node)
+{
+    kuge::TextureId id = 0;   // (the texture itself lives in the world: it must not outlive the renderer)
+    FontFile font;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            const auto texture = picture(w, 16, 8);
+
+            id = texture->id();
+            w.add<kuge::UiImage>(uiNode(w, {.offset = {10.0f, 20.0f}, .size = {40.0f, 40.0f}}),
+                kuge::UiImage{.texture = texture, .tint = {9, 8, 7, 255}});
+        });
+    });
+    const auto& calls = fx.frame();
+
+    AssertEq(calls.size(), 1, "one picture");
+    Assert(calls[0].kind == Call::Kind::Texture && calls[0].texture.texture == id, "of the texture");
+    Assert(calls[0].destination == kuge::Rect(10.0f, 20.0f, 40.0f, 40.0f), "in the rectangle of the node");
+    Assert(calls[0].texture.tint == kuge::Color(9, 8, 7, 255), "with its tint");
+    AssertEq(calls[0].texture.source.w, 0.0f, "all of the texture");
+}
+
+Test(uiimage, takes_the_size_it_has)
+{
+    FontFile font;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            const auto texture = picture(w, 16, 8);
+
+            w.add<kuge::UiImage>(uiNode(w, {}), kuge::UiImage{.texture = texture});
+            w.add<kuge::UiImage>(uiNode(w, {.offset = {100.0f, 0.0f}}), kuge::UiImage{.texture = texture, .source = {4.0f, 0.0f, 6.0f, 5.0f}});
+        });
+    });
+    const auto calls = textureCalls(fx.frame());
+
+    AssertEq(calls.size(), 2, "two pictures");
+    Assert(calls[0].destination == kuge::Rect(0.0f, 0.0f, 16.0f, 8.0f), "the size of the texture");
+    Assert(calls[1].destination == kuge::Rect(100.0f, 0.0f, 6.0f, 5.0f), "or of the part of it that is shown");
+    Assert(calls[1].texture.source == kuge::Rect(4.0f, 0.0f, 6.0f, 5.0f), "which is what is drawn");
+}
+
+Test(uiimage, in_a_stack_and_over_a_panel)
+{
+    FontFile font;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            const auto texture = picture(w, 20, 10);
+
+            const kw::Entity column = uiNode(w, {.anchor = kuge::Anchor::TopLeft});
+
+            w.add<kuge::UiStack>(column, kuge::UiStack{.spacing = 0.0f, .padding = 0.0f});
+            w.add<kuge::UiImage>(uiChild(w, column), kuge::UiImage{.texture = texture});
+            w.add<kuge::UiImage>(uiChild(w, column), kuge::UiImage{.texture = texture});
+            // A panel of a higher layer over the first picture: it covers it, so it is drawn after it
+            const kw::Entity cover = uiNode(w, {.size = {20.0f, 10.0f}, .layer = 5});
+
+            w.add<kuge::UiPanel>(cover, kuge::UiPanel{.borderWidth = 0.0f});
+        });
+    });
+    const auto& calls = fx.frame();
+
+    AssertEq(calls.size(), 3, "two pictures and a panel, got %zu", calls.size());
+    Assert(calls[0].kind == Call::Kind::Texture && calls[1].kind == Call::Kind::Texture && calls[2].kind == Call::Kind::Fill,
+        "the panel of the higher layer is drawn last: it covers the pictures");
+    Assert(calls[0].destination == kuge::Rect(0.0f, 0.0f, 20.0f, 10.0f) && calls[1].destination == kuge::Rect(0.0f, 10.0f, 20.0f, 10.0f),
+        "the stack puts them one under the other");
+}
+
+Test(uiimage, without_a_texture)
+{
+    FontFile font;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            w.add<kuge::UiImage>(uiNode(w, {.size = {40.0f, 40.0f}}), kuge::UiImage{});
+            w.add<kuge::UiImage>(uiNode(w, {}), kuge::UiImage{});
+        });
+    });
+
+    AssertEq(fx.frame().size(), 0, "nothing to draw, and nothing breaks");
+}

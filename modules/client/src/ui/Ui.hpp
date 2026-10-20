@@ -4,6 +4,7 @@
 #include "Scene.hpp"
 #include "input/ActionState.hpp"
 #include "render/Color.hpp"
+#include "render/Texture.hpp"
 #include "ui/Font.hpp"
 #include <cstdint>
 #include <map>
@@ -23,7 +24,7 @@ namespace kuge
      * parent (or in the screen, if it has none), or by the **stack** of its
      * parent (UiStack: a column or a row). What it shows is another component of
      * the same entity: UiPanel (a background), UiLabel (text), UiButton (a
-     * button with its text), UiTextField (a line of text that the player types), UiProgress (a bar), UiCheckbox, UiSlider; a UiScroll makes a long stack scroll.
+     * button with its text), UiTextField (a line of text that the player types), UiProgress (a bar), UiCheckbox, UiSlider; a UiScroll makes a long stack scroll, UiImage shows a picture.
      *
      *     kuge::installUi(setup(), {.up = kuge::actionId(Action::Up), .down = kuge::actionId(Action::Down),
      *                               .accept = kuge::actionId(Action::Confirm), .click = kuge::actionId(Action::Click)});
@@ -97,6 +98,16 @@ namespace kuge
         float offset = 0.0f;    //!< How far the content has gone up (left, in a row), in pixels. Kept between 0 and `extent` minus the node
         float notch  = 40.0f;   //!< Pixels for one notch of the wheel
         float extent = 0.0f;    //!< The whole length of the content, as of the last frame (to draw a scroll bar from)
+    };
+
+    //! A picture drawn in the rectangle of its node: an icon, a portrait, a logo. A node with no size takes the size
+    //! of the picture (of `source` if it is given). It is drawn with the rest of the interface, so a panel of a
+    //! higher layer covers it. The texture is shared: the UI does not load it (see ClientModule::textures()).
+    struct UiImage
+    {
+        std::shared_ptr<Texture> texture;                    //!< Nothing is drawn without one
+        Rect                     source{};                   //!< The part of the texture, in its pixels. Width 0: all of it.
+        Color                    tint{255, 255, 255, 255};   //!< Multiplies the colors of the picture
     };
 
     struct UiPanel

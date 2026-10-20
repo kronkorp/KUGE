@@ -571,6 +571,7 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
 | `UiCheckbox` | A box that is ticked or not, with its `text` after it: `checked`, `enabled`; `hovered` / `focused` are filled in by the interaction. Focused and pressed like a button, it flips `checked` and says `Changed`. |
+| `UiImage` | A picture (`texture`, a part of it with `source`, a `tint`) in the rectangle of its node, which takes the size of the picture if it has none. |
 | `UiScroll` | On a node that has a size and a `UiStack`: the stack scrolls. `offset` (pixels), `notch` (pixels per wheel notch); `extent` (the length of the content) is filled in by the layout. |
 | `UiSlider` | A value from `min` to `max` (`step` per press of left / right, `columns` letters wide if the node has no size): `value`, `enabled`; `hovered` / `focused` / `dragging` are filled in by the interaction. |
 | `UiProgress` | A bar filled for `value / max` (from the left, or from the bottom if `vertical`): `fill`, `back`, `border`. Its size is the node's, else `UiTheme::progressWidth` x `progressHeight`. |
@@ -650,6 +651,15 @@ world.add<kuge::UiNode>(music, kuge::UiNode{.parent = menu, .hasParent = true});
 world.add<kuge::UiSlider>(music, kuge::UiSlider{.value = 0.4f});
 // ... on Changed for `music`:
 audio.setBusVolume(kuge::Bus::Music, world.get<kuge::UiSlider>(music).value);
+```
+
+**Image.** `UiImage` is drawn with the rest of the interface, at the depth of its node, so a panel of a higher layer
+covers it and a stack places it like any other child. The texture is yours to load (`client.textures().load(...)`,
+shared): an icon on a button is a `UiImage` child of the button's row. A `UiButton` with an icon inside is not there yet.
+
+```cpp
+world.add<kuge::UiNode>(icon, kuge::UiNode{.parent = row, .hasParent = true, .size = {32.0f, 32.0f}});
+world.add<kuge::UiImage>(icon, kuge::UiImage{.texture = client.textures().load("sword.png")});
 ```
 
 **Scroll.** A list that is longer than the screen: give the node a size, a `UiStack` and a `UiScroll`. The children are

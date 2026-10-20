@@ -138,7 +138,8 @@ and options are **entities in screen pixels** made of `UiNode` (a rectangle plac
 `checked`, and `Changed` in `UiEvents` when it is flipped) and `UiSlider` (a value in a range, for the volume:
 left / right, or the mouse; `Changed` when it moves). A long list is a node with a size, a `UiStack` and a
 `UiScroll`: the mouse wheel scrolls it, the keyboard focus brings its child into view, and what is outside is cut
-(`IRenderer2D::setClip`). The wheel is also an input: `Binding::wheel(1)` is "Wheel.Up". `installUi(setup(), actions)` adds the systems: layout, focus
+(`IRenderer2D::setClip`). The wheel is also an input: `Binding::wheel(1)` is "Wheel.Up".
+`UiImage` puts a texture (an icon, a portrait) in the rectangle of a node. `installUi(setup(), actions)` adds the systems: layout, focus
 navigation with the keyboard or gamepad (nearest neighbour), mouse hover and click, and drawing. The platformer's
 `MenuScene` and `PauseScene` are complete examples.
 

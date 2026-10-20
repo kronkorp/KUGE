@@ -145,6 +145,14 @@ namespace
 
                     return {letter.x * static_cast<float>(std::max(field.columns, 1)) + 2.0f * m_theme.padding, letter.y + 2.0f * m_theme.padding};
                 }
+                if (m_world.has<UiImage>(entity)) {
+                    const UiImage& image = m_world.get<UiImage>(entity);
+
+                    if (!image.texture) {
+                        return {};
+                    }
+                    return image.source.w > 0.0f && image.source.h > 0.0f ? Vec2{image.source.w, image.source.h} : image.texture->size();
+                }
                 if (m_world.has<UiSlider>(entity)) {
                     const Vec2 letter = measureText(m_theme.font.get(), "n", 0);
 
@@ -908,6 +916,13 @@ bool kuge::UiRender::handle(kw::World& world)
 
                 text.draw(*theme.font, button.text, {std::round(rect.x + (rect.w - size.x) / 2.0f), std::round(rect.y + (rect.h - size.y) / 2.0f)},
                     button.enabled ? theme.buttonText : theme.disabledText);
+            }
+        }
+        if (world.has<UiImage>(entity)) {
+            const UiImage& image = world.get<UiImage>(entity);
+
+            if (image.texture) {
+                renderer.drawTexture({.texture = image.texture->id(), .source = image.source, .destination = rect, .tint = image.tint});
             }
         }
         if (world.has<UiSlider>(entity)) {
