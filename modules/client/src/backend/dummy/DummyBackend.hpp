@@ -18,6 +18,8 @@ namespace kuge
 
             Vec2 size(void) const override { return m_size; }
             void setTitle(const std::string& title) override { m_title = title; }
+            std::string clipboardText(void) const override { return m_clipboard; }
+            void setClipboardText(const std::string& text) override { m_clipboard = text; }
 
             const std::string& title(void) const noexcept { return m_title; }
             void resize(Vec2 size) noexcept { m_size = size; }
@@ -25,6 +27,7 @@ namespace kuge
         private:
             Vec2        m_size;
             std::string m_title;
+            std::string m_clipboard;   //!< (its own: tests do not touch the real clipboard)
     };
 
     //! Inputs that the test decides: push() what "happened", the client polls it

@@ -160,6 +160,27 @@ Test(inputmap, editing_keys)
     Assert(input.takeEditKeys().size() <= 64, "what is kept is bounded");
 }
 
+// Ctrl+V, C, X (Cmd on macOS) are editing keys for a text field; the same letters alone are text
+Test(inputmap, clipboard_keys)
+{
+    kuge::InputMap input;
+
+    input.handle(press(kuge::Key::V));
+    input.handle(kuge::KeyEvent{kuge::Key::V, false});
+    AssertEq(input.takeEditKeys().size(), 0, "a V alone is a letter");
+    input.handle(press(kuge::Key::LCtrl));
+    input.handle(press(kuge::Key::V));
+    input.handle(press(kuge::Key::C));
+    input.handle(kuge::KeyEvent{kuge::Key::LCtrl, false});
+    input.handle(press(kuge::Key::X));
+    input.handle(press(kuge::Key::RGui));
+    input.handle(press(kuge::Key::X));
+    const auto keys = input.takeEditKeys();
+
+    AssertEq(keys.size(), 3, "V and C with Ctrl, X with Cmd, got %zu", keys.size());
+    Assert(keys[0] == kuge::Key::V && keys[1] == kuge::Key::C && keys[2] == kuge::Key::X, "in order");
+}
+
 Test(inputmap, sticks_need_a_push)
 {
     kuge::InputMap input;

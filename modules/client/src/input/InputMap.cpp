@@ -123,6 +123,13 @@ namespace
     }
 }
 
+bool kuge::InputMap::commandHeld(void) const
+{
+    const auto down = [this](Key key) { return m_keys[static_cast<std::size_t>(key)]; };
+
+    return down(Key::LCtrl) || down(Key::RCtrl) || down(Key::LGui) || down(Key::RGui);
+}
+
 std::string kuge::InputMap::takeTyped(void)
 {
     return std::exchange(m_typed, {});
@@ -140,7 +147,10 @@ void kuge::InputMap::apply(const Event& event)
             m_typed += text->text;   // (a whole event or none: a character is never cut)
         }
     } else if (const auto* key = std::get_if<KeyEvent>(&event)) {
-        if (key->down && editsText(key->key) && m_editKeys.size() < MAX_EDIT_KEYS) {
+        // Ctrl (Cmd on macOS) + V, C or X are the clipboard keys; a V alone is a letter, typed as text
+        const bool clipboardKey = commandHeld() && (key->key == Key::V || key->key == Key::C || key->key == Key::X);
+
+        if (key->down && (editsText(key->key) || clipboardKey) && m_editKeys.size() < MAX_EDIT_KEYS) {
             m_editKeys.push_back(key->key);   // the repeats too: holding Backspace erases
         }
         const auto code = static_cast<std::size_t>(key->key);

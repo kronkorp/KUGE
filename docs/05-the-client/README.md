@@ -144,7 +144,9 @@ reach it with the focus), type, edit with Backspace, Delete, the arrows, Home an
 `Submitted` (Enter) in `UiEvents`. While a field has the focus the actions that move it (up, down, left, right,
 accept) are left alone, since a letter that your game bound to "up" is a letter there: **Tab** leaves the field.
 For your own input, `InputMap::takeTyped()` and `takeEditKeys()` give the text and the editing keys since the last
-call. There is no selection, clipboard or multi-line text yet. The details are in the README (User interface).
+call. **Ctrl+V** (Cmd+V on macOS) pastes the first line of the clipboard, **Ctrl+C** copies the whole text and
+**Ctrl+X** cuts it; a game reaches the clipboard with `Ref<IWindow>` (`clipboardText()`, `setClipboardText()`).
+There is no selection or multi-line text yet. The details are in the README (User interface).
 
 ## Tilemaps and animations
 

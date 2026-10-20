@@ -115,7 +115,8 @@ namespace kuge
         bool        pressed = false;    //!< An action or a click holds it down
     };
 
-    //! A line of text that the player types, edited in place (no selection, no clipboard, one line).
+    //! A line of text that the player types, edited in place (one line, no selection: Ctrl+C / Cmd+C copies the
+    //! whole text, Ctrl+X cuts it, Ctrl+V pastes the first line of the clipboard at the caret).
     //! The size of its node is its own if it has one, else `columns` letters wide and one line high.
     struct UiTextField
     {

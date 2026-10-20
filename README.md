@@ -603,7 +603,13 @@ action) says `Cancelled`, and the mouse moving over another widget does not take
 a character. When the text is wider than the field, its end (where the caret is) is shown: the renderer
 has no clipping.
 
-Not there yet: selection, copy and paste, a masked field for a password, several lines, and showing the
+**Clipboard.** Ctrl+V (Cmd+V on macOS) pastes at the caret the first line of the clipboard, cut to `maxLength` and
+without control characters; Ctrl+C copies the whole text (there is no selection yet) and Ctrl+X cuts it. The keys
+reach the field as editing keys of `takeEditKeys()` (V, C, X with Ctrl or Cmd held; a V alone is a letter). The clipboard
+itself is `IWindow::clipboardText()` / `setClipboardText()` (SDL's on the SDL backend, a string of its own on the
+dummy one, so a test can set it and read it) and a game reaches it through `Ref<IWindow>`, for a "copy the code" button.
+
+Not there yet: selection, a masked field for a password, several lines, and showing the
 composition of an input method editor (what the OS *commits* arrives as a `TextEvent`; the text being
 composed, `SDL_TEXTEDITING`, is not handled, and this was not tried with one).
 

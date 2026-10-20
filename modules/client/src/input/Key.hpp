@@ -20,7 +20,8 @@ namespace kuge
         ITEM(Minus) ITEM(Equals) ITEM(LeftBracket) ITEM(RightBracket) ITEM(Semicolon) ITEM(Apostrophe) \
         ITEM(Comma) ITEM(Period) ITEM(Slash) ITEM(Backslash) ITEM(Grave) \
         ITEM(Kp0) ITEM(Kp1) ITEM(Kp2) ITEM(Kp3) ITEM(Kp4) ITEM(Kp5) ITEM(Kp6) ITEM(Kp7) ITEM(Kp8) ITEM(Kp9) \
-        ITEM(KpEnter) ITEM(KpPlus) ITEM(KpMinus) ITEM(KpMultiply) ITEM(KpDivide) ITEM(KpPeriod)
+        ITEM(KpEnter) ITEM(KpPlus) ITEM(KpMinus) ITEM(KpMultiply) ITEM(KpDivide) ITEM(KpPeriod) \
+        ITEM(LGui) ITEM(RGui)
 
     enum class Key : std::uint16_t {
         Unknown = 0,

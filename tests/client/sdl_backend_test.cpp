@@ -111,6 +111,16 @@ Test(sdl, window_and_renderer)
     backend.window->setTitle("a title");
 }
 
+Test(sdl, clipboard_round_trip)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(200, 100));
+    const std::string text = "ABCD-1234 \xC3\xA9";
+
+    backend.window->setClipboardText(text);
+    AssertStrEq(backend.window->clipboardText().c_str(), text.c_str(), "what was copied is pasted");
+}
+
 Test(sdl, fill_and_blend)
 {
     useNoScreen();

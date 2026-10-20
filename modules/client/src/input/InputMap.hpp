@@ -87,8 +87,9 @@ namespace kuge
             //! text field does not press the action that W is bound to, for whoever reads this instead.
             std::string takeTyped(void);
 
-            //! The keys that edit a text (Backspace, Delete, the arrows, Home, End, Enter, Tab), pressed since the
-            //! last call, **with the repeats** of a key that is held, once. Independent of the actions.
+            //! The keys that edit a text (Backspace, Delete, the arrows, Home, End, Enter, Tab, and V, C, X while
+            //! Ctrl or Cmd is held: paste, copy, cut), pressed since the last call, **with the repeats** of a key that
+            //! is held, once. Independent of the actions.
             std::vector<Key> takeEditKeys(void);
 
             // -- Rebinding: "press the key you want" ---------------------------------
@@ -133,6 +134,7 @@ namespace kuge
             void refresh(bool latchEdges);
             std::optional<Binding> capturedBy(const Event& event) const;
             void apply(const Event& event);
+            bool commandHeld(void) const;
 
             std::array<std::vector<Binding>, MAX_ACTIONS> m_bindings;
             std::array<std::string, MAX_ACTIONS>          m_names;

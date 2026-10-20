@@ -3,6 +3,7 @@
 #include "Stage.hpp"
 #include "Time.hpp"
 #include "backend/IRenderer2D.hpp"
+#include "backend/IWindow.hpp"
 #include "input/ActionState.hpp"
 #include "input/InputMap.hpp"
 #include "ui/TextRenderer.hpp"
@@ -299,6 +300,24 @@ namespace
         return changed;
     }
 
+    // Ctrl+V pastes the first line of the clipboard at the caret, Ctrl+C copies the whole text (there is no
+    // selection yet), Ctrl+X copies it and empties the field. @return  whether the text changed
+    bool clipboardWith(UiTextField& field, Key key, IWindow& window)
+    {
+        if (key == Key::C || key == Key::X) {
+            window.setClipboardText(field.text);
+            if (key == Key::X && !field.text.empty()) {
+                field.text.clear();
+                field.caret = 0;
+                return true;
+            }
+            return false;
+        }
+        const std::string pasted = window.clipboardText();
+
+        return insertTyped(field, pasted.substr(0, pasted.find_first_of("\r\n")));
+    }
+
     // Backspace, Delete and the keys that move the caret. @return  whether the text changed
     bool editWith(UiTextField& field, Key key)
     {
@@ -592,6 +611,8 @@ bool kuge::UiInteract::handle(kw::World& world)
                 submitted = true;
             } else if (key == Key::Tab) {
                 tab = true;
+            } else if (key == Key::V || key == Key::C || key == Key::X) {
+                changed = clipboardWith(field, key, *world.getResource<Ref<IWindow>>()) || changed;
             } else {
                 changed = editWith(field, key) || changed;
             }

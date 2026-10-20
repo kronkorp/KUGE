@@ -180,6 +180,22 @@ namespace
                 SDL_SetWindowTitle(m_context->window.get(), title.c_str());
             }
 
+            std::string clipboardText(void) const override
+            {
+                std::string text;
+
+                if (char* clipboard = SDL_GetClipboardText()) {
+                    text = clipboard;
+                    SDL_free(clipboard);
+                }
+                return text;
+            }
+
+            void setClipboardText(const std::string& text) override
+            {
+                SDL_SetClipboardText(text.c_str());
+            }
+
         private:
             std::shared_ptr<SdlContext> m_context;
     };

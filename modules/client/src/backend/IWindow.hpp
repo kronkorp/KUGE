@@ -30,6 +30,10 @@ namespace kuge
             virtual Vec2 size(void) const = 0;
 
             virtual void setTitle(const std::string& title) = 0;
+
+            //! The text in the system's clipboard ("" if it is empty or is not text)
+            virtual std::string clipboardText(void) const = 0;
+            virtual void setClipboardText(const std::string& text) = 0;
     };
 
 }
