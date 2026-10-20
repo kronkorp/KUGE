@@ -44,6 +44,10 @@ world.add<kuge::Collider>(coin, kuge::Collider::circle(8.0f).asTrigger());
   wall, and they **slide** along walls.
 - `body.contacts` says which sides touch a wall (a collider with no body, or a solid tile), **even when the body
   stands still**. That is what a "can I jump?" test reads.
+- A body can **bounce**: `body.restitution` is what a wall that stops it gives back of its speed along the axis of the wall
+  (0, the default: it stops and slides; 1: it comes back as fast as it came; 0.5: at half the speed). The other axis is not
+  touched, so a body that meets a wall at an angle bounces off it. Solid tiles bounce like colliders. "The edge of the screen" is not a
+  thing of the physics: put four static colliders there.
 - Bodies are **boxes**; circles are walls, triggers and things to query.
 - Bodies do **not** stop each other. To know who touches whom, use a trigger, or your own test. (R-Type's bullets
   and enemies use a simple box overlap test in the rules, not the physics.)

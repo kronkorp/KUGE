@@ -1,5 +1,6 @@
 #pragma once
 
+#include "StateMachine.hpp"
 #include <kronk3d/scene/Animator.hpp>
 #include <filesystem>
 #include <map>
@@ -72,6 +73,26 @@ namespace kuge
         //! @param next  The clip to play when this one ends (it must not loop; "": stay on the last pose)
         //! @return  false if the model has no such clip
         bool play(std::string_view clip, const k3::PlayOptions& options = {}, std::string_view next = {});
+    };
+
+    ////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief  A state machine that chooses the clip of the Animator3D of the same entity (a component)
+     *
+     *     world.add<kuge::AnimationGraph3D>(e, {def, model});                    // a StateMachineDef (kuge-animation), loaded from a file
+     *     world.get<kuge::AnimationGraph3D>(e).machine.set("speed", 3.0f);      // each tick, from what the entity does
+     *
+     * DriveAnimationGraphs plays, on the Animator3D, the clip of the state it enters, with the fade of the transition. The room
+     * runs the same file with an AnimationGraph (kuge-animation) when it needs the pose; what is replicated is the state
+     * (AnimationState3D), never the bones.
+     */
+    ////////////////////////////////////////////////////////////////////////////
+    struct AnimationGraph3D
+    {
+        AnimationStateMachine machine;
+
+        AnimationGraph3D(std::shared_ptr<const StateMachineDef> def, std::shared_ptr<const k3::AnimatedModel> model)
+            : machine(std::move(def), std::move(model)) {}
     };
 
 }

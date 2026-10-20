@@ -6,6 +6,7 @@
 #include "Transform3D.hpp"
 #include "kronkworld/Kronkworld.hpp"
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -35,6 +36,24 @@ namespace kuge
         k3::Math::Vector3f point{};
         k3::Math::Vector3f normal{};
         float              distance = 0.0f;
+    };
+
+    //! Which entities a question skips: return true to skip one
+    using EntityFilter = std::function<bool(kw::Entity)>;
+
+    //! What a shot hit: the first wall or body, or a part (a Hitbox) of an entity that has Hitboxes
+    struct ShotHit3D : RaycastHit3D
+    {
+        int   hitbox = -1;          //!< The index in Hitboxes::parts of the part that was hit; -1: not a hitbox (a wall, a body)
+        float damageScale = 1.0f;   //!< Of that part (1 for a wall)
+    };
+
+    //! What a character wants to do during a tick (see Physics3D::moveCharacter())
+    struct CharacterMove
+    {
+        k3::Math::Vector3f wish{};     //!< Meters per second on the ground, x and z (y is ignored: gravity and jumps are the physics')
+        bool               jump = false;
+        bool               crouch = false;   //!< Held: it stands up when this is false, if there is room
     };
 
     ////////////////////////////////////////////////////////////////////////////
@@ -74,8 +93,28 @@ namespace kuge
 
             //! The first thing a ray meets
             //! @param direction  any length but 0
+            //! @param ignore  Entities to look through (a wall that lets a shot pass, the shooter); none: all count
             std::optional<RaycastHit3D> raycast(k3::Math::Vector3f origin, k3::Math::Vector3f direction, float maxDistance,
-                std::uint32_t mask = 0xFFFFFFFFu, bool triggers = false) const;
+                std::uint32_t mask = 0xFFFFFFFFu, bool triggers = false, const EntityFilter& ignore = {}) const;
+
+            //! Slides a capsule (standing along y, `height` is the whole of it, `origin` its center) along a line until it
+            //! touches something: how far it went (`distance`), where, and the normal of what stopped it.
+            //! Nothing if the way is free to `maxDistance`. What it starts inside of is not a hit.
+            std::optional<RaycastHit3D> sweepCapsule(k3::Math::Vector3f origin, k3::Math::Vector3f direction, float maxDistance,
+                float radius, float height, std::uint32_t mask = 0xFFFFFFFFu, bool triggers = false, const EntityFilter& ignore = {}) const;
+
+            //! A hitscan shot: the first thing a ray meets among the walls and bodies **and** the Hitboxes of the entities
+            //! of the world (the part that was hit and its damage scale). An entity that has Hitboxes is only hit
+            //! through them, not through its Collider3D. Ties go to the lowest entity. Parts are placed by the Transform3D of
+            //! their entity (and its bones): the same as when the shooter fired, if the room kept that world (ticket 026).
+            std::optional<ShotHit3D> shoot(kw::World& world, k3::Math::Vector3f origin, k3::Math::Vector3f direction, float maxDistance,
+                std::uint32_t mask = 0xFFFFFFFFu, const EntityFilter& ignore = {}) const;
+
+            //! Moves a character (an entity with a Transform3D and a Character3D): walks it by the wish, slides it along
+            //! what it hits, climbs a step, sticks it to a slope, lets it jump and crouch, and falls it. Call it once
+            //! per tick, in the Simulation stage, **with the same inputs on the client and in the room**. It sees the
+            //! world as the last Physics3D::step() left it. The Transform3D and the Character3D are written.
+            void moveCharacter(kw::World& world, kw::Entity entity, const CharacterMove& move, float dt);
 
             //! Everything that overlaps the sphere, by increasing entity
             std::vector<kw::Entity> overlapSphere(k3::Math::Vector3f center, float radius, std::uint32_t mask = 0xFFFFFFFFu,

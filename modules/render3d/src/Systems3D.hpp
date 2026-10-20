@@ -17,6 +17,17 @@ namespace kuge
             bool handle(kw::World& world) override;
     };
 
+    //! Fixed, stage Late (before AnimateModels): moves the AnimationGraph3D of an entity on, and plays on its
+    //! Animator3D the clip of the state it enters. Entities are handled by increasing number.
+    class DriveAnimationGraphs : public kw::ISystem
+    {
+        public:
+            bool handle(kw::World& world) override;
+
+        private:
+            std::vector<kw::Entity> m_entities;   //!< Kept between ticks
+    };
+
     //! Fixed, stage Late (before AnimateModels): plays on the Animator3D of an entity the clip that its
     //! AnimationState3D says (what a server replicates). A clip that changes fades from the one before; a
     //! `serial` that moves starts the clip again.

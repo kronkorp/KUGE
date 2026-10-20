@@ -6,6 +6,7 @@ KUGE makes 3D games out of the same parts as 2D ones, with three more modules an
 |---|---|
 | [kronk3d](https://github.com/kronkorp/kronk3d) (`vendor/kronk3d`, v0.1.0) | The renderer: meshes, materials, lights, shadows, sky, fog, glTF and OBJ loading, skeletal animation. KUGE uses it as it is |
 | `kuge-render3d` | A 3D scene in a client: `Render3DModule`, `Model3D`, `Light3D`, `Animator3D`, `CameraRig` |
+| `kuge-animation` | Poses, layered blends, state machines read from a file, with no window: the room samples them too |
 | `kuge-physics3d` | Rigid bodies with [Jolt](https://github.com/jrouwe/JoltPhysics): `Physics3D`, `Collider3D`, `Body3D` |
 | `kuge-replication` | `registerTransform3D`, `registerBody3D`, `registerAnimationState3D`, and `Prediction` for 3D |
 | `kuge-core` | `Transform3D`, `AnimationState3D`, the components `Collider3D` and `Body3D` (no Jolt, so a server of anything can use them) |
@@ -134,6 +135,40 @@ On a network, the server has no model: it says which clip an entity plays with a
 (`{clip, loop, serial}`, replicated), and `PlayReplicatedClips` plays it on the client's `Animator3D`. A `serial`
 that moves starts the same clip again. Nothing about the pose travels: every client animates by itself.
 
+### A state machine for a character
+
+A character that walks, crouches and fires is a few **states** and the ways between them. They are a text file
+(`kuge-animation`, `StateMachine.hpp`), read with `loadStateMachine`:
+
+```
+state idle   Idle   loop
+state run    Run    loop
+state fire   Fire   once
+transition idle run  0.15 when speed > 0.5     # fade in seconds, then a condition
+transition run  idle 0.20 when speed <= 0.5
+transition fire idle 0.10 when end             # the clip played once to its end
+transition *    fire 0.05 when shoot == 1      # from any state
+start idle
+```
+
+The first transition of the file that holds is taken. The game sets **parameters** each tick (`speed`, `crouching`, `pitch`...,
+`machine.set("speed", 3)`; 0 until set); the machine says which clip to play and with what fade. On a client, put an
+`AnimationGraph3D{def, model}` next to the `Animator3D`: `DriveAnimationGraphs` plays the clip of each state it enters (a `Scene3D`
+installs it). Only the **state** needs to travel (`AnimationState3D`), never the bones.
+
+### The pose in the room
+
+The room has no model on screen but sometimes needs a bone: a crouching or leaning player must have its head where the animation
+put it. `AnimationGraph` (the same machine with a `PoseAnimator`, a CPU `k3::Animator` with the same crossfades) gives the `Pose`
+(a `k3::Transform` per node) of the tick; `bonePlaces(model, pose, {"head", "chest"})` turns it into the `BonePlace`s a `Hitboxes`
+component reads (see Physics, below). The functions are plain data: `samplePose(model, clip, time)`, `blend(a, b, k)`,
+`boneMask(model, {"spine"})` (a node and what hangs under it) and `layer(base, over, mask, k)` for a layered blend (legs run,
+arms fire). `kuge-animation` depends on the core only: a server links it with no window (a test checks it).
+
+**Not there:** drawing a layered blend. kronk3d's `Animator` deforms and draws the one pose it computes itself, so a mask works on the pose
+of the room (hitboxes) and on your own `Pose`, but the model on screen cannot take it until kronk3d can draw a `Pose` it is given.
+The animation file formats (glTF clips, hot reload) are those of kronk3d and `Animator3D`, unchanged.
+
 ## Mouse look and cameras
 
 `IInputSource::setRelativeMouse(true)` hides the cursor and keeps it in the window (a scene reaches it as
@@ -213,6 +248,37 @@ world().add<kuge::Collider3D>(zone, kuge::Collider3D::sphere(2).asTrigger());   
   and `velocity.z` and leaving `y` to the gravity.
 - **Questions**: `physics.raycast(origin, direction, maxDistance, mask, triggers)`, `overlapSphere(center, radius)`
   and `physics.events()` (a `TriggerEvent3D` for each trigger entered or left in the last tick).
+
+### A character that walks
+
+A shooter's player is not a rigid body: give it a `Character3D` (and a `Transform3D`, its **feet**), no `Collider3D`, and move it
+once per tick with the same call on the client and in the room:
+
+```cpp
+world().add<kuge::Character3D>(player, kuge::Character3D{.radius = 0.35f, .height = 1.8f, .stepHeight = 0.4f, .jumpSpeed = 5.0f});
+
+physics.moveCharacter(world, player, {.wish = {walk.x, 0, walk.z}, .jump = actions.wasPressed(Action::Jump),
+                                     .crouch = actions.isDown(Action::Crouch)}, dt);       // in the Simulation stage
+// then: transform.translation, character.velocity, character.onGround, character.crouching
+```
+
+It is Jolt's `CharacterVirtual`: the capsule slides along what it hits (a wall at a shallow angle is followed), climbs a step of
+`stepHeight` (a round capsule climbs a little more), sticks to a slope up to `maxSlope` degrees (a steeper one is a wall), falls with
+the gravity of the physics, jumps at `jumpSpeed` from the ground, and crouches to `crouchHeight`; **it stands up again only where
+there is room** (`crouching` stays true under a ceiling). It does not tunnel at 100 m/s. It sees the world as the last `step()` left
+it, and the same inputs on the same world give the same positions on one machine. `wish` is a speed on the ground, x and z only.
+
+### Shots and sweeps
+
+`physics.shoot(world, origin, direction, maxDistance, mask, ignore)` is a hitscan: the first of the walls and bodies **and** the
+parts of the entities that have a `Hitboxes` component, with the entity, the point, the normal, the distance, the **index of the part**
+(`hitbox`) and its `damageScale`. Each `Hitbox` is a box, sphere or capsule with an `offset` from the entity, a name and a damage scale
+(a head is worth double); an entity with `Hitboxes` is only hit through them. A part that names a `bone` is placed at that bone's
+`BonePlace` (in `Hitboxes::bones`, which the animation writes when the room samples the pose, see `kuge-animation`). The `ignore`
+filter lets a shot through an entity (the shooter, a window). A ray that starts inside a part does not hit it.
+
+`physics.sweepCapsule(center, direction, maxDistance, radius, height)` slides a capsule along a line and says how far it went before
+touching something, and the normal of what stopped it (a ground check, a ledge test). `raycast` takes the same `ignore` filter.
 
 Jolt comes from vcpkg (`vcpkg.json`, feature `physics3d`) and is built the first time; `-DKUGE_BUILD_PHYSICS3D=OFF`
 leaves it out. The same world gives the same result, bit for bit, on one machine; Jolt is not built to agree

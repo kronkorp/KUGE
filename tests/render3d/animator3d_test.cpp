@@ -230,3 +230,23 @@ Test(animator3d, cues_come_from_a_text)
     }
     Assert(missing, "a file that is not there is named");
 }
+
+Test(animator3d, a_graph_picks_the_clip)
+{
+    Fixture fx;
+    const auto model = character();
+    const auto def = std::make_shared<const kuge::StateMachineDef>(kuge::parseStateMachine(
+        "state idle idle loop\nstate walking walk loop\n"
+        "transition idle walking 0.1 when speed > 0.5\ntransition walking idle 0.1 when speed <= 0.5\nstart idle\n"));
+    const kw::Entity entity = spawn(fx, kuge::Animator3D::of(model));
+
+    fx.world().add<kuge::AnimationGraph3D>(entity, kuge::AnimationGraph3D{def, model});
+    tick(fx);
+    AssertEq(std::string(fx.world().get<kuge::Animator3D>(entity).animator.clip()), std::string("idle"), "the start state plays");
+    fx.world().get<kuge::AnimationGraph3D>(entity).machine.set("speed", 2.0f);
+    tick(fx);
+    AssertEq(std::string(fx.world().get<kuge::Animator3D>(entity).animator.clip()), std::string("walk"), "the parameter moves it to the walk");
+    fx.world().get<kuge::AnimationGraph3D>(entity).machine.set("speed", 0.0f);
+    tick(fx);
+    AssertEq(std::string(fx.world().get<kuge::Animator3D>(entity).animator.clip()), std::string("idle"), "and back");
+}
