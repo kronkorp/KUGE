@@ -85,6 +85,7 @@ add_executable(kuge_tests
     core/spawn_test.cpp
     core/tilemap_test.cpp
     core/time_control_test.cpp
+    core/timeline_test.cpp
     core/transform3d_test.cpp
     core/world_history_test.cpp
 )
