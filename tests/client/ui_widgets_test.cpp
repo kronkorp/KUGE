@@ -388,6 +388,20 @@ Test(uiscroll, only_what_is_inside)
     AssertEq(ui.get<kuge::UiScroll>(list.scroll).extent, 300.0f, "the whole length is known");
 }
 
+Test(uiscroll, inside_the_border)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        list = scrollList(w, 10, false);
+        w.add<kuge::UiPanel>(list.scroll, kuge::UiPanel{.borderWidth = 3.0f});
+    });
+    const auto& calls = ui.tick();
+    const auto cut = std::find_if(calls.begin(), calls.end(), [](const Call& c) { return c.clip.has_value(); });
+
+    Assert(cut != calls.end() && *cut->clip == kuge::Rect(3.0f, 3.0f, 94.0f, 94.0f), "what scrolls is cut inside the border of the panel");
+    Assert(calls.front().kind == Call::Kind::Fill && !calls.front().clip.has_value(), "the panel itself is not cut");
+}
+
 Test(uiscroll, the_wheel_moves_it)
 {
     ScrollList list;
