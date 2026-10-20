@@ -821,7 +821,7 @@ std::optional<kuge::RaycastHit3D> kuge::Physics3D::sweepCapsule(k3::Math::Vector
     return result;
 }
 
-std::optional<kuge::ShotHit3D> kuge::Physics3D::shoot(kw::World& world, k3::Math::Vector3f origin, k3::Math::Vector3f direction,
+std::optional<kuge::HitboxHit3D> kuge::Physics3D::raycastHitboxes(kw::World& world, k3::Math::Vector3f origin, k3::Math::Vector3f direction,
     float maxDistance, std::uint32_t mask, const EntityFilter& ignore) const
 {
     const float length = std::sqrt(dot(direction, direction));
@@ -834,10 +834,10 @@ std::optional<kuge::ShotHit3D> kuge::Physics3D::shoot(kw::World& world, k3::Math
     const EntityFilter skip = [&](kw::Entity entity) {
         return world.has<kuge::Hitboxes>(entity) || (ignore && ignore(entity));
     };
-    std::optional<ShotHit3D> best;
+    std::optional<HitboxHit3D> best;
 
     if (const auto wall = raycast(origin, along, maxDistance, mask, false, skip)) {
-        best = ShotHit3D{*wall};
+        best = HitboxHit3D{*wall};
     }
     std::vector<kw::Entity> entities;
 
@@ -857,14 +857,14 @@ std::optional<kuge::ShotHit3D> kuge::Physics3D::shoot(kw::World& world, k3::Math
             const auto hit = rayPart(place(transform, boxes, part), part, origin, along);
 
             if (hit && hit->distance < maxDistance && (!best || hit->distance < best->distance)) {
-                ShotHit3D shot;
+                HitboxHit3D shot;
 
                 shot.entity = entity;
                 shot.distance = hit->distance;
                 shot.point = origin + along * hit->distance;
                 shot.normal = hit->normal;
                 shot.hitbox = static_cast<int>(i);
-                shot.damageScale = part.damageScale;
+                shot.weight = part.weight;
                 best = shot;
             }
         }
