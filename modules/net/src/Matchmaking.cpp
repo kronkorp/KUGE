@@ -81,6 +81,19 @@ namespace kuge::net
         }
     }
 
+    const char* describe(RoomEnd reason)
+    {
+        switch (reason) {
+            case RoomEnd::GameOver:       return "the game is over";
+            case RoomEnd::Idle:           return "nobody came";
+            case RoomEnd::ServerStopping: return "the server stopped";
+            case RoomEnd::Kicked:         return "sent away";
+            case RoomEnd::Error:          return "the connection was lost";
+            case RoomEnd::Victory:        return "the game was won";
+        }
+        return "the room closed";
+    }
+
     namespace
     {
         // Valid UTF-8 with no control character (not even the ones of Latin-1, U+0080 to U+009F)

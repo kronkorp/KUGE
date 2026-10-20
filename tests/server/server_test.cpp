@@ -851,3 +851,46 @@ Test(server, bad_options_are_refused)
     ana.create("Room", false, "duel", std::string(net::MAX_ROOM_OPTIONS, 'x'));
     Assert(ana.until([&] { return ana.inRoom(); }), "128 bytes are accepted");
 }
+
+// -- A game that is won (ticket 009) ---------------------------------------------------------------
+Test(server, a_room_ends_in_victory)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    ana.join();
+    ben.join();
+    Assert(ana.until([&] { ben.poll(); return ana.inRoom() && ben.inRoom(); }), "in the room");
+    const auto first = ana.roomId;
+
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, WinNow{});
+    Assert(ana.until([&] { ben.poll(); return !ana.closed.empty() && !ben.closed.empty(); }), "both are told the room closed");
+    AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::Victory), "Ana: it was won");
+    AssertEq(static_cast<int>(ben.closed[0]), static_cast<int>(net::RoomEnd::Victory), "Ben: too");
+    Assert(ana.inLobby() && ben.inLobby(), "they are back in the lobby");
+    Assert(waitUntil([&] { return harness.server->stats().rooms == 0; }), "and the lobby counts the room as closed, as for GameOver");
+    Assert(waitUntil([] { return roomLog().exited == 1; }), "its scene was left");
+    ana.join();
+    Assert(ana.until([&] { return ana.joined == 2 && ana.inRoom(); }), "a new game can start at once");
+    Assert(ana.roomId != first, "in a new room");
+    Assert(std::string(net::describe(net::RoomEnd::Victory)) != net::describe(net::RoomEnd::GameOver), "and the two have a text of their own");
+}
+
+Test(server, victory_honours_closeDelay)
+{
+    // The room that is won tells its players closeDelay later, as for any end: what it did on the last tick leaves first
+    Harness harness([](ServerConfig& c) { c.closeDelay = 0.6; });
+    TestClient ana("Ana");
+
+    ana.connect(harness);
+    ana.join();
+    Assert(ana.until([&] { return ana.inRoom(); }), "in the room");
+    const auto sent = std::chrono::steady_clock::now();
+
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, WinNow{});
+    Assert(ana.until([&] { return !ana.closed.empty(); }), "told");
+    Assert(std::chrono::steady_clock::now() - sent >= std::chrono::milliseconds(500), "not before the delay");
+    AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::Victory), "with the reason of the game");
+}

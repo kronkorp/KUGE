@@ -148,9 +148,14 @@ its `Hello` is **never given to your game**: your `on<T>` handlers only see play
 
 ## The end of a game
 
-`finish()` (the game is over), an idle room (`idleTimeout`), or the server stopping: the players are told
+`finish(reason)` (the game is over), an idle room (`idleTimeout`), or the server stopping: the players are told
 (`RoomClosed`), the last messages get a moment to leave (`linger`), and the scene is left. The clients are back
 in the lobby and can ask for another game.
+
+`finish()` takes the reason that the players hear (`onRoomClosed`): `RoomEnd::GameOver` (the default) or
+`RoomEnd::Victory` when the game was won, so a client can tell a win from a loss without a message of its own. The two
+mean the same to KUGE: the room is over, the lobby counts it closed, `closeDelay` applies. `kuge::net::describe(reason)`
+gives a short text for each value. (`Idle`, `ServerStopping`, `Kicked` and `Error` are KUGE's.)
 
 When the **server stops** (Ctrl+C, `GameServer::stop()`), the players hear `RoomEnd::ServerStopping`, not
 `RoomEnd::Error`: the lobby tells the players that are in a room, and the room tells its own, before their

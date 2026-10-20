@@ -77,13 +77,19 @@ namespace kuge::net
         Closing,           //!< The room is ending
     };
 
+    //! Why a room ended. GameOver and Victory both mean "the game is over" (the lobby and the room treat them alike);
+    //! the game says which one it was. (Victory is last, so that the values of the others do not move.)
     enum class RoomEnd : std::uint8_t {
-        GameOver,          //!< The game ended
+        GameOver,          //!< The game ended (lost, or no word on how it went)
         Idle,              //!< Nobody came, or everybody left
         ServerStopping,
         Kicked,            //!< Sent away (or never showed up)
         Error,
+        Victory,           //!< The game ended well (won)
     };
+
+    //! A short text for a player ("the game was won"...)
+    const char* describe(RoomEnd reason);
 
     struct JoinRoom
     {
