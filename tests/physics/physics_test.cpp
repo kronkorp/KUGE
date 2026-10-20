@@ -422,3 +422,79 @@ Test(physics, walking_on_any_floor)
         }
     }
 }
+
+namespace
+{
+    // A body that goes right at 300 toward a wall whose left face is at x = 90, with `restitution`
+    float speedAfterWall(float restitution, float vy = 0.0f)
+    {
+        kw::Entity body = 0;
+        Sim sim([&](Level& level) {
+            kuge::Body b = kinematic({300.0f, vy});
+
+            b.restitution = restitution;
+            wall(level.world(), {100.0f, 0.0f}, Collider::box(20.0f, 20000.0f));
+            body = mover(level.world(), {84.0f, 0.0f}, Collider::box(10.0f, 10.0f), b);
+        }, kuge::PhysicsConfig{.gravity = {0.0f, 0.0f}});
+
+        sim.ticks(1);
+        return sim.body(body).velocity.x;
+    }
+}
+
+Test(physics, restitution_bounces)
+{
+    AssertEq(speedAfterWall(0.0f), 0.0f, "restitution 0: it stops, as always");
+    Assert(near(speedAfterWall(1.0f), -300.0f, 0.01f), "restitution 1: it comes back as fast as it came: %f", speedAfterWall(1.0f));
+    Assert(near(speedAfterWall(0.5f), -150.0f, 0.01f), "restitution 0.5: half the speed, back");
+}
+
+Test(physics, bounce_keeps_the_other_axis)
+{
+    kw::Entity body = 0;
+    Sim sim([&](Level& level) {
+        kuge::Body b = kinematic({300.0f, 60.0f});
+
+        b.restitution = 1.0f;
+        wall(level.world(), {100.0f, 0.0f}, Collider::box(20.0f, 20000.0f));
+        body = mover(level.world(), {84.0f, 0.0f}, Collider::box(10.0f, 10.0f), b);
+    }, kuge::PhysicsConfig{.gravity = {0.0f, 0.0f}});
+
+    sim.ticks(1);
+    Assert(near(sim.body(body).velocity.x, -300.0f, 0.01f) && near(sim.body(body).velocity.y, 60.0f, 0.01f),
+        "off the wall at an angle: x reversed, y as it was (%f, %f)", sim.body(body).velocity.x, sim.body(body).velocity.y);
+    Assert(sim.body(body).contacts.right, "it touched the wall this tick");
+    sim.ticks(3);
+    Assert(sim.where(body).x < 84.0f, "and it goes away from it: %f", sim.where(body).x);
+}
+
+Test(physics, a_ball_bounces_on_tiles)
+{
+    kw::Entity ball = 0;
+    Sim sim([&](Level& level) {
+        auto& tiles = level.world().getResource<kuge::Physics2D>().tiles;
+        kuge::Body b = dynamic();
+
+        b.restitution = 0.8f;
+        tiles.reset(10, 10, 16.0f);
+        for (int x = 0; x < 10; ++x) {
+            tiles.set(x, 9, true);   // the floor: its top is at y = 144
+        }
+        ball = mover(level.world(), {40.0f, 20.0f}, Collider::box(8.0f, 8.0f), b);
+    });
+
+    bool bounced = false;
+    float highest = 144.0f;
+
+    for (int i = 0; i < 240; ++i) {
+        const float before = sim.body(ball).velocity.y;
+
+        sim.ticks(1);
+        bounced = bounced || (before > 100.0f && sim.body(ball).velocity.y < -50.0f);
+        if (bounced) {
+            highest = std::min(highest, sim.where(ball).y);
+        }
+    }
+    Assert(bounced, "a ball that falls on solid tiles bounces back up");
+    Assert(highest < 130.0f, "and rises again: %f", highest);
+}
