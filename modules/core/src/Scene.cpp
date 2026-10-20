@@ -1,4 +1,5 @@
 #include "Scene.hpp"
+#include "DebugDraw.hpp"
 #include "Engine.hpp"
 #include "Profiler.hpp"
 #include "Stage.hpp"
@@ -96,6 +97,7 @@ namespace
 kuge::Scene::Scene(void) : m_mailbox(std::make_shared<Mailbox>()), m_world(std::make_unique<kw::World>())
 {
     m_world->addResource<Time>();
+    m_world->addResource<DebugDraw>();
 }
 
 kuge::Scene::~Scene(void)

@@ -177,3 +177,73 @@ Logger::logger().clearLevel("net");                       // and follows the log
 
 A category with no level of its own follows the logger's; the calls on `Logger::logger()` itself have no category. KUGE's modules log
 under `net`, `replication`, `server`, `core`, `audio`, `client` and `render3d`.
+
+## Seeing why it is slow: the profiler
+
+Every system of every scene is timed by the scene itself, under the name of its class and the category of its stage. Nothing is recorded
+(and a scope costs one relaxed read) until you turn it on:
+
+```
+profile start          # in the console, or kuge::Profiler::instance().enable(true)
+...play...
+profile top 10         # the ten names that cost the most, with their calls
+profile save trace.json
+```
+
+Open `trace.json` in [Perfetto](https://ui.perfetto.dev) or `chrome://tracing`: one row per thread (the main loop, each room), one box per
+system, the loop's own `tick` and `frame` around them. A system that is slow shows as a wide box in the row of its tick. Mark your own
+scopes with `KUGE_PROFILE_SCOPE("pick targets")` (a string literal, or `Profiler::intern(name)`). Each thread keeps its last 32768 events.
+
+`engine.stats()` (`FrameStats`) is always on: frames per second, the mean frame, the mean of the worst 1 %, the cost of a tick. The
+`fps` command prints it, and `DebugOverlay` (client) shows it in a corner with a graph of the last frames, the slowest systems of the last
+second, the gauges (`Gauges::global().set("audio.voices", n)`) and the network line. A budget to start from, at 60 ticks a second (16.6 ms
+for everything; first guesses to be replaced by yours):
+
+| Stage | Budget | What eats it |
+|---|---|---|
+| Network | 1 ms | too many endpoints, a handler that does work |
+| Input, Simulation | 5 ms | AI over many entities: use the interest filter, or `sortedView` once |
+| Physics | 3 ms | many bodies; check `debug_colliders` for colliders that should not exist |
+| Late, Replication | 3 ms | snapshots of too many components |
+| Frame / Render | 4 ms | sprites drawn off screen, text re-laid out each frame |
+
+## Debug options
+
+Variables and commands, from the console (see "The console and the variables"). Nothing is drawn or computed when they are off.
+
+| | |
+|---|---|
+| `debug_colliders on` | The shape of every `Collider` over the sprites: blue static, green moving, yellow trigger (a circle is shown by its box) |
+| `debug_bounds on` | The box of every `Sprite` |
+| `debug_camera on` | The edge of what the camera shows, and its center |
+| `pause`, `step [n]`, `timescale <x>` | Stop the fixed ticks (frames are still drawn), run n ticks and stop again, slow time down (0.25) or speed it up (2). The step keeps its size, so the simulation gives the same result after the same number of ticks. Refused on a server unless cheats are on |
+| `net_lag <ms>`, `net_loss <%>`, `net_jitter <ms>`, `net_dup <%>`, `net_sim off`, `net_stats` | Try the game against a bad network while playing, and read its numbers (next section) |
+| `screenshot [file]` | The next frame, as a PPM picture |
+| `--debug net,physics` | `Logger::debugCategories("net,physics")`: only those categories talk at debug level |
+
+Install them with `registerDebugCvars(cvars)` and `installDebug(setup(), flags)` in the scene, `registerEngineCommands(engine, commands)`,
+`registerClientCommands(client, commands)` and `net::registerNetCommands(commands, [&] { return &endpoint; })`. `debug_colliders` draws the 2D
+colliders (`kuge-physics`); the 3D ones and `debug_entities` (a label with the components of each entity, which needs the registry of
+reflection, ticket 042) are not there yet.
+
+## A bad network, and the net graph
+
+The subject asks for a game that holds with loss, repeats and delay. `LoopbackNetwork::Conditions` does it between two scenes of a test; a
+**`SimulatedTransport`** does it on any transport, UDP or TCP, on any machine, with no outside tool (clumsy, netem):
+
+```cpp
+kuge::net::EndpointConfig config;
+config.simulate = kuge::net::LoopbackNetwork::Conditions{.loss = 0.02, .duplicate = 0.02, .latency = 0.075, .seed = 7};
+auto& client = net.connect(kuge::net::Protocol::Udp, "127.0.0.1", 4242, config);       // 2 % loss and repeats, 150 ms of round trip
+client.setSimulation(kuge::net::LoopbackNetwork::Conditions{.latency = 0.2});         // changed while playing; std::nullopt lifts it
+```
+
+Conditions apply to each packet **in each direction**, so `latency` is paid twice by a round trip. The same seed loses the same packets. A
+transport that is reliable (TCP) only gets the delay, in order: it must not lose what it has promised not to lose.
+
+To read a connection, a `net::NetMeter` turns the counters of an endpoint into a `NetReport` (round trip with its low and high, bytes and
+packets a second each way, resends, duplicates, bad packets); `describe(report)` is one line for a log, and `DebugOverlay` draws it with a graph of
+the round trip of the last 5 seconds. How to read it: a round trip that jumps is jitter; `resends` that climb are loss; `dup` is repeats or
+resends that crossed; `bad` should stay 0. A room logs the same line for itself every `ServerConfig::statsEvery` seconds (5; 0: never). For a
+measurement with the numbers of the subject (2 % loss and repeats, over 150 ms, 5 KB/s): the configuration above, then `net_stats` or the
+overlay while the game sends 5 KB/s.
