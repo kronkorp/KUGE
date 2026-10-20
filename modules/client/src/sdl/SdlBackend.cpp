@@ -181,6 +181,32 @@ namespace
                 SDL_SetWindowTitle(m_context->window.get(), title.c_str());
             }
 
+            void setSize(int width, int height) override
+            {
+                SDL_SetWindowSize(m_context->window.get(), std::max(width, 1), std::max(height, 1));
+            }
+
+            void setFullscreen(bool on) override
+            {
+                if (on == fullscreen()) {
+                    return;
+                }
+                SDL_SetWindowFullscreen(m_context->window.get(), on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                if (!on) {
+                    SDL_SetWindowPosition(m_context->window.get(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+                }
+            }
+
+            bool fullscreen(void) const override
+            {
+                return (SDL_GetWindowFlags(m_context->window.get()) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) != 0;
+            }
+
+            void setVsync(bool on) override
+            {
+                SDL_RenderSetVSync(m_context->renderer.get(), on ? 1 : 0);
+            }
+
             std::string clipboardText(void) const override
             {
                 std::string text;

@@ -31,6 +31,17 @@ namespace kuge
 
             virtual void setTitle(const std::string& title) = 0;
 
+            //! Changes the size of the window (a window that is fullscreen keeps its fullscreen: the size is
+            //! the one it goes back to). The new size is told by a ResizeEvent at the next frame.
+            virtual void setSize(int width, int height) = 0;
+
+            //! Desktop fullscreen: the size of the screen, no change of the video mode. Leaving it gives
+            //! the window its size back, at the center of the screen.
+            virtual void setFullscreen(bool on) = 0;
+            virtual bool fullscreen(void) const = 0;
+
+            virtual void setVsync(bool on) = 0;
+
             //! The text in the system's clipboard ("" if it is empty or is not text)
             virtual std::string clipboardText(void) const = 0;
             virtual void setClipboardText(const std::string& text) = 0;
