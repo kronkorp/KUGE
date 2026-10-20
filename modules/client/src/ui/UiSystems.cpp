@@ -12,6 +12,7 @@
 #include <cmath>
 #include <functional>
 #include <iterator>
+#include <optional>
 #include <string>
 
 namespace
@@ -20,6 +21,14 @@ namespace
 
     constexpr float CHECK_GAP = 8.0f;      // between the box of a check box and its text
     constexpr float HANDLE_WIDTH = 12.0f;  // of a slider
+
+    Rect intersection(const Rect& a, const Rect& b)
+    {
+        const float left = std::max(a.x, b.x);
+        const float top = std::max(a.y, b.y);
+
+        return {left, top, std::max(std::min(a.right(), b.right()) - left, 0.0f), std::max(std::min(a.bottom(), b.bottom()) - top, 0.0f)};
+    }
 
     Rect rectAt(Vec2 position, Vec2 size) { return {position.x, position.y, size.x, size.y}; }
 
@@ -72,7 +81,7 @@ namespace
                     }
                     const Vec2 size = fit(root);
 
-                    place(root, rectAt(anchoredPosition(node.anchor, screen, size) + node.offset, size), node.layer, 0);
+                    place(root, rectAt(anchoredPosition(node.anchor, screen, size) + node.offset, size), node.layer, 0, std::nullopt);
                 }
                 std::stable_sort(m_order.begin(), m_order.end(), [](const Drawn& a, const Drawn& b) {
                     if (a.layer != b.layer) { return a.layer < b.layer; }
@@ -181,12 +190,21 @@ namespace
                 return size;
             }
 
-            void place(kw::Entity entity, const Rect& rect, int layer, int depth)
+            // `clip`: the part of the screen where it can be seen, if a UiScroll is above it. What is outside is still
+            // placed (the focus can go to it, and bring it into view) but not drawn.
+            void place(kw::Entity entity, const Rect& rect, int layer, int depth, const std::optional<Rect>& clip)
             {
                 m_result.rects[entity] = rect;
-                m_order.push_back({entity, layer, depth});
+                if (clip) {
+                    m_result.clips[entity] = *clip;
+                }
+                if (!clip || rect.intersects(*clip)) {
+                    m_order.push_back({entity, layer, depth});
+                }
+                const std::optional<Rect> inner = m_world.has<UiScroll>(entity) ? std::optional<Rect>(clip ? intersection(*clip, rect) : rect) : clip;
+
                 if (m_world.has<UiStack>(entity)) {
-                    placeStack(entity, rect, layer, depth);
+                    placeStack(entity, rect, layer, depth, inner);
                     return;
                 }
                 for (kw::Entity child : childrenOf(entity)) {
@@ -195,17 +213,26 @@ namespace
                     if (node.visible) {
                         const Vec2 size = fit(child);
 
-                        place(child, rectAt(anchoredPosition(node.anchor, rect, size) + node.offset, size), std::max(node.layer, layer), depth + 1);
+                        place(child, rectAt(anchoredPosition(node.anchor, rect, size) + node.offset, size), std::max(node.layer, layer), depth + 1, inner);
                     }
                 }
             }
 
-            void placeStack(kw::Entity entity, const Rect& rect, int layer, int depth)
+            void placeStack(kw::Entity entity, const Rect& rect, int layer, int depth, const std::optional<Rect>& clip)
             {
                 const UiStack& stack = m_world.get<UiStack>(entity);
                 const bool column = stack.direction == Direction::Vertical;
                 const float room = (column ? rect.w : rect.h) - 2.0f * stack.padding;
                 float cursor = (column ? rect.y : rect.x) + stack.padding;
+
+                if (m_world.has<UiScroll>(entity)) {
+                    UiScroll& scroll = m_world.get<UiScroll>(entity);
+                    const Vec2 whole = content(entity);
+
+                    scroll.extent = column ? whole.y : whole.x;
+                    scroll.offset = std::isfinite(scroll.offset) ? std::clamp(scroll.offset, 0.0f, std::max(scroll.extent - (column ? rect.h : rect.w), 0.0f)) : 0.0f;
+                    cursor -= scroll.offset;
+                }
 
                 for (kw::Entity child : childrenOf(entity)) {
                     const UiNode& node = m_world.get<UiNode>(child);
@@ -228,7 +255,7 @@ namespace
                         sideways += room - across;
                     }
                     place(child, column ? Rect{sideways, cursor, size.x, size.y} : Rect{cursor, sideways, size.x, size.y},
-                        std::max(node.layer, layer), depth + 1);
+                        std::max(node.layer, layer), depth + 1, clip);
                     cursor += (column ? size.y : size.x) + stack.spacing;
                 }
             }
@@ -426,6 +453,51 @@ namespace
     }
 
     // -- Interaction ------------------------------------------------------------------------------
+    // The scroll node under the mouse (the one drawn last, so the innermost) takes the wheel
+    void scrollBy(kw::World& world, const UiLayoutResult& layout, Vec2 mouse, float notches)
+    {
+        for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend(); ++it) {
+            if (!world.has<UiScroll>(*it) || !layout.rects.at(*it).contains(mouse)) {
+                continue;
+            }
+            UiScroll& scroll = world.get<UiScroll>(*it);
+            const Rect& rect = layout.rects.at(*it);
+            const bool column = !world.has<UiStack>(*it) || world.get<UiStack>(*it).direction == Direction::Vertical;
+
+            scroll.offset = std::clamp(scroll.offset - notches * scroll.notch, 0.0f, std::max(scroll.extent - (column ? rect.h : rect.w), 0.0f));
+            return;
+        }
+    }
+
+    // The focus went to `target`: the scroll nodes around it move so that it is seen
+    void reveal(kw::World& world, const UiLayoutResult& layout, kw::Entity target)
+    {
+        const auto found = layout.rects.find(target);
+
+        if (found == layout.rects.end()) {
+            return;
+        }
+        const Rect inside = found->second;
+
+        for (kw::Entity at = target; world.has<UiNode>(at);) {
+            const UiNode& node = world.get<UiNode>(at);
+
+            if (!node.hasParent || node.parent == at) {
+                return;
+            }
+            at = node.parent;
+            if (!world.has<UiScroll>(at) || !layout.rects.count(at)) {
+                continue;
+            }
+            const Rect& view = layout.rects.at(at);
+            const bool column = !world.has<UiStack>(at) || world.get<UiStack>(at).direction == Direction::Vertical;
+            const float before = column ? inside.y - view.y : inside.x - view.x;
+            const float after = column ? inside.bottom() - view.bottom() : inside.right() - view.right();
+
+            world.get<UiScroll>(at).offset += before < 0.0f ? before : std::max(after, 0.0f);
+        }
+    }
+
     bool pressed(const ActionState& state, int action)
     {
         return action >= 0 && state.wasPressed(action);
@@ -496,6 +568,7 @@ bool kuge::UiLayout::handle(kw::World& world)
     const Vec2 screen = world.getResource<Ref<IRenderer2D>>()->outputSize();
 
     result.rects.clear();
+    result.clips.clear();
     result.drawOrder.clear();
     m_nodes.clear();
     auto view = world.view<UiNode>();
@@ -529,6 +602,9 @@ bool kuge::UiInteract::handle(kw::World& world)
     // that comes later and type into it.
     const std::string typed = inputMap.takeTyped();
     const std::vector<Key> keys = inputMap.takeEditKeys();
+    if (const float wheel = inputMap.takeWheel(); wheel != 0.0f) {
+        scrollBy(world, layout, mouse, wheel);
+    }
     auto buttons = world.view<UiNode, UiButton>();
     for (kw::Entity entity : buttons) {
         all.push_back(entity);
@@ -603,7 +679,10 @@ bool kuge::UiInteract::handle(kw::World& world)
     // The button under the mouse: the one drawn last (on top) among those under it
     std::optional<kw::Entity> hovered;
     for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend() && !hovered; ++it) {
-        if (std::find(usable.begin(), usable.end(), *it) != usable.end() && layout.rects.at(*it).contains(mouse)) {
+        const auto clip = layout.clips.find(*it);   // (what a scroll cuts cannot be pointed at)
+
+        if (std::find(usable.begin(), usable.end(), *it) != usable.end() && layout.rects.at(*it).contains(mouse)
+            && (clip == layout.clips.end() || clip->second.contains(mouse))) {
             hovered = *it;
         }
     }
@@ -737,6 +816,11 @@ bool kuge::UiInteract::handle(kw::World& world)
 
         focusOn(here == usable.end() || std::next(here) == usable.end() ? usable.front() : *std::next(here));
     }
+    // The focus came to a child of a scroll: bring it into view (not when the mouse did it: it is under the mouse)
+    if (state.hasFocus && !(moved && hovered && *hovered == state.focus)
+        && std::any_of(events.begin(), events.end(), [](const UiEvent& e) { return e.kind == UiEvent::Kind::Focused; })) {
+        reveal(world, layout, state.focus);
+    }
     for (kw::Entity entity : usable) {
         const bool focused = state.hasFocus && entity == state.focus;
         const bool over = hovered && *hovered == entity;
@@ -774,8 +858,17 @@ bool kuge::UiRender::handle(kw::World& world)
     const auto& theme = world.getResource<UiTheme>();
     const auto& layout = world.getResource<UiLayoutResult>();
 
+    std::optional<Rect> clip;   // what the renderer is cutting to now
+
     for (kw::Entity entity : layout.drawOrder) {
         const Rect rect = layout.rects.at(entity);
+        const auto cut = layout.clips.find(entity);
+        const std::optional<Rect> wanted = cut == layout.clips.end() ? std::nullopt : std::optional<Rect>(cut->second);
+
+        if (wanted != clip) {
+            renderer.setClip(wanted);
+            clip = wanted;
+        }
 
         if (world.has<UiPanel>(entity)) {
             const UiPanel& panel = world.get<UiPanel>(entity);
@@ -916,6 +1009,9 @@ bool kuge::UiRender::handle(kw::World& world)
                 text.draw(*font, label.text, {std::round(x), std::round(rect.y)}, label.color, label.wrapWidth);
             }
         }
+    }
+    if (clip) {
+        renderer.setClip(std::nullopt);   // (the games that draw after the UI are not cut)
     }
     return true;
 }

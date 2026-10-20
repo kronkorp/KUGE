@@ -59,6 +59,7 @@ namespace kuge
                 Rect        destination;
                 Color       color;
                 TextureDraw texture;   //!< Kind::Texture only
+                std::optional<Rect> clip;   //!< The clip that was set when it was drawn
             };
 
             struct TextureInfo {
@@ -75,6 +76,7 @@ namespace kuge
             TextureId createTexture(int width, int height, std::span<const std::uint8_t> rgba) override;
             void destroyTexture(TextureId texture) noexcept override;
             void updateTexture(TextureId texture, std::span<const std::uint8_t> rgba) override;
+            void setClip(const std::optional<Rect>& area) override { m_clip = area; }
             void fillRect(const Rect& destination, Color color) override;
             void strokeRect(const Rect& destination, Color color) override;
             void drawTexture(const TextureDraw& draw) override;
@@ -97,6 +99,7 @@ namespace kuge
         private:
             Vec2                          m_size;
             Color                         m_clear{};
+            std::optional<Rect>           m_clip;
             std::vector<Call>             m_current;
             std::vector<Call>             m_last;
             std::size_t                   m_presented = 0;

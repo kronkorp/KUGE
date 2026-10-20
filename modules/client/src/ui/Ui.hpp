@@ -23,7 +23,7 @@ namespace kuge
      * parent (or in the screen, if it has none), or by the **stack** of its
      * parent (UiStack: a column or a row). What it shows is another component of
      * the same entity: UiPanel (a background), UiLabel (text), UiButton (a
-     * button with its text), UiTextField (a line of text that the player types), UiProgress (a bar), UiCheckbox, UiSlider.
+     * button with its text), UiTextField (a line of text that the player types), UiProgress (a bar), UiCheckbox, UiSlider; a UiScroll makes a long stack scroll.
      *
      *     kuge::installUi(setup(), {.up = kuge::actionId(Action::Up), .down = kuge::actionId(Action::Down),
      *                               .accept = kuge::actionId(Action::Confirm), .click = kuge::actionId(Action::Click)});
@@ -86,6 +86,17 @@ namespace kuge
         float     spacing   = 8.0f;   //!< Between two children
         float     padding   = 8.0f;   //!< Between the children and the border
         Align     align     = Align::Stretch;
+    };
+
+    //! On a node that has a UiStack and a size: the stack is longer than the node and scrolls. The children are laid out
+    //! as in the stack, moved back by `offset`; only what is inside the rectangle of the node is drawn (the renderer
+    //! clips it) or can be hovered, and the mouse wheel over the node changes `offset`. The focus brings the child it
+    //! lands on into view.
+    struct UiScroll
+    {
+        float offset = 0.0f;    //!< How far the content has gone up (left, in a row), in pixels. Kept between 0 and `extent` minus the node
+        float notch  = 40.0f;   //!< Pixels for one notch of the wheel
+        float extent = 0.0f;    //!< The whole length of the content, as of the last frame (to draw a scroll bar from)
     };
 
     struct UiPanel
@@ -257,6 +268,7 @@ namespace kuge
     struct UiLayoutResult
     {
         std::map<kw::Entity, Rect> rects;     //!< Only the nodes that show
+        std::map<kw::Entity, Rect> clips;     //!< Inside a UiScroll: where it can be seen (drawOrder has only what is in it)
         std::vector<kw::Entity>    drawOrder; //!< Back to front
     };
 

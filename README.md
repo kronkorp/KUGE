@@ -426,7 +426,9 @@ input.pause =
 ```
 
 Only the actions the file mentions are replaced: the defaults survive a file with a few lines.
-`Pad.LeftY-` is a stick pushed the negative way; `Mouse.Left` is a mouse button.
+`Pad.LeftY-` is a stick pushed the negative way; `Mouse.Left` is a mouse button; `Wheel.Up` and `Wheel.Down`
+are the notches of the mouse wheel, which press their action for one tick (a notch is not held). To scroll
+by the amount instead, `InputMap::takeWheel()` gives the notches since the last call (up is positive).
 
 ### Sprites, camera, drawing
 
@@ -569,6 +571,7 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
 | `UiCheckbox` | A box that is ticked or not, with its `text` after it: `checked`, `enabled`; `hovered` / `focused` are filled in by the interaction. Focused and pressed like a button, it flips `checked` and says `Changed`. |
+| `UiScroll` | On a node that has a size and a `UiStack`: the stack scrolls. `offset` (pixels), `notch` (pixels per wheel notch); `extent` (the length of the content) is filled in by the layout. |
 | `UiSlider` | A value from `min` to `max` (`step` per press of left / right, `columns` letters wide if the node has no size): `value`, `enabled`; `hovered` / `focused` / `dragging` are filled in by the interaction. |
 | `UiProgress` | A bar filled for `value / max` (from the left, or from the bottom if `vertical`): `fill`, `back`, `border`. Its size is the node's, else `UiTheme::progressWidth` x `progressHeight`. |
 | `UiTextField` | A line of text that the player types: `text`, `placeholder`, `maxLength` (in characters), `caret`, `columns` (its width if the node has no size), `enabled`; `hovered` / `focused` are filled in by the interaction. |
@@ -647,6 +650,21 @@ world.add<kuge::UiNode>(music, kuge::UiNode{.parent = menu, .hasParent = true});
 world.add<kuge::UiSlider>(music, kuge::UiSlider{.value = 0.4f});
 // ... on Changed for `music`:
 audio.setBusVolume(kuge::Bus::Music, world.get<kuge::UiSlider>(music).value);
+```
+
+**Scroll.** A list that is longer than the screen: give the node a size, a `UiStack` and a `UiScroll`. The children are
+laid out as in the stack, moved back by `offset`; the layout keeps `offset` between 0 and `extent` minus the node. What
+is outside the node is **cut**: `IRenderer2D::setClip` (SDL's clip rectangle) cuts the drawing of the children, and a
+cut part cannot be hovered or clicked. The mouse wheel over the node (the innermost one) moves `offset` by `notch` per
+notch, and when the keyboard or gamepad focus lands on a child that is out, the node scrolls just enough to show it.
+`UiLayoutResult::rects` has every child (the ones outside too); `drawOrder` has only those that show. KUGE draws no
+scroll bar: a game that wants one reads `offset` and `extent`.
+
+```cpp
+world.add<kuge::UiNode>(list, kuge::UiNode{.size = {300.0f, 400.0f}});          // the window on the list
+world.add<kuge::UiStack>(list, kuge::UiStack{});
+world.add<kuge::UiScroll>(list, kuge::UiScroll{});
+// ... then the buttons, as children of `list`: ten of them show four, the wheel shows the others
 ```
 
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus

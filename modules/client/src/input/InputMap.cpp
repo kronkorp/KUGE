@@ -72,6 +72,8 @@ bool kuge::InputMap::isActive(const Binding& binding) const
             return std::any_of(m_pads.begin(), m_pads.end(), [&](const auto& pad) {
                 return inRange(binding.code, pad.second.buttons) && pad.second.buttons[binding.code];
             });
+        case Binding::Kind::MouseWheel:
+            return false;   // (a notch is an event, not a state: see handle())
         case Binding::Kind::GamepadAxis:
             return std::any_of(m_pads.begin(), m_pads.end(), [&](const auto& pad) {
                 return inRange(binding.code, pad.second.axes)
@@ -113,6 +115,7 @@ namespace
     // How much typing is kept when nobody reads it (no text field): what is older is not worth keeping
     constexpr std::size_t MAX_TYPED_BYTES = 256;
     constexpr std::size_t MAX_EDIT_KEYS = 64;
+    constexpr float MAX_WHEEL = 100.0f;   // notches kept when nobody reads them
 
     bool editsText(kuge::Key key)
     {
@@ -128,6 +131,11 @@ bool kuge::InputMap::commandHeld(void) const
     const auto down = [this](Key key) { return m_keys[static_cast<std::size_t>(key)]; };
 
     return down(Key::LCtrl) || down(Key::RCtrl) || down(Key::LGui) || down(Key::RGui);
+}
+
+float kuge::InputMap::takeWheel(void)
+{
+    return std::exchange(m_wheel, 0.0f);
 }
 
 std::string kuge::InputMap::takeTyped(void)
@@ -165,6 +173,8 @@ void kuge::InputMap::apply(const Event& event)
         if (inRange(code, m_mouseButtons)) {
             m_mouseButtons[code] = button->down;
         }
+    } else if (const auto* wheel = std::get_if<MouseWheelEvent>(&event)) {
+        m_wheel = std::clamp(m_wheel + wheel->delta.y, -MAX_WHEEL, MAX_WHEEL);
     } else if (const auto* move = std::get_if<MouseMoveEvent>(&event)) {
         m_mouse = move->position;
         m_mouseDelta += move->delta;
@@ -200,6 +210,10 @@ std::optional<kuge::Binding> kuge::InputMap::capturedBy(const Event& event) cons
         if (button->down) {
             return Binding(button->button);
         }
+    } else if (const auto* wheel = std::get_if<MouseWheelEvent>(&event)) {
+        if (wheel->delta.y != 0.0f) {
+            return Binding::wheel(wheel->delta.y > 0.0f ? 1 : -1);
+        }
     } else if (const auto* pad = std::get_if<GamepadButtonEvent>(&event)) {
         if (pad->down) {
             return Binding(pad->button);
@@ -229,6 +243,18 @@ void kuge::InputMap::handle(const Event& event)
     }
     apply(event);
     refresh(true);
+    if (const auto* wheel = std::get_if<MouseWheelEvent>(&event); wheel && wheel->delta.y != 0.0f) {
+        // A notch presses the actions bound to that way, for one tick
+        const int way = wheel->delta.y > 0.0f ? 1 : -1;
+
+        for (std::size_t action = 0; action < MAX_ACTIONS; ++action) {
+            const auto& list = m_bindings[action];
+
+            if (std::any_of(list.begin(), list.end(), [way](const Binding& b) { return b.kind == Binding::Kind::MouseWheel && b.direction == way; })) {
+                m_pressed |= std::uint64_t{1} << action;
+            }
+        }
+    }
 }
 
 kuge::ActionState kuge::InputMap::sampleTick(std::uint64_t tick)

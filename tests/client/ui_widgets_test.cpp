@@ -328,3 +328,160 @@ Test(uislider, the_handle_is_drawn)
     Assert(filled != nullptr, "and the track up to it");
     AssertEq(filled->destination.w, rect.w / 2.0f, "half of it");
 }
+
+// -- Scroll: a stack longer than its node, and the mouse wheel -----------------------------------------------------
+namespace
+{
+    // A node of 100 x 100 at the top left, with `count` children of 100 x 30 (no spacing, no padding): 30 x count long
+    struct ScrollList
+    {
+        kw::Entity              scroll = 0;
+        std::vector<kw::Entity> items;
+    };
+
+    ScrollList scrollList(kw::World& w, int count, bool buttons)
+    {
+        ScrollList list;
+
+        list.scroll = uiNode(w, {.size = {100.0f, 100.0f}});
+        w.add<kuge::UiStack>(list.scroll, kuge::UiStack{.spacing = 0.0f, .padding = 0.0f});
+        w.add<kuge::UiScroll>(list.scroll, kuge::UiScroll{});
+        for (int i = 0; i < count; ++i) {
+            const kw::Entity item = uiChild(w, list.scroll, {.size = {100.0f, 30.0f}});
+
+            if (buttons) {
+                w.add<kuge::UiButton>(item, kuge::UiButton{.text = "x"});
+            } else {
+                w.add<kuge::UiPanel>(item, kuge::UiPanel{.borderWidth = 0.0f});
+            }
+            list.items.push_back(item);
+        }
+        return list;
+    }
+
+    // The fills of the items that were drawn, by the top of their rectangle
+    std::vector<float> drawnTops(const std::vector<Call>& calls)
+    {
+        std::vector<float> tops;
+
+        for (const Call& call : calls) {
+            tops.push_back(call.destination.y);
+        }
+        return tops;
+    }
+}
+
+Test(uiscroll, only_what_is_inside)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) { list = scrollList(w, 10, false); });
+    const auto& calls = ui.tick();
+
+    AssertEq(calls.size(), 4, "three items and the edge of a fourth, got %zu", calls.size());
+    for (const Call& call : calls) {
+        Assert(call.clip.has_value() && *call.clip == kuge::Rect(0.0f, 0.0f, 100.0f, 100.0f), "cut to the node");
+    }
+    Assert(drawnTops(calls) == std::vector<float>({0.0f, 30.0f, 60.0f, 90.0f}), "the first four, one below the other");
+    const auto& layout = ui.world().getResource<kuge::UiLayoutResult>();
+
+    AssertEq(layout.rects.count(list.items[9]), 1, "the ones that are out are placed all the same");
+    AssertEq(ui.get<kuge::UiScroll>(list.scroll).extent, 300.0f, "the whole length is known");
+}
+
+Test(uiscroll, the_wheel_moves_it)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) { list = scrollList(w, 10, false); });
+    auto scroll = [&]() -> kuge::UiScroll& { return ui.get<kuge::UiScroll>(list.scroll); };
+
+    ui.mouseTo({50.0f, 50.0f});
+    ui.tick();
+    ui.wheel(-1.0f);
+    AssertEq(scroll().offset, 40.0f, "a notch down: one notch of content");
+    Assert(drawnTops(ui.tick()).front() == -10.0f, "and the content went up by it: the second item, cut at its top, is the first seen");
+    ui.wheel(1.0f);
+    AssertEq(scroll().offset, 0.0f, "a notch up: back");
+    ui.wheel(5.0f);
+    AssertEq(scroll().offset, 0.0f, "never below 0");
+    ui.wheel(-100.0f);
+    AssertEq(scroll().offset, 200.0f, "never above the content minus the node: 300 - 100");
+    const auto& calls = ui.tick();
+
+    AssertEq(calls.size(), 4, "the last item and a part of the one before, got %zu", calls.size());
+    Assert(drawnTops(calls) == std::vector<float>({-20.0f, 10.0f, 40.0f, 70.0f}), "the end of the content is at the bottom of the node");
+}
+
+Test(uiscroll, the_wheel_must_be_over_it)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) { list = scrollList(w, 10, false); });
+
+    ui.mouseTo({300.0f, 300.0f});
+    ui.tick();
+    ui.wheel(-1.0f);
+    AssertEq(ui.get<kuge::UiScroll>(list.scroll).offset, 0.0f, "the mouse is elsewhere: nothing moves");
+}
+
+Test(uiscroll, short_content_stays)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) { list = scrollList(w, 2, false); });
+
+    ui.mouseTo({50.0f, 50.0f});
+    ui.tick();
+    ui.wheel(-3.0f);
+    AssertEq(ui.get<kuge::UiScroll>(list.scroll).offset, 0.0f, "nothing to scroll to");
+    ui.get<kuge::UiScroll>(list.scroll).offset = 75.0f;   // (a game that sets it wrong)
+    ui.tick();
+    AssertEq(ui.get<kuge::UiScroll>(list.scroll).offset, 0.0f, "the layout puts it back in range");
+}
+
+Test(uiscroll, the_focus_comes_into_view)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) { list = scrollList(w, 10, true); });
+    auto scroll = [&]() -> kuge::UiScroll& { return ui.get<kuge::UiScroll>(list.scroll); };
+
+    ui.tick();
+    ui.tap(kuge::Key::Down);
+    ui.tap(kuge::Key::Down);
+    AssertEq(scroll().offset, 0.0f, "the third button is inside: nothing moves");
+    ui.tap(kuge::Key::Down);
+    ui.tap(kuge::Key::Down);
+    Assert(ui.state().focus == list.items[4], "the fifth button has the focus");
+    AssertEq(scroll().offset, 50.0f, "scrolled just enough to show its bottom (150 - 100)");
+    for (int i = 0; i < 5; ++i) {
+        ui.tap(kuge::Key::Down);
+    }
+    AssertEq(scroll().offset, 200.0f, "down to the last one");
+    for (int i = 0; i < 9; ++i) {
+        ui.tap(kuge::Key::Up);
+    }
+    AssertEq(scroll().offset, 0.0f, "and back to the first");
+}
+
+Test(uiscroll, wheel_then_arrow)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) { list = scrollList(w, 10, true); });
+
+    ui.mouseTo({50.0f, 50.0f});
+    ui.tick();
+    ui.wheel(-1.0f);
+    ui.tick();
+    AssertEq(ui.get<kuge::UiScroll>(list.scroll).offset, 40.0f, "the wheel moved it, and the focus did not pull it back");
+}
+
+Test(uiscroll, what_is_cut_is_not_hovered)
+{
+    ScrollList list;
+    Widgets ui([&](kw::World& w, kw::Entity) { list = scrollList(w, 10, true); });
+
+    ui.tick();
+    ui.mouseTo({50.0f, 110.0f});   // (the fourth button goes from 90 to 120: below the node it is not seen)
+    ui.tick();
+    Assert(!ui.get<kuge::UiButton>(list.items[3]).hovered, "not under the mouse where it is cut");
+    ui.mouseTo({50.0f, 95.0f});
+    ui.tick();
+    Assert(ui.get<kuge::UiButton>(list.items[3]).hovered, "under it where it shows");
+}

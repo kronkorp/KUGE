@@ -3,6 +3,7 @@
 #include "sdl/SdlKeys.hpp"
 #include <SDL.h>
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <map>
 #include <memory>
@@ -400,6 +401,7 @@ namespace
 
             void begin(Color clear) override
             {
+                SDL_RenderSetClipRect(renderer(), nullptr);   // (a clip left from the last frame would cut the clear)
                 SDL_SetRenderDrawColor(renderer(), clear.r, clear.g, clear.b, clear.a);
                 SDL_RenderClear(renderer());
             }
@@ -450,6 +452,20 @@ namespace
                 if (SDL_UpdateTexture(found->second, nullptr, rgba.data(), width * 4) != 0) {
                     fail("cannot fill a texture");
                 }
+            }
+
+            void setClip(const std::optional<Rect>& area) override
+            {
+                if (!area) {
+                    SDL_RenderSetClipRect(renderer(), nullptr);
+                    return;
+                }
+                // Whole pixels, rounded outwards: what the clip lets through is never less than what was asked
+                const int left = static_cast<int>(std::floor(area->x));
+                const int top = static_cast<int>(std::floor(area->y));
+                const SDL_Rect clip{left, top, static_cast<int>(std::ceil(area->right())) - left, static_cast<int>(std::ceil(area->bottom())) - top};
+
+                SDL_RenderSetClipRect(renderer(), &clip);
             }
 
             void fillRect(const Rect& destination, Color color) override

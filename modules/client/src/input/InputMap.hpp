@@ -92,6 +92,11 @@ namespace kuge
             //! is held, once. Independent of the actions.
             std::vector<Key> takeEditKeys(void);
 
+            //! The notches of the mouse wheel since the last call (up is positive, a free wheel gives fractions),
+            //! once. For a list that scrolls by the amount; to react to a notch as an action, bind
+            //! `Binding::wheel(1)` ("Wheel.Up") or `wheel(-1)`: it is pressed for the tick, never held.
+            float takeWheel(void);
+
             // -- Rebinding: "press the key you want" ---------------------------------
 
             //! The next key, button or stick pushed is kept instead of acting,
@@ -150,6 +155,7 @@ namespace kuge
             // What was typed, for a text field (bounded: nobody may be reading it)
             std::string                                               m_typed;
             std::vector<Key>                                          m_editKeys;
+            float                                                     m_wheel = 0.0f;
 
             // The actions: held now, and what happened since the last sampleTick()
             std::uint64_t m_down     = 0;

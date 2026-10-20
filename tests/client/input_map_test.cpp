@@ -181,6 +181,65 @@ Test(inputmap, clipboard_keys)
     Assert(keys[0] == kuge::Key::V && keys[1] == kuge::Key::C && keys[2] == kuge::Key::X, "in order");
 }
 
+// -- The mouse wheel ---------------------------------------------------------------------------------------------
+Test(inputmap, wheel_presses_an_action)
+{
+    kuge::InputMap input;
+    const auto notch = [](float y) { return kuge::MouseWheelEvent{{0.0f, y}}; };
+
+    input.bind(Action::Jump, kuge::Binding::wheel(1));
+    input.bind(Action::Shoot, kuge::Binding::wheel(-1));
+    input.handle(notch(1.0f));
+    auto state = input.sampleTick(1);
+    Assert(state.wasPressed(Action::Jump) && !state.wasPressed(Action::Shoot), "up presses the action bound to up");
+    Assert(!state.isDown(Action::Jump), "for the tick only: it is not held");
+    state = input.sampleTick(2);
+    Assert(state.pressed == 0 && state.down == 0, "and not the next one");
+    input.handle(notch(-2.0f));
+    state = input.sampleTick(3);
+    Assert(state.wasPressed(Action::Shoot) && !state.wasPressed(Action::Jump), "down presses the other");
+    input.handle(notch(0.0f));
+    Assert(input.sampleTick(4).pressed == 0, "a wheel that did not turn presses nothing");
+}
+
+Test(inputmap, wheel_notches_are_taken)
+{
+    kuge::InputMap input;
+
+    input.handle(kuge::MouseWheelEvent{{0.0f, 1.0f}});
+    input.handle(kuge::MouseWheelEvent{{0.0f, 2.0f}});
+    input.handle(kuge::MouseWheelEvent{{0.0f, -0.5f}});
+    AssertEq(input.takeWheel(), 2.5f, "the notches add up");
+    AssertEq(input.takeWheel(), 0.0f, "and are given once");
+    for (int i = 0; i < 1000; ++i) {
+        input.handle(kuge::MouseWheelEvent{{0.0f, 1.0f}});
+    }
+    Assert(input.takeWheel() <= 100.0f, "what nobody reads does not pile up");
+}
+
+Test(inputmap, wheel_is_a_binding)
+{
+    AssertStrEq(kuge::Binding::wheel(1).toString().c_str(), "Wheel.Up", "up as text");
+    AssertStrEq(kuge::Binding::wheel(-1).toString().c_str(), "Wheel.Down", "down as text");
+    Assert(kuge::Binding::parse("wheel.up") == kuge::Binding::wheel(1), "read back, whatever the case");
+    Assert(kuge::Binding::parse(" Wheel.Down ") == kuge::Binding::wheel(-1), "with spaces around");
+    Assert(!kuge::Binding::parse("Wheel.Left").has_value(), "no other way");
+    Assert(!kuge::Binding::parse("Wheel.Upper").has_value(), "not a prefix of a word");
+    kuge::InputMap input;
+    input.declare(Action::Jump, "up");
+    input.bind(Action::Jump, kuge::Binding::wheel(1));
+    kuge::ConfigFile config;
+    input.save(config);
+    kuge::InputMap other;
+    other.declare(Action::Jump, "up");
+    other.load(config);
+    Assert(other.bindings(Action::Jump).size() == 1 && other.bindings(Action::Jump)[0] == kuge::Binding::wheel(1), "saved and loaded");
+    input.startCapture();
+    input.handle(kuge::MouseWheelEvent{{0.0f, -1.0f}});
+    const auto captured = input.takeCaptured();
+    Assert(captured.has_value() && *captured == kuge::Binding::wheel(-1), "and a rebinding can pick it");
+}
+
 Test(inputmap, sticks_need_a_push)
 {
     kuge::InputMap input;

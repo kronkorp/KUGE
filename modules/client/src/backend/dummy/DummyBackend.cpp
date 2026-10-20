@@ -4,6 +4,7 @@
 void kuge::DummyRenderer::begin(Color clear)
 {
     m_clear = clear;
+    m_clip.reset();
     m_current.clear();
 }
 
@@ -42,17 +43,17 @@ void kuge::DummyRenderer::updateTexture(TextureId texture, std::span<const std::
 
 void kuge::DummyRenderer::fillRect(const Rect& destination, Color color)
 {
-    m_current.push_back({Call::Kind::Fill, destination, color, {}});
+    m_current.push_back({Call::Kind::Fill, destination, color, {}, m_clip});
 }
 
 void kuge::DummyRenderer::strokeRect(const Rect& destination, Color color)
 {
-    m_current.push_back({Call::Kind::Stroke, destination, color, {}});
+    m_current.push_back({Call::Kind::Stroke, destination, color, {}, m_clip});
 }
 
 void kuge::DummyRenderer::drawTexture(const TextureDraw& draw)
 {
-    m_current.push_back({Call::Kind::Texture, draw.destination, draw.tint, draw});
+    m_current.push_back({Call::Kind::Texture, draw.destination, draw.tint, draw, m_clip});
 }
 
 const kuge::DummyRenderer::TextureInfo* kuge::DummyRenderer::texture(TextureId id) const
