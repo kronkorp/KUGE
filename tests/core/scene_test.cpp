@@ -206,7 +206,7 @@ Test(scene, push_pauses_pop_resumes)
     g_events.clear();
     engine.scenes().push<Recorder>("B");
     engine.step(0.0);
-    AssertStrEq(events().c_str(), "A:pause,B:ctor,B:enter", "got %s", events().c_str());
+    AssertStrEq(events().c_str(), "B:ctor,A:pause,B:enter", "got %s", events().c_str());   // (B is made first: it says if A is paused)
     g_events.clear();
     engine.scenes().pop();
     engine.step(0.0);
@@ -306,4 +306,107 @@ Test(scene, entered_scene_can_queue)
     engine.scenes().change<Splash>();
     engine.step(0.0);
     AssertStrEq(events().c_str(), "splash:enter,menu:ctor,menu:enter", "got %s", events().c_str());
+}
+
+namespace
+{
+    // Notes its Network, Simulation and Frame passes, and whether it lets the scene under it run
+    class Layer : public kuge::Scene
+    {
+        public:
+            Layer(std::string name, kuge::OverlayMode mode) : m_name(std::move(name)), m_mode(mode) {}
+
+            class Note : public kw::ISystem
+            {
+                public:
+                    explicit Note(std::string what) : m_what(std::move(what)) {}
+                    bool handle(kw::World&) override { note(m_what); return true; }
+
+                private:
+                    std::string m_what;
+            };
+
+            void onEnter(void) override
+            {
+                addSystem(kw::Schedule::Fixed, kuge::stage::Network, std::make_unique<Note>(m_name + ":net"));
+                addSystem(kw::Schedule::Fixed, kuge::stage::Input, std::make_unique<Note>(m_name + ":input"));
+                addSystem(kw::Schedule::Fixed, kuge::stage::Simulation, std::make_unique<Note>(m_name + ":sim"));
+                addSystem(kw::Schedule::Fixed, kuge::stage::Replication, std::make_unique<Note>(m_name + ":repl"));
+                addSystem(kw::Schedule::Frame, kuge::stage::Render, std::make_unique<Note>(m_name + ":frame"));
+            }
+            void onPause(void) override { note(m_name + ":pause"); }
+            void onResume(void) override { note(m_name + ":resume"); }
+            void onMessage(const kuge::Message&) override { note(m_name + ":message"); }
+            kuge::OverlayMode overlay(void) const override { return m_mode; }
+
+            kuge::SceneHandle self(void) { return kuge::Scene::ctx().self(); }
+
+        private:
+            std::string       m_name;
+            kuge::OverlayMode m_mode;
+    };
+}
+
+Test(scene, transparent_runs_the_one_under)
+{
+    kuge::Engine engine;
+
+    engine.scenes().change<Layer>("A", kuge::OverlayMode::Opaque);
+    engine.step(0.0);
+    engine.scenes().push<Layer>("T", kuge::OverlayMode::Transparent);
+    engine.step(0.0);
+    g_events.clear();
+    engine.step(1.0 / 60.0);   // one tick, one frame
+    AssertStrEq(events().c_str(), "A:net,A:repl,T:net,T:input,T:sim,T:repl,A:frame,T:frame",
+        "the network and the picture of A go on, its game logic stands still, T is drawn last: got %s", events().c_str());
+}
+
+Test(scene, transparent_does_not_pause)
+{
+    kuge::Engine engine;
+
+    engine.scenes().change<Layer>("A", kuge::OverlayMode::Opaque);
+    engine.step(0.0);
+    g_events.clear();
+    engine.scenes().push<Layer>("T", kuge::OverlayMode::Transparent);
+    engine.step(0.0);
+    engine.scenes().pop();
+    engine.step(0.0);
+    Assert(events().find("pause") == std::string::npos && events().find("resume") == std::string::npos,
+        "A is neither paused nor resumed: got %s", events().c_str());
+    g_events.clear();
+    engine.step(1.0 / 60.0);
+    AssertStrEq(events().c_str(), "A:net,A:input,A:sim,A:repl,A:frame", "and A runs whole again once T is gone: got %s", events().c_str());
+}
+
+Test(scene, opaque_hides_the_one_under)
+{
+    kuge::Engine engine;
+
+    engine.scenes().change<Layer>("A", kuge::OverlayMode::Opaque);
+    engine.step(0.0);
+    engine.scenes().push<Layer>("O", kuge::OverlayMode::Opaque);
+    engine.step(0.0);
+    g_events.clear();
+    engine.step(1.0 / 60.0);
+    AssertStrEq(events().c_str(), "O:net,O:input,O:sim,O:repl,O:frame", "only O runs: got %s", events().c_str());
+}
+
+Test(scene, only_the_top_hears_messages)
+{
+    kuge::Engine engine;
+
+    engine.scenes().change<Layer>("A", kuge::OverlayMode::Opaque);
+    engine.step(0.0);
+    const kuge::SceneHandle below = static_cast<Layer*>(engine.scenes().top())->self();
+
+    engine.scenes().push<Layer>("T", kuge::OverlayMode::Transparent);
+    engine.step(0.0);
+    g_events.clear();
+    below.send(7);
+    engine.step(0.0);
+    Assert(events().find("message") == std::string::npos, "A waits for its turn: got %s", events().c_str());
+    engine.scenes().pop();
+    engine.step(0.0);
+    Assert(events().find("A:message") != std::string::npos, "and hears it once on top: got %s", events().c_str());
 }

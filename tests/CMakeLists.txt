@@ -166,6 +166,7 @@ if(TARGET kuge-client)
         client/input_map_test.cpp
         client/keys_test.cpp
         client/platformer_test.cpp
+        client/overlay_test.cpp
         client/pong_test.cpp
         client/sdl_audio_test.cpp
         client/sdl_font_test.cpp

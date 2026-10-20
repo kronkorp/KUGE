@@ -9,6 +9,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace kuge
 {
@@ -67,6 +68,10 @@ namespace kuge
 
             //! The scene that runs, or nullptr
             Scene*      top(void) noexcept;
+
+            //! The scenes that run in this loop, from the bottom up: the top one, and under it, as long as the
+            //! one over them is Transparent (see Scene::overlay()), the ones that stay visible
+            std::vector<Scene*> running(void);
             std::size_t size(void) const noexcept;
             bool        empty(void) const noexcept;
 
