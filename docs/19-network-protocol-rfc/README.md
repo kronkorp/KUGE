@@ -267,7 +267,7 @@ Serveur                                                      Client
 
 Le serveur émet `Spawn` pour une entité que le client n'a pas, `Update` pour celles dont un composant `Interpolated` ou `OnChange` a changé ou disparu, et `Destroy` pour celles qui ne sont plus répliquées. Un client MUST rejeter un instantané qui désigne un composant non enregistré, un `Update` d'une entité absente ou un genre inconnu.
 
-**Parts.** Le serveur découpe les enregistrements en parts de 6000 octets au plus (`maxPartBytes`), sans couper un enregistrement. Toutes les parts d'un instantané portent le même `tick`, `baseTick` et `inputAck`, `parts` leur nombre et `part` leur rang (0 à parts-1). Un enregistrement plus gros qu'une part n'est pas envoyé ; le serveur retient alors, comme référence du client, l'état que celui-ci aura vraiment.
+**Parts.** Le serveur découpe les enregistrements en parts de 1100 octets au plus (`maxPartBytes`, la charge d'un datagramme que l'IP ne coupe pas), sans couper un enregistrement. Toutes les parts d'un instantané portent le même `tick`, `baseTick` et `inputAck`, `parts` leur nombre et `part` leur rang (0 à parts-1). Un enregistrement plus gros qu'une part n'est pas envoyé (compté dans `oversized`, avec un avertissement) ; le serveur retient alors, comme référence du client, l'état que celui-ci aura vraiment.
 
 **Champs de `SnapshotPacket`.**
 
@@ -309,12 +309,12 @@ L'aller-retour est mesuré seulement sur un message envoyé une fois : le premie
 
 **Sur TCP**, le transport est fiable : les messages restent numérotés, ordonnés et accusés, mais ne sont jamais renvoyés.
 
-**Taille.** Un paquet fait 8192 octets au plus. Le protocole ne fragmente rien lui-même : `send` refuse un message trop grand, et seule la réplication découpe ses données en parts (section 7). Une part de 6000 octets de données reste donc sous la limite.
+**Taille.** Un paquet fait 8192 octets au plus. Le protocole ne fragmente rien lui-même : `send` refuse un message trop grand, et seule la réplication découpe ses données en parts (section 7). Une part de 1100 octets de données, avec ses en-têtes, reste sous `DATAGRAM_PAYLOAD` (1200 octets).
 
 **Limites connues.**
 
 - Les numéros fiables sont des u32 comparés sans gestion du bouclage : ils sont sûrs pour 2^32 messages par sens et par connexion.
-- 8192 octets dépassent la MTU habituelle d'Internet (environ 1500 octets). Un datagramme UDP plus grand dépend de la fragmentation IP, qui perd tout le datagramme si un fragment manque. Une implémentation destinée à Internet SHOULD réduire `maxPartBytes` et garder les messages non fiables petits.
+- 8192 octets dépassent la MTU habituelle d'Internet (environ 1500 octets). Un datagramme UDP plus grand dépend de la fragmentation IP, qui perd tout le datagramme si un fragment manque. Les parts de réplication tiennent sous `DATAGRAM_PAYLOAD` (1200 octets) par défaut ; un message du jeu, lui, MUST rester sous cette taille sur UDP s'il ne veut pas dépendre de la fragmentation IP, ce que le protocole ne vérifie pas (l'endpoint compte les paquets plus grands dans `bigPackets`). Un message fiable plus grand est renvoyé en entier : il n'est pas fragmenté par KUGE, et pas accusé par fragment.
 
 ## 9. Gestion d'erreurs et versionnage
 
@@ -367,6 +367,8 @@ Les limites suivantes bornent ce qu'un pair peut coûter à un autre :
 | messages fiables en vol, en attente | 256, 1024 |
 | numéro fiable accepté en réception | inférieur à `ack + 288` |
 | trame TCP | 8192 octets |
+| part de réplication (enregistrements) | 1100 octets (`maxPartBytes`) |
+| datagramme à ne pas dépasser sur UDP | 1200 octets (`DATAGRAM_PAYLOAD`) |
 | vecteur lu | au plus autant d'éléments que d'octets restants |
 | entrées en attente par client | 64 |
 | instantanés incomplets en attente, états gardés (client) | 16, 32 |

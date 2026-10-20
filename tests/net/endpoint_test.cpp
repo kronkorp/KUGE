@@ -526,3 +526,22 @@ Test(endpoint, destroyed_by_a_message)
     Assert(!client, "the endpoint is gone");
     AssertEq(heard, 1, "and nothing of it ran after the handler that destroyed it");
 }
+
+// Ticket 036: a packet over DATAGRAM_PAYLOAD is cut by IP on a real path: the endpoint counts the ones it sends
+Test(endpoint, big_packets_are_counted)
+{
+    Sim sim;
+    auto server = sim.server();
+    auto client = sim.client();
+
+    sim.run(1.0, 0.01, *server, *client);
+    Assert(client->connected(), "connected");
+    Chat small{1, std::string(500, 'a')}, big{1, std::string(DATAGRAM_PAYLOAD + 100, 'b')};
+
+    Assert(client->send(CLIENT_CONNECTION, small, Channel::Unreliable), "a small message is sent");
+    AssertEq(client->stats().bigPackets, 0, "and is not a big packet");
+    Assert(client->send(CLIENT_CONNECTION, big, Channel::Unreliable), "a big one is sent as well (the limit is MAX_PACKET)");
+    AssertEq(client->stats().bigPackets, 1, "and counted");
+    Assert(client->send(CLIENT_CONNECTION, big, Channel::Reliable), "a reliable one too");
+    AssertEq(client->stats().bigPackets, 2, "and counted");
+}

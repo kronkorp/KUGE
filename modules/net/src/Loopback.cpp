@@ -47,7 +47,7 @@ namespace kuge::net
         Conditions                                 conditions;
         std::mt19937_64                            rng;
         std::uint64_t                              nextOrder = 0;
-        std::uint64_t                              sent = 0, lost = 0;
+        std::uint64_t                              sent = 0, lost = 0, tooBig = 0;
         std::map<std::string, std::shared_ptr<Listener>> listeners;
 
         double random(void) { return std::uniform_real_distribution<double>(0.0, 1.0)(rng); }
@@ -56,6 +56,11 @@ namespace kuge::net
         void push(std::deque<Item>& queue, std::span<const std::uint8_t> packet)
         {
             ++sent;
+            if (conditions.mtu != 0 && packet.size() > conditions.mtu) {
+                ++lost;
+                ++tooBig;
+                return;
+            }
             if (random() < conditions.loss) {
                 ++lost;
                 return;
@@ -311,6 +316,13 @@ namespace kuge::net
         std::lock_guard lock(m_impl->mutex);
 
         return m_impl->lost;
+    }
+
+    std::uint64_t LoopbackNetwork::packetsTooBig(void) const
+    {
+        std::lock_guard lock(m_impl->mutex);
+
+        return m_impl->tooBig;
     }
 
 }

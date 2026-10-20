@@ -1,4 +1,5 @@
 #include "ReplicationServer.hpp"
+#include "Logger.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -108,14 +109,17 @@ namespace kuge::replication
 
     void ReplicationServer::send(net::ConnectionId connection, ClientState& client, std::uint32_t tick, const std::shared_ptr<const WorldState>& view)
     {
-        const std::vector<Bytes> ops = diffOps(m_registry, client.baseline.get(), *view);
+        m_stats.componentBytes.resize(m_registry.size());
+        const std::vector<Bytes> ops = diffOps(m_registry, client.baseline.get(), *view, &m_stats.componentBytes);
         std::vector<Bytes> parts(1);
         Bytes sent;
         bool skipped = false;
 
         for (const Bytes& op : ops) {
             if (op.size() > m_config.maxPartBytes) {
-                ++m_stats.oversized;
+                if (m_stats.oversized++ == 0) {
+                    Logger::logger().warn("replication: a record of {} bytes is over maxPartBytes ({}): it is not sent. Raise maxPartBytes, or send less of the entity", op.size(), m_config.maxPartBytes);
+                }
                 skipped = true;
                 continue;
             }
@@ -151,6 +155,8 @@ namespace kuge::replication
             m_endpoint.send(connection, packet, net::Channel::Unreliable);
         }
         ++m_stats.snapshotsSent;
+        m_stats.multipartSnapshots += parts.size() > 1 ? 1 : 0;
+        m_stats.maxParts = std::max<std::uint64_t>(m_stats.maxParts, parts.size());
         m_stats.fullSnapshots += client.baseline ? 0 : 1;
         client.history[tick] = recorded;
         client.lastSent = tick;

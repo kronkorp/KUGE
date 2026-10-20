@@ -98,6 +98,7 @@ if(TARGET kuge-client AND TARGET rtype-room)
 endif()
 
 add_executable(kuge_replication_tests
+    replication/datagram_test.cpp
     replication/prediction_test.cpp
     replication/rates_test.cpp
     replication/replication3d_test.cpp

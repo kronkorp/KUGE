@@ -54,6 +54,7 @@ namespace kuge::replication
         std::uint64_t wrongSchema = 0;       //!< From a server whose list of components is not ours
         std::uint64_t spawned = 0;
         std::uint64_t destroyed = 0;
+        std::uint64_t incomplete = 0;        //!< Snapshots given up for want of a part (a part was lost, or the next one came first)
         std::uint64_t starved = 0;           //!< Times the interpolation ran past the newest snapshot (it came late, or was lost)
         std::uint64_t extrapolated = 0;      //!< Frames in which an interpolated component was extrapolated (maxExtrapolation)
     };

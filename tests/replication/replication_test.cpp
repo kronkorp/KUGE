@@ -197,7 +197,9 @@ Test(replication, over_a_bad_network)
 
 Test(replication, big_snapshots_in_parts)
 {
-    RepSim sim(kuge::net::LoopbackNetwork::Conditions{.loss = 0.15, .latency = 0.02, .jitter = 0.02, .seed = 4});
+    // (A snapshot needs all its parts: with parts of 1100 bytes, the first one of 800 entities has about 45 of them, so
+    // the loss must be what a path has, not a bad day: (1 - 0.03)^45 is a snapshot in four that arrives whole)
+    RepSim sim(kuge::net::LoopbackNetwork::Conditions{.loss = 0.03, .latency = 0.02, .jitter = 0.02, .seed = 4});
 
     for (int i = 0; i < 800; ++i) {
         sim.spawn(SHIP, static_cast<float>(i), static_cast<float>(i * 2), i);

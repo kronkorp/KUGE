@@ -84,6 +84,9 @@ namespace kuge::net
     void Endpoint::transmit(Connection& connection, const std::vector<std::uint8_t>& packet, double time)
     {
         if (m_transport->send(connection.id, packet)) {
+            if (packet.size() > DATAGRAM_PAYLOAD && !m_transport->reliable()) {
+                ++m_stats.bigPackets;
+            }
             ++m_stats.packetsSent;
             m_stats.bytesSent += packet.size();
             connection.lastSent = time;

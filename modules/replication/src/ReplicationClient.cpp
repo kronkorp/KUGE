@@ -70,6 +70,7 @@ namespace kuge::replication
         ++pending.have;
         if (pending.have < pending.parts.size()) {
             while (m_pending.size() > m_config.maxPending) {
+                ++m_stats.incomplete;
                 m_pending.erase(m_pending.begin());
             }
             return;
@@ -82,6 +83,9 @@ namespace kuge::replication
         }
         const std::uint32_t tick = packet.tick, base = pending.baseTick, inputAck = pending.inputAck;
 
+        for (auto old = m_pending.begin(); old != m_pending.end() && old->first < tick; ++old) {
+            ++m_stats.incomplete;   // an older one that was still waiting for a part
+        }
         m_pending.erase(m_pending.begin(), m_pending.upper_bound(tick));   // this one, and the older ones that will not come
         process(tick, base, inputAck, ops);
     }

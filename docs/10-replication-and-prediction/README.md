@@ -90,6 +90,18 @@ How snapshots work, because it explains the behaviour you will see:
   behind) is simply sent everything.
 - A snapshot holds only what changed: an entity that appeared (all its components), a component that changed, an
   entity that went. The same world always gives the same bytes. A big snapshot comes in several packets.
+- **A packet is a part of at most 1100 bytes of records** (`ReplicationServerConfig::maxPartBytes`, the payload of one
+  datagram: with the headers of a part it stays under `net::DATAGRAM_PAYLOAD`, 1200). A UDP datagram over what a path
+  carries in one piece is cut by IP, and one lost fragment loses it all: parts of 6000 bytes, the old default, were
+  lost far more often than their share of the loss, and over a path that carries 1200 bytes at a time a busy world never
+  arrived (`tests/replication/datagram_test.cpp`). Parts of 1100 cost 2.6 % more bytes (headers). A snapshot needs all
+  its parts: with 45 parts and 3 % of loss, one in four arrives whole, and the next one is tried 2 ticks later. So the
+  answer to a big snapshot is **fewer bytes** (send less often, fewer components, smaller ones: quantisation, ticket
+  022), not more parts.
+- A record (an entity's components) is never cut: one over `maxPartBytes` is not sent (`stats().oversized`, and a
+  warning in the log). Raise `maxPartBytes` for a game whose entities weigh more, knowing what it costs.
+- To see where the bytes go: `stats().componentBytes` (by number in the registry), `stats().maxParts` and
+  `multipartSnapshots` on the server, and `stats().incomplete` on the client (snapshots given up for want of a part).
 - The client builds each snapshot **from the one it acknowledged** (it keeps the last 32 states), so an entity that
   appeared and went between two snapshots, or a value that changed and came back, can never be left wrong.
 

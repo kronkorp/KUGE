@@ -55,6 +55,7 @@ namespace kuge::net
         std::uint64_t malformed = 0;         //!< Packets or messages that made no sense (dropped)
         std::uint64_t unknownMessages = 0;   //!< Messages nobody listens to (dropped)
         std::uint64_t refusedSends = 0;      //!< Messages that could not be sent (too big, full, not connected)
+        std::uint64_t bigPackets = 0;        //!< Packets sent over DATAGRAM_PAYLOAD on a transport that can lose them (UDP, loopback): IP cuts them on a real path
     };
 
     ////////////////////////////////////////////////////////////////////////////

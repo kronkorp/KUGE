@@ -16,6 +16,12 @@ namespace kuge::net
     //! The largest packet a transport carries (what kronknet reads at once)
     constexpr std::size_t MAX_PACKET = 8192;
 
+    //! The size of a datagram that goes through the Internet in one piece: 1280 bytes (the smallest MTU of IPv6) less
+    //! the IPv6 and UDP headers, rounded down. A UDP datagram over it is cut by IP into fragments on many paths, and
+    //! losing one of them loses the whole datagram (5 fragments and 2 % of loss: about 10 % lost). It is not a limit of
+    //! the transports, which carry up to MAX_PACKET (TCP and the loopback do); it is the size to keep to on UDP.
+    constexpr std::size_t DATAGRAM_PAYLOAD = 1200;
+
     //! What happened on a transport since the last poll()
     struct TransportEvent
     {

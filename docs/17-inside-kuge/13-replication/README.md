@@ -82,7 +82,7 @@ for (const net::ConnectionId connection : due) {
 
 // ReplicationServer::send
 const std::vector<Bytes> ops = diffOps(m_registry, client.baseline.get(), *view);
-... the records packed into parts of at most maxPartBytes (6000): a big snapshot takes several packets
+... the records packed into parts of at most maxPartBytes (1100, the payload of a datagram that is not cut by IP): a big snapshot takes several packets
 ... each part: SnapshotPacket{schema, tick, baseTick = client.baselineTick, inputAck, part, parts, ops}, unreliable
 client.history[tick] = view;                          // what was sent, until the client says it has it
 ```

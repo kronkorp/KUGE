@@ -16,7 +16,12 @@ namespace kuge::replication
         double        sendRate     = 0.0;    //!< Snapshots per second, instead of sendInterval when above 0 (30, 64...). Needs tickRate.
         std::uint32_t tickRate     = 0;      //!< Of the room (`init().server.tickRate`): what sendRate is a fraction of
         std::size_t   maxHistory   = 64;     //!< Snapshots kept for a client that has not acknowledged them yet
-        std::size_t   maxPartBytes = 6000;   //!< A snapshot that is bigger goes in several packets
+        //! The most bytes of records in one packet. A snapshot that is bigger goes in several packets (parts), and the
+        //! client needs all of them to apply it. 1100 is the payload of one datagram that goes through the Internet
+        //! whole: with the headers of a part (about 50 bytes) it stays under net::DATAGRAM_PAYLOAD (1200), where a bigger
+        //! datagram is cut by IP and lost as a whole when one fragment is. A record bigger than this is not sent (counted
+        //! in stats().oversized, and logged): raise it for a game whose entities weigh more, knowing what it costs.
+        std::size_t   maxPartBytes = 1100;
     };
 
     struct ReplicationServerStats
@@ -26,7 +31,12 @@ namespace kuge::replication
         std::uint64_t bytesSent = 0;         //!< Of the changes (without the headers)
         std::uint64_t fullSnapshots = 0;     //!< Sent from nothing (a new client, or one that asked)
         std::uint64_t acksReceived = 0;
-        std::uint64_t oversized = 0;         //!< Records too big for a packet: not sent
+        std::uint64_t oversized = 0;         //!< Records over maxPartBytes: not sent
+        std::uint64_t multipartSnapshots = 0;   //!< Snapshots that went in several parts
+        std::uint64_t maxParts = 0;          //!< The most parts one snapshot took
+        //! Bytes of the components sent, by number in the registry (what is in the records, not their headers): where a
+        //! big snapshot goes. The answer to a big snapshot is fewer bytes, not more parts.
+        std::vector<std::uint64_t> componentBytes;
     };
 
     ////////////////////////////////////////////////////////////////////////////

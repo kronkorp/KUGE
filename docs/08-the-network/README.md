@@ -73,6 +73,15 @@ growing without end. Over TCP nothing is ever sent twice.
 `send` returns `false` if it could not be sent: not connected, too big for a packet (a message is at most
 8192 bytes with its header), or too many are waiting. Check it when it matters.
 
+**Over UDP, keep a message under about 1200 bytes** (`DATAGRAM_PAYLOAD`). 8192 is what a transport carries (and TCP
+and the loopback carry it all), but a UDP datagram over what a path carries in one piece (about 1500 bytes on
+Ethernet, 1280 at the least) is cut into fragments by IP, and losing one fragment loses the whole datagram: with 5
+fragments and 2 % of loss, about 10 % of them are lost, and a reliable message is sent again and again. KUGE does not
+cut a message itself (no fragmentation, and no ack per fragment): a big message is the game's to split into several,
+or to make smaller. The endpoint counts the packets it sent over `DATAGRAM_PAYLOAD` on a transport that can lose them
+(`stats().bigPackets`), so a game can see that it does it. Snapshots are cut by the replication, in parts of 1100 bytes
+(see [10](../10-replication-and-prediction/README.md)).
+
 ### Handshake, keep-alive, timeouts
 
 - A client sends `Connect` until the server answers `Accept`. So **"connected" means the other side answered**,
@@ -107,8 +116,9 @@ kuge::net::LoopbackNetwork network(kuge::net::LoopbackNetwork::Conditions{
     .loss = 0.3, .duplicate = 0.1, .latency = 0.05, .jitter = 0.03, .seed = 7});
 ```
 
-It loses, repeats, delays and reorders packets (the same seed loses the same ones), and its clock can be
-replaced, so a test can make ten seconds pass in no time. The reliable channel is tested over 50 % loss with it.
+It loses, repeats, delays and reorders packets (the same seed loses the same ones), drops the ones over a size
+(`.mtu = 1200`: what a path that cannot carry more does, counted in `packetsTooBig()`), and its clock can be replaced,
+so a test can make ten seconds pass in no time. The reliable channel is tested over 50 % loss with it.
 
 ## In a scene: `Net`
 

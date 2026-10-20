@@ -217,3 +217,29 @@ Test(loopback, duplicates)
     client->send(kuge::net::CLIENT_CONNECTION, bytes({1}));
     AssertEq(polled(*server).size(), 2, "the packet arrives twice");
 }
+
+Test(loopback, a_path_with_an_mtu)
+{
+    // A path that cannot carry more than 1200 bytes drops what is over it (and counts it), as a real one does
+    using namespace kuge::net;
+    LoopbackNetwork network(LoopbackNetwork::Conditions{.mtu = 1200});
+    auto server = network.listen("path");
+    auto client = network.connect("path");
+
+    polled(*server);
+    polled(*client);
+    Assert(client->send(CLIENT_CONNECTION, std::vector<std::uint8_t>(1200, 1)), "1200 bytes are sent");
+    Assert(client->send(CLIENT_CONNECTION, std::vector<std::uint8_t>(1201, 2)), "so are 1201 (the sender cannot know)");
+    Assert(client->send(CLIENT_CONNECTION, std::vector<std::uint8_t>(5000, 3)), "and 5000");
+    std::size_t sizes[2] = {0, 0}, count = 0;
+
+    for (const auto& event : polled(*server)) {
+        if (event.kind == TransportEvent::Kind::Packet && count < 2) {
+            sizes[count++] = event.packet.size();
+        }
+    }
+    AssertEq(count, 1, "but only the first arrives");
+    AssertEq(sizes[0], 1200, "whole");
+    AssertEq(network.packetsTooBig(), 2, "the other two were dropped for their size");
+    AssertEq(network.packetsLost(), 2, "and are counted as lost");
+}
