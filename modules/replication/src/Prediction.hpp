@@ -3,6 +3,7 @@
 #include "Input.hpp"
 #include "ReplicationClient.hpp"
 #include "Transform2D.hpp"
+#include "Transform3D.hpp"
 #include <cmath>
 #include <deque>
 #include <functional>
@@ -10,6 +11,33 @@
 
 namespace kuge::replication
 {
+
+    //! What Prediction needs to know of a transform to smooth the corrections of the position: the
+    //! type of a displacement, and how to read and write the position. For Transform2D and Transform3D.
+    template<typename T>
+    struct PredictionSpace;
+
+    template<>
+    struct PredictionSpace<Transform2D>
+    {
+        using Offset = Vec2;
+
+        static Offset position(const Transform2D& t) { return t.position; }
+        static void   setPosition(Transform2D& t, Offset position) { t.position = position; }
+        static float  length(Offset v) { return std::sqrt(v.x * v.x + v.y * v.y); }
+        static bool   negligible(Offset v) { return std::fabs(v.x) + std::fabs(v.y) < 0.01f; }
+    };
+
+    template<>
+    struct PredictionSpace<Transform3D>
+    {
+        using Offset = k3::Math::Vector3f;
+
+        static Offset position(const Transform3D& t) { return t.translation; }
+        static void   setPosition(Transform3D& t, Offset position) { t.translation = position; }
+        static float  length(Offset v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
+        static bool   negligible(Offset v) { return std::fabs(v.x) + std::fabs(v.y) + std::fabs(v.z) < 0.01f; }
+    };
 
     template<typename Input>
     struct PredictionConfig
@@ -25,7 +53,7 @@ namespace kuge::replication
         std::size_t   redundancy     = 4;        //!< Inputs in each packet: the newest and the ones before, in case they were lost
         std::size_t   maxPending     = 128;      //!< Inputs kept while the server does not answer
         double        smoothing      = 0.1;      //!< Seconds that a correction takes to be absorbed
-        float         snapDistance   = 64.0f;    //!< A correction bigger than this (in pixels) is not smoothed: the player is put there
+        float         snapDistance   = 64.0f;    //!< A correction bigger than this (in world units: pixels, or meters in 3D) is not smoothed: the player is put there
     };
 
     struct PredictionStats
@@ -68,9 +96,12 @@ namespace kuge::replication
      * draws.
      */
     ////////////////////////////////////////////////////////////////////////////
-    template<typename Input>
+    template<typename Input, typename Transform = Transform2D>
     class Prediction
     {
+            using Space = PredictionSpace<Transform>;
+            using Offset = typename Space::Offset;
+
         public:
             Prediction(PredictionConfig<Input> config, kw::World& world, const ReplicationRegistry& registry,
                 ReplicationClient& replication, net::Endpoint& room)
@@ -115,7 +146,7 @@ namespace kuge::replication
                 }
                 simulate(input);
                 m_offset = m_offset * static_cast<float>(std::exp(-m_config.dt / std::max(m_config.smoothing, 1e-6)));
-                if (std::fabs(m_offset.x) + std::fabs(m_offset.y) < 0.01f) {
+                if (Space::negligible(m_offset)) {
                     m_offset = {};
                 }
                 publish();
@@ -130,7 +161,7 @@ namespace kuge::replication
             const PredictionStats&    stats(void) const noexcept { return m_stats; }
             kw::World&                privateWorld(void) noexcept { return priv(); }
             kw::Entity                privateEntity(void) const noexcept { return m_player; }
-            Vec2                      offset(void) const noexcept { return m_offset; }
+            Offset                    offset(void) const noexcept { return m_offset; }
 
         private:
             struct Pending
@@ -182,8 +213,9 @@ namespace kuge::replication
                         entry.apply(m_world, m_visible, out.bytes());
                     }
                 }
-                if (m_world.has<Transform2D>(m_visible) && priv().template has<Transform2D>(m_player)) {
-                    m_world.get<Transform2D>(m_visible).position = priv().template get<Transform2D>(m_player).position + m_offset;
+                if (m_world.has<Transform>(m_visible) && priv().template has<Transform>(m_player)) {
+                    Space::setPosition(m_world.get<Transform>(m_visible),
+                        Space::position(priv().template get<Transform>(m_player)) + m_offset);
                 }
             }
 
@@ -226,7 +258,7 @@ namespace kuge::replication
                     m_player = m_config.build(priv());
                     m_sequence = inputAck;   // (the server counts from where this client's inputs are)
                 }
-                const Vec2 before = priv().template has<Transform2D>(m_player) ? priv().template get<Transform2D>(m_player).position : Vec2{};
+                const Offset before = priv().template has<Transform>(m_player) ? Space::position(priv().template get<Transform>(m_player)) : Offset{};
 
                 for (const std::size_t index : m_predicted) {
                     const auto found = record.components.find(static_cast<std::uint8_t>(index));
@@ -243,13 +275,13 @@ namespace kuge::replication
                     ++m_stats.replays;
                 }
                 ++m_stats.reconciliations;
-                if (!first && priv().template has<Transform2D>(m_player)) {
-                    const Vec2 after = priv().template get<Transform2D>(m_player).position;
-                    const Vec2 shown = before + m_offset;     // where the player is drawn: it must not jump
-                    const Vec2 gap = shown - after;
-                    const Vec2 wrong = before - after;        // how wrong the last prediction was
-                    const float error = std::sqrt(wrong.x * wrong.x + wrong.y * wrong.y);
-                    const float jump = std::sqrt(gap.x * gap.x + gap.y * gap.y);
+                if (!first && priv().template has<Transform>(m_player)) {
+                    const Offset after = Space::position(priv().template get<Transform>(m_player));
+                    const Offset shown = before + m_offset;     // where the player is drawn: it must not jump
+                    const Offset gap = shown - after;
+                    const Offset wrong = before - after;        // how wrong the last prediction was
+                    const float error = Space::length(wrong);
+                    const float jump = Space::length(gap);
 
                     if (error > 0.05f) {
                         ++m_stats.corrections;
@@ -278,7 +310,7 @@ namespace kuge::replication
             kw::Entity                     m_visible{};
             std::deque<Pending>            m_pending;
             std::uint32_t                  m_sequence = 0;
-            Vec2                           m_offset{};
+            Offset                         m_offset{};
             bool                           m_ready = false;
             PredictionStats                m_stats;
             std::shared_ptr<bool>          m_alive = std::make_shared<bool>(true);

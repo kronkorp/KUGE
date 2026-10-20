@@ -3,6 +3,7 @@
 #include "CommonComponents.hpp"
 #include "Endpoint.hpp"
 #include "Loopback.hpp"
+#include "PredictedSpawns.hpp"
 #include "ReplicationClient.hpp"
 #include "ReplicationServer.hpp"
 #include <memory>
@@ -28,6 +29,7 @@ inline kuge::replication::ReplicationRegistry makeRegistry(void)
     registry.component<Team>("Team", Replicate::OnSpawn,
         [](kuge::ByteWriter& out, const Team& t) { out.write(t.id); },
         [](kuge::ByteReader& in) { return Team{in.read<std::uint8_t>()}; });
+    registerPredictionKey(registry);
     return registry;
 }
 
@@ -37,6 +39,7 @@ struct RepSim
     static constexpr double DT = 1.0 / 60.0;
 
     double                                       now = 0.0;
+    double                                       dt = DT;      //!< Seconds of a tick (1 / the tick rate)
     std::uint32_t                                tick = 0;
     kuge::net::LoopbackNetwork                   network;
     kuge::replication::ReplicationRegistry       registry = makeRegistry();
@@ -50,8 +53,8 @@ struct RepSim
 
     explicit RepSim(kuge::net::LoopbackNetwork::Conditions conditions = {},
         kuge::replication::ReplicationServerConfig serverConfig = {},
-        kuge::replication::ReplicationClientConfig clientConfig = {})
-        : network(conditions, [this] { return now; })
+        kuge::replication::ReplicationClientConfig clientConfig = {}, double tickRate = 60.0)
+        : dt(1.0 / tickRate), network(conditions, [this] { return now; })
     {
         kuge::net::EndpointConfig config;
 
@@ -62,7 +65,7 @@ struct RepSim
         client = std::make_unique<kuge::replication::ReplicationClient>(clientWorld, registry, clientConfig);
         client->attach(*clientEndpoint);
         for (int i = 0; i < 300 && !(clientEndpoint->connected() && serverEndpoint->connected()); ++i) {
-            now += DT;
+            now += dt;
             serverEndpoint->poll();
             clientEndpoint->poll();
         }
@@ -73,12 +76,12 @@ struct RepSim
     // One tick: the server updates, the network runs, the client applies and draws
     void step(void)
     {
-        now += DT;
+        now += dt;
         ++tick;
         serverEndpoint->poll();
         server->update(tick);
         clientEndpoint->poll();
-        client->update(DT);
+        client->update(dt);
     }
 
     void run(int ticks) { for (int i = 0; i < ticks; ++i) { step(); } }

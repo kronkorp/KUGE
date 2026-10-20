@@ -1,9 +1,16 @@
 #pragma once
 
+#include "Chat.hpp"
+#include "ChatRelay.hpp"
+#include "Cinematic.hpp"
 #include "Net.hpp"
+#include "NetMeter.hpp"
 #include "Scene.hpp"
 #include "ServerConfig.hpp"
 #include <map>
+#include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -54,7 +61,12 @@ namespace kuge::server
                 std::uint32_t      playerId;     //!< Server-wide
                 std::string        name;
                 std::uint32_t      networkId;    //!< In this room: 1, 2, 3... (never used again)
-                net::ConnectionId  connection;
+                net::ConnectionId  connection;   //!< 0 while the player is away
+                //! The group this player is in (a team, a squad): a number the game sets with setTeam(), 0 for none. KUGE only uses
+                //! it to pick who a message goes to (broadcastTeam()); what a team is, and what it may do, is the game's.
+                std::uint32_t      team = 0;
+                bool               away = false;   //!< Its connection was lost and the room keeps its place (RoomTypeConfig::reconnectSeconds)
+                double             awaySince = 0.0;
             };
 
             explicit RoomScene(RoomInit init);
@@ -71,6 +83,13 @@ namespace kuge::server
             virtual void onRoomExit(void) {}
             virtual void onPlayerJoined(const Player&) {}
             virtual void onPlayerLeft(const Player&, net::DisconnectReason) {}
+            //! The connection of a player was lost, and the room keeps its place for RoomTypeConfig::reconnectSeconds. The player is still
+            //! in players(), `away`, with no connection: messages to it are not sent. What it does meanwhile (stands, is driven by a bot,
+            //! dies) is the game's. Remove its replication client and its input here. onPlayerLeft follows if the time runs out.
+            virtual void onPlayerAway(const Player&, net::DisconnectReason) {}
+            //! A player that was away is back, on a new connection (`previous` is the old one): the same Player, with the same network id.
+            //! Give it again to the replication and the input (addClient with player.connection): it is sent the whole world.
+            virtual void onPlayerRejoined(const Player&, net::ConnectionId previous) { (void)previous; }
             //! A message of another scene (the lobby's own are not given)
             virtual void onRoomMessage(const Message&) {}
 
@@ -98,23 +117,68 @@ namespace kuge::server
             {
                 const Player* who = playerByNetworkId(networkId);
 
-                return who && m_endpoint->send(who->connection, message, channel);
+                return who && !who->away && m_endpoint->send(who->connection, message, channel);
             }
 
-            //! To every player (not to a client that has not said hello yet)
+            //! To every player that is there (not to a client that has not said hello yet, nor one that is away)
             template<net::NetMessage T>
             std::size_t broadcast(const T& message, net::Channel channel = net::Channel::Reliable)
             {
                 std::size_t count = 0;
 
                 for (const auto& [id, who] : m_players) {
-                    count += m_endpoint->send(who.connection, message, channel) ? 1 : 0;
+                    count += !who.away && m_endpoint->send(who.connection, message, channel) ? 1 : 0;
                 }
                 return count;
             }
 
+            //! To the players of a team (the number the game gave with setTeam()): team chat, what only allies may know
+            template<net::NetMessage T>
+            std::size_t broadcastTeam(std::uint32_t team, const T& message, net::Channel channel = net::Channel::Reliable)
+            {
+                std::size_t count = 0;
+
+                for (const auto& [id, who] : m_players) {
+                    count += who.team == team && !who.away && m_endpoint->send(who.connection, message, channel) ? 1 : 0;
+                }
+                return count;
+            }
+
+            //! Puts a player in a group (0: none). KUGE does nothing with it but pick the receivers of broadcastTeam().
+            //! @return  false if there is no such player
+            bool setTeam(std::uint32_t networkId, std::uint32_t team);
+
             //! Sends a player away
             void kick(std::uint32_t networkId, net::RoomEnd reason = net::RoomEnd::Kicked);
+
+            //! Opens or closes the room to newcomers (it is open when made). A room that is not open stays in the lists
+            //! (`RoomInfo::open` is false, so a menu can grey it out) but the lobby gives no place in it: a client that asks
+            //! for it by id gets `JoinError::Started`, and the automatic matchmaking (`join`) makes another room instead.
+            //! The players already in it, and the ones on their way with a token, are not affected. Use it when the game
+            //! starts (a match, a round, a race). Tells the lobby, which learns it a moment later: a join that is already
+            //! on its way can still get in.
+            void setOpen(bool open);
+            bool isOpen(void) const noexcept { return m_open; }
+
+            //! Turns the text chat on: a `ChatSend` from a player is checked by a ChatRelay (not empty, not too long, valid UTF-8,
+            //! no control character, a rate limit per player) and relayed to everybody as a `ChatLine` whose `from` is the network id
+            //! of the player. Call it in onRoomEnter().
+            void enableChat(ChatConfig config = {});
+
+            //! A line that passed the checks, before it is relayed: the game may refuse it (return nothing: a muted player, a
+            //! command) or change it (a name, a filter of words). By default it goes as it is.
+            virtual std::optional<std::string> onChatLine(const Player&, std::string text) { return text; }
+
+            //! Stops the game for a cinematic that every client plays (a boss that enters, a round that ends): the players there get
+            //! `net::CinematicStart{id}` and answer `net::CinematicDone{id}` when it ends or they skip it. The cinematic is over when all
+            //! have answered, or after `timeLimit` seconds (the ones still playing get `net::CinematicStop`): onCinematicEnded() follows.
+            //! A player that leaves or is away is no longer waited for. The room keeps simulating: what "stops the game" means is the
+            //! game's (do not tick, do not take the inputs...). One at a time.
+            //! @return  false if one is running already, or the room is finishing
+            bool playCinematic(const std::string& id, double timeLimit);
+            bool cinematicRunning(void) const noexcept { return m_cinematic.has_value(); }
+            //! `completed` is false when the time limit cut it
+            virtual void onCinematicEnded(const std::string& id, bool completed) { (void)id; (void)completed; }
 
             //! Ends the game: the players are told, then the room is left. Only the first call counts.
             //! The players are told `ServerConfig::closeDelay` later, not at once: the room goes on running, and
@@ -126,7 +190,8 @@ namespace kuge::server
         private:
             friend class RoomHousekeeping;
 
-            struct Expected { std::string name; std::uint32_t playerId; double expires; };
+            struct ActiveCinematic { std::string id; std::set<std::uint32_t> waiting; double deadline; };
+            struct Expected { std::string name; std::uint32_t playerId; double expires; bool rejoin = false; };
             struct WaitingHello { net::ConnectionId connection; std::uint64_t token; double since; };
 
             template<typename T>
@@ -142,15 +207,23 @@ namespace kuge::server
             void announceEnd(void);
             void completeFinish(void);
             void playerGone(net::ConnectionId connection, net::DisconnectReason reason);
+            void letGo(std::uint32_t networkId, net::DisconnectReason reason);   //!< A player is out for good
+            void cinematicDone(std::uint32_t networkId, const std::string& id);
+            void endCinematic(bool completed);
 
             RoomInit                                 m_init;
             net::Endpoint*                           m_endpoint = nullptr;
             std::map<std::uint32_t, Player>          m_players;
             std::map<std::uint64_t, Expected>        m_expected;
+            std::unique_ptr<ChatRelay>               m_chat;
+            std::optional<ActiveCinematic>           m_cinematic;
+            net::NetMeter                            m_meter{5.0};
+            double                                   m_nextStats = 0.0;
             std::map<net::ConnectionId, double>      m_unknown;      //!< Connected, no hello yet: since when
             std::vector<WaitingHello>                m_waiting;      //!< Hello with a token the room may not know yet
             std::uint32_t                            m_nextNetworkId = 1;
             double                                   m_lastActive = 0.0;
+            bool                                     m_open = true;
             bool                                     m_finishing = false;
             bool                                     m_ended = false;
             bool                                     m_announced = false;   //!< The players were told (RoomClosed)

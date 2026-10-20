@@ -24,8 +24,13 @@ namespace kuge::net
     //     | <--------------------------- RoomClosed --------------------------- |
     //     | (back to the lobby, which the client never left)                       |
 
-    //! What JoinRoom says of the rules of matchmaking (not of the network: see EndpointConfig::protocol)
-    constexpr std::uint16_t MATCHMAKING_VERSION = 1;
+    //! What JoinRoom says of the rules of matchmaking (not of the network: see EndpointConfig::protocol).
+    //! 2: CreateRoom and RoomInfo carry `options`, RoomInfo says if the room is `open`, JoinError::InvalidOptions and
+    //! ::Started, RoomEnd::Victory, and the handshake of the Endpoint is not the same (see EndpointConfig::protocol).
+    //! 3: RoomAssigned carries `playerId` and `rejoinKey`, and RejoinRoom brings a player back into the room it lost (see
+    //! RoomTypeConfig::reconnectSeconds).
+    //! 4: JoinRoom, CreateRoom and JoinNamedRoom carry the fingerprint of the player's mods, and JoinError::Mods says they are not the server's.
+    constexpr std::uint16_t MATCHMAKING_VERSION = 4;
 
     enum class JoinError : std::uint8_t {
         UnknownRoomType,   //!< The server has no such kind of room
@@ -35,6 +40,9 @@ namespace kuge::net
         Protocol,          //!< Another version of the protocol
         InvalidName,       //!< The name of the room is not one (see validRoomName())
         UnknownRoom,       //!< No room has this id and this name (or it is ending). Same answer for a private room.
+        InvalidOptions,    //!< The options of the room are not some (see validRoomOptions())
+        Started,           //!< The room asked for is closed to newcomers (its game started: see RoomScene::setOpen())
+        Mods,              //!< The mods of the player are not the server's (see Mods::fingerprint() and ServerConfig::mods)
     };
 
     // -- Naming, listing and choosing rooms ---------------------------------------------------------
@@ -44,7 +52,7 @@ namespace kuge::net
     //   client                                    lobby
     //     | -- ListRooms(type) --------------->   |
     //     | <-- RoomList(total, [RoomInfo...]) --  |   public rooms only
-    //     | -- CreateRoom(type, name, private) ->  |   the creator names it, and is placed in it
+    //     | -- CreateRoom(type, name, private, options) ->  |   the creator names it, sets it, and is placed in it
     //     | -- JoinNamedRoom(id, name) -------->   |   the id AND the name must match: the only way into a private room
     //     | <-- RoomAssigned / JoinRefused ------  |   then as for join()
 
@@ -54,11 +62,19 @@ namespace kuge::net
     //! The most rooms that one RoomList carries (the others are counted in `total`)
     constexpr std::size_t MAX_LISTED_ROOMS = 64;
 
+    //! The longest `options` of a room, in bytes
+    constexpr std::size_t MAX_ROOM_OPTIONS = 128;
+
     //! Can a player name a room that? 1 to MAX_ROOM_NAME bytes of valid UTF-8, no control character, and no
-    //! space at either end (see trimRoomName())
+    //! blank at either end (see trimRoomName())
     bool validRoomName(std::string_view name);
 
-    //! The name without the spaces and tabs at its ends
+    //! Can these be the options of a room? At most MAX_ROOM_OPTIONS bytes of valid UTF-8, with no control character
+    //! (so a compact JSON or "key=value;key=value" fit, a text with line breaks does not). Empty is fine: no options.
+    bool validRoomOptions(std::string_view options);
+
+    //! The name without the blanks at its ends (space, tab, line breaks, vertical tab, form feed: a code pasted from a
+    //! chat ends with a line break)
     std::string trimRoomName(std::string_view name);
 
     enum class HelloError : std::uint8_t {
@@ -66,31 +82,40 @@ namespace kuge::net
         Closing,           //!< The room is ending
     };
 
+    //! Why a room ended. GameOver and Victory both mean "the game is over" (the lobby and the room treat them alike);
+    //! the game says which one it was. (Victory is last, so that the values of the others do not move.)
     enum class RoomEnd : std::uint8_t {
-        GameOver,          //!< The game ended
+        GameOver,          //!< The game ended (lost, or no word on how it went)
         Idle,              //!< Nobody came, or everybody left
         ServerStopping,
         Kicked,            //!< Sent away (or never showed up)
         Error,
+        Victory,           //!< The game ended well (won)
     };
+
+    //! A short text for a player ("the game was won"...)
+    const char* describe(RoomEnd reason);
 
     struct JoinRoom
     {
-        KUGE_MESSAGE(JoinRoom, roomType, playerName, protocol)
+        KUGE_MESSAGE(JoinRoom, roomType, playerName, protocol, mods)
         std::string   roomType;
         std::string   playerName;
         std::uint16_t protocol = MATCHMAKING_VERSION;
+        std::uint64_t mods = 0;   //!< Mods::fingerprint() of this player (0: none)
     };
 
     //! What the lobby says of a room that anyone can join: enough to choose one
     struct RoomInfo
     {
-        KUGE_MESSAGE(RoomInfo, roomId, roomType, name, players, maxPlayers)
+        KUGE_MESSAGE(RoomInfo, roomId, roomType, name, players, maxPlayers, options, open)
         std::uint32_t roomId = 0;
         std::string   roomType;
         std::string   name;          //!< What its creator called it ("<type> #<id>" for a room that the lobby made)
         std::uint32_t players = 0;   //!< Who is in it, or on the way
         std::uint32_t maxPlayers = 0;
+        std::string   options;       //!< What its creator set (CreateRoom::options), for a list to show; empty for a room the lobby made
+        bool          open = true;   //!< false: its game started and it takes no one more (join it and get JoinError::Started). A menu can grey it out.
     };
 
     //! The client asks which rooms it can join
@@ -112,33 +137,50 @@ namespace kuge::net
     //! anyone in.
     struct CreateRoom
     {
-        KUGE_MESSAGE(CreateRoom, roomType, roomName, playerName, isPrivate, protocol)
+        KUGE_MESSAGE(CreateRoom, roomType, roomName, playerName, isPrivate, options, protocol, mods)
         std::string   roomType;
         std::string   roomName;
         std::string   playerName;
         bool          isPrivate = false;
+        std::string   options;   //!< Opaque to KUGE, a validRoomOptions() text: the game puts what it likes ("hurry=1;map=3", JSON...)
         std::uint16_t protocol = MATCHMAKING_VERSION;
+        std::uint64_t mods = 0;
     };
 
     //! The client asks for a room that it knows: the id and the name must both be the room's
     struct JoinNamedRoom
     {
-        KUGE_MESSAGE(JoinNamedRoom, roomId, roomName, playerName, protocol)
+        KUGE_MESSAGE(JoinNamedRoom, roomId, roomName, playerName, protocol, mods)
         std::uint32_t roomId = 0;
         std::string   roomName;
         std::string   playerName;
         std::uint16_t protocol = MATCHMAKING_VERSION;
+        std::uint64_t mods = 0;
     };
 
     //! Where the room is, and the key to enter it. An empty address means "the machine of the lobby".
     struct RoomAssigned
     {
-        KUGE_MESSAGE(RoomAssigned, roomId, address, port, token, tickRate)
+        KUGE_MESSAGE(RoomAssigned, roomId, address, port, token, tickRate, playerId, rejoinKey)
         std::uint32_t roomId = 0;
         std::string   address;
         std::uint16_t port = 0;
         std::uint64_t token = 0;
         std::uint32_t tickRate = 60;
+        std::uint32_t playerId = 0;     //!< Who the server knows this player as (server-wide)
+        std::uint64_t rejoinKey = 0;    //!< The secret that lets this player back into the room if its connection is lost (RejoinRoom)
+    };
+
+    //! A player that lost its room (its connection dropped) asks to come back into it, from a new connection to the lobby. The
+    //! lobby answers like for a join (RoomAssigned, with a new token) when the room still keeps the place; otherwise
+    //! JoinRefused(UnknownRoom), the same answer whatever is wrong, so that a player id cannot be tried.
+    struct RejoinRoom
+    {
+        KUGE_MESSAGE(RejoinRoom, roomId, playerId, rejoinKey, protocol)
+        std::uint32_t roomId = 0;
+        std::uint32_t playerId = 0;
+        std::uint64_t rejoinKey = 0;
+        std::uint16_t protocol = MATCHMAKING_VERSION;
     };
 
     struct JoinRefused
@@ -221,6 +263,10 @@ namespace kuge::net
             //! The lobby of a server of the same process, by name
             void connectLobby(const std::string& name, LoopbackNetwork& network = LoopbackNetwork::global(), EndpointConfig config = {});
 
+            //! The fingerprint of the mods this player runs (Mods::fingerprint()), told to the lobby with every request: a server whose mods are
+            //! not these refuses with JoinError::Mods. Set it before asking for a room. 0 (the default): no mods.
+            void setMods(std::uint64_t fingerprint) noexcept { m_mods = fingerprint; }
+
             //! Asks for a room of a kind. Called before the lobby answered, it is sent when it does.
             void join(const std::string& roomType, const std::string& playerName);
 
@@ -228,12 +274,23 @@ namespace kuge::net
             //! handler of onRoomList(). It can be asked in the lobby or in a room, and before the lobby answered.
             void requestRooms(const std::string& roomType = "");
 
-            //! Opens a room and joins it. `roomName` must be a validRoomName(); the lobby refuses it (onFailed) if
-            //! not. A private room is in no list: whoever knows its name and its id can join it (joinRoom()).
-            void createRoom(const std::string& roomType, const std::string& roomName, const std::string& playerName, bool isPrivate = false);
+            //! Opens a room and joins it. `roomName` must be a validRoomName() and `options` a validRoomOptions(); the
+            //! lobby refuses it (onFailed) if not. The room reads the options in `init().options`, and they are in its
+            //! RoomInfo. A private room is in no list: whoever knows its name and its id can join it (joinRoom()).
+            void createRoom(const std::string& roomType, const std::string& roomName, const std::string& playerName, bool isPrivate = false,
+                const std::string& options = "");
 
             //! Joins the room that has this id and this name (public or private: both must be right)
             void joinRoom(std::uint32_t roomId, const std::string& roomName, const std::string& playerName);
+
+            //! Comes back into the room that was lost (the connection to it dropped, or the lobby's: call connectLobby() again first if
+            //! it was lost, this waits for it). The room must keep the place (RoomTypeConfig::reconnectSeconds): the player is the same
+            //! one, with the same network id, and onJoined is called again. Does nothing, and says so in onFailed, if there is nothing to
+            //! come back to (canRejoin()).
+            void rejoin(void);
+
+            //! Is there a room that this player was in and can come back to?
+            bool canRejoin(void) const noexcept { return m_rejoin.has_value(); }
 
             //! Leaves the room (or the wait for one). The lobby is kept.
             void leave(void);
@@ -247,17 +304,21 @@ namespace kuge::net
             //! The room is over, or lost: the endpoint that onJoined gave is gone (drop whatever holds it). Called
             //! for every way a room ends but leave() and disconnect(), which the caller asked for.
             void onRoomClosed(std::function<void(RoomEnd)> handler) { m_onRoomClosed = std::move(handler); }
-            //! Joining did not work, or the lobby is lost
+            //! Joining did not work, or the lobby is lost. The text is for the player (error()); to decide what to do
+            //! (stop trying again on DisconnectReason::Refused), read lastReason() instead of parsing it.
             void onFailed(std::function<void(const std::string&)> handler) { m_onFailed = std::move(handler); }
 
             State                state(void) const noexcept { return m_state; }
             const std::string&   error(void) const noexcept { return m_error; }
+            //! Why the lobby or the room was last lost (Refused: another version, or the server is full; Timeout:
+            //! it does not answer; Unreachable: nobody there). Local until something was lost; reset by connectLobby().
+            DisconnectReason     lastReason(void) const noexcept { return m_lastReason; }
             Endpoint*            room(void) noexcept { return m_room; }
             Endpoint*            lobby(void) noexcept { return m_lobby; }
             std::uint32_t        networkId(void) const noexcept { return m_networkId; }
 
         private:
-            using Request = std::variant<JoinRoom, CreateRoom, JoinNamedRoom>;
+            using Request = std::variant<JoinRoom, CreateRoom, JoinNamedRoom, RejoinRoom>;
 
             void bindLobby(Endpoint& lobby);
             void start(Request request);
@@ -270,6 +331,7 @@ namespace kuge::net
             Endpoint*               m_room = nullptr;
             State                   m_state = State::Idle;
             std::string             m_error;
+            DisconnectReason        m_lastReason = DisconnectReason::Local;
             std::uint32_t           m_networkId = 0;
 
             // How the lobby was reached, to reach the rooms the same way
@@ -278,6 +340,9 @@ namespace kuge::net
             LoopbackNetwork*        m_network = nullptr;
             EndpointConfig          m_config;
 
+            std::uint64_t             m_mods = 0;
+            bool                      m_rejoining = false;   // a RejoinRoom was asked for and not answered
+            std::optional<RejoinRoom> m_rejoin;       // the room that was assigned, kept until the player leaves it or it ends
             std::optional<Request>   m_pending;       // waiting for the lobby
             std::optional<ListRooms> m_pendingList;   // the same
             bool                     m_leaving = false;

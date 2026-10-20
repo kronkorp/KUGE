@@ -99,6 +99,10 @@ namespace kuge
         Type     type = Type::Kinematic;
         Vec2     velocity{};
         float    gravityScale = 1.0f;   //!< Dynamic only: 0 for none, 2 for twice
+        //! What a wall that stops the body gives back of its speed along the axis of the wall: 0 (the default) it stops
+        //! and slides along the wall, 1 it bounces back as fast as it came, in between it loses speed. The other axis is
+        //! not touched, so a body that meets a wall at an angle bounces off it. `contacts` say it touched the wall.
+        float    restitution = 0.0f;
         Contacts contacts;              //!< Written by the physics at each tick
     };
 

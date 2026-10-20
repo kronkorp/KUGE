@@ -72,6 +72,9 @@ bool kuge::InputMap::isActive(const Binding& binding) const
             return std::any_of(m_pads.begin(), m_pads.end(), [&](const auto& pad) {
                 return inRange(binding.code, pad.second.buttons) && pad.second.buttons[binding.code];
             });
+        case Binding::Kind::MouseWheel:
+        case Binding::Kind::MouseAxis:
+            return false;   // (a notch and a move are events, not states: see handle() and axisValue())
         case Binding::Kind::GamepadAxis:
             return std::any_of(m_pads.begin(), m_pads.end(), [&](const auto& pad) {
                 return inRange(binding.code, pad.second.axes)
@@ -79,6 +82,26 @@ bool kuge::InputMap::isActive(const Binding& binding) const
             });
     }
     return false;
+}
+
+float kuge::InputMap::axisOf(ActionId action) const
+{
+    float value = 0.0f;
+
+    for (const Binding& binding : m_bindings[action]) {
+        if (binding.kind == Binding::Kind::MouseAxis) {
+            value += (binding.code == 0 ? m_mouseDelta.x : m_mouseDelta.y) * binding.sensitivity;
+        } else if (binding.kind == Binding::Kind::GamepadAxis && binding.code < static_cast<std::size_t>(GamepadAxis::Count)) {
+            for (const auto& [id, pad] : m_pads) {
+                const float pushed = pad.axes[binding.code] * static_cast<float>(binding.direction);
+
+                if (pushed > m_stickDeadzone) {
+                    value += pad.axes[binding.code] * binding.sensitivity;
+                }
+            }
+        }
+    }
+    return value;
 }
 
 std::uint64_t kuge::InputMap::computeDown(void) const
@@ -113,14 +136,28 @@ namespace
     // How much typing is kept when nobody reads it (no text field): what is older is not worth keeping
     constexpr std::size_t MAX_TYPED_BYTES = 256;
     constexpr std::size_t MAX_EDIT_KEYS = 64;
+    constexpr float MAX_WHEEL = 100.0f;   // notches kept when nobody reads them
 
     bool editsText(kuge::Key key)
     {
         using kuge::Key;
 
         return key == Key::Backspace || key == Key::Delete || key == Key::Left || key == Key::Right || key == Key::Home
-            || key == Key::End || key == Key::Enter || key == Key::KpEnter || key == Key::Tab;
+            || key == Key::End || key == Key::Enter || key == Key::KpEnter || key == Key::Tab || key == Key::Up
+            || key == Key::Down || key == Key::Escape;
     }
+}
+
+bool kuge::InputMap::commandHeld(void) const
+{
+    const auto down = [this](Key key) { return m_keys[static_cast<std::size_t>(key)]; };
+
+    return down(Key::LCtrl) || down(Key::RCtrl) || down(Key::LGui) || down(Key::RGui);
+}
+
+float kuge::InputMap::takeWheel(void)
+{
+    return std::exchange(m_wheel, 0.0f);
 }
 
 std::string kuge::InputMap::takeTyped(void)
@@ -140,7 +177,10 @@ void kuge::InputMap::apply(const Event& event)
             m_typed += text->text;   // (a whole event or none: a character is never cut)
         }
     } else if (const auto* key = std::get_if<KeyEvent>(&event)) {
-        if (key->down && editsText(key->key) && m_editKeys.size() < MAX_EDIT_KEYS) {
+        // Ctrl (Cmd on macOS) + V, C or X are the clipboard keys; a V alone is a letter, typed as text
+        const bool clipboardKey = commandHeld() && (key->key == Key::V || key->key == Key::C || key->key == Key::X);
+
+        if (key->down && (editsText(key->key) || clipboardKey) && m_editKeys.size() < MAX_EDIT_KEYS) {
             m_editKeys.push_back(key->key);   // the repeats too: holding Backspace erases
         }
         const auto code = static_cast<std::size_t>(key->key);
@@ -155,8 +195,11 @@ void kuge::InputMap::apply(const Event& event)
         if (inRange(code, m_mouseButtons)) {
             m_mouseButtons[code] = button->down;
         }
+    } else if (const auto* wheel = std::get_if<MouseWheelEvent>(&event)) {
+        m_wheel = std::clamp(m_wheel + wheel->delta.y, -MAX_WHEEL, MAX_WHEEL);
     } else if (const auto* move = std::get_if<MouseMoveEvent>(&event)) {
         m_mouse = move->position;
+        m_mouseDelta += move->delta;
     } else if (const auto* pad = std::get_if<GamepadButtonEvent>(&event)) {
         const auto code = static_cast<std::size_t>(pad->button);
 
@@ -189,6 +232,10 @@ std::optional<kuge::Binding> kuge::InputMap::capturedBy(const Event& event) cons
         if (button->down) {
             return Binding(button->button);
         }
+    } else if (const auto* wheel = std::get_if<MouseWheelEvent>(&event)) {
+        if (wheel->delta.y != 0.0f) {
+            return Binding::wheel(wheel->delta.y > 0.0f ? 1 : -1);
+        }
     } else if (const auto* pad = std::get_if<GamepadButtonEvent>(&event)) {
         if (pad->down) {
             return Binding(pad->button);
@@ -218,6 +265,18 @@ void kuge::InputMap::handle(const Event& event)
     }
     apply(event);
     refresh(true);
+    if (const auto* wheel = std::get_if<MouseWheelEvent>(&event); wheel && wheel->delta.y != 0.0f) {
+        // A notch presses the actions bound to that way, for one tick
+        const int way = wheel->delta.y > 0.0f ? 1 : -1;
+
+        for (std::size_t action = 0; action < MAX_ACTIONS; ++action) {
+            const auto& list = m_bindings[action];
+
+            if (std::any_of(list.begin(), list.end(), [way](const Binding& b) { return b.kind == Binding::Kind::MouseWheel && b.direction == way; })) {
+                m_pressed |= std::uint64_t{1} << action;
+            }
+        }
+    }
 }
 
 kuge::ActionState kuge::InputMap::sampleTick(std::uint64_t tick)
@@ -289,7 +348,7 @@ void kuge::InputMap::load(const ConfigFile& config)
                     loaded.push_back(*binding);
                 }
             } else {
-                Logger::logger().warn("keybinds: '{}' is not an input (for '{}')", part, m_names[action]);
+                Logger::logger().category("client").warn("keybinds: '{}' is not an input (for '{}')", part, m_names[action]);
             }
         }
         m_bindings[action] = std::move(loaded);
@@ -306,7 +365,7 @@ bool kuge::InputMap::loadBindings(const std::filesystem::path& path)
             return false;
         }
     } catch (const ConfigError& error) {
-        Logger::logger().error("keybinds: cannot use '{}': {}", path.string(), error.what());
+        Logger::logger().category("client").error("keybinds: cannot use '{}': {}", path.string(), error.what());
         return false;
     }
     load(config);

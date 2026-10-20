@@ -257,7 +257,7 @@ namespace kuge::net
                             packet.clear();
                         }
                     } catch (const std::length_error& error) {
-                        Logger::logger().warn("net: {} sent nonsense ({}): disconnected", describe(), error.what());
+                        Logger::logger().category("net").warn("net: {} sent nonsense ({}): disconnected", describe(), error.what());
                         closePeer(peer, true);
                     }
                 }
@@ -404,7 +404,7 @@ namespace kuge::net
                             packet.clear();
                         }
                     } catch (const std::length_error& error) {
-                        Logger::logger().warn("net: {} received nonsense ({}): disconnected", describe(), error.what());
+                        Logger::logger().category("net").warn("net: {} received nonsense ({}): disconnected", describe(), error.what());
                         lost();
                     }
                 }

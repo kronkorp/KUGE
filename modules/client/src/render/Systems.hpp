@@ -23,6 +23,15 @@ namespace kuge
             bool handle(kw::World& world) override;
     };
 
+    //! Frame, stage Render (after SpriteRender): what the developer asked to see, over the sprites and in the coordinates of the world:
+    //! the debug shapes of the scene (colliders: blue static, green moving, yellow trigger), the box of every sprite, and the edge
+    //! of what the camera shows. Nothing is done when DebugDraw says nothing is wanted.
+    class DebugRender : public kw::ISystem
+    {
+        public:
+            bool handle(kw::World& world) override;
+    };
+
     //! Frame, stage Render: draws the entities that have a Transform2D and a
     //! Sprite or a TilemapView, through the Camera2D. Lowest layer first, and
     //! always in the same order for the same scene, whatever order the World

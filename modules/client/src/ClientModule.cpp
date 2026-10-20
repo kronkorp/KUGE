@@ -2,11 +2,13 @@
 #include "Engine.hpp"
 #include "Logger.hpp"
 #include "Ref.hpp"
+#include "Stats.hpp"
 #include "animation/Animation.hpp"
 #include "audio/DummyAudio.hpp"
 #include "input/ActionState.hpp"
 #include "render/Components.hpp"
 #include "render/ImageDecoder.hpp"
+#include <fstream>
 #include <stdexcept>
 
 namespace
@@ -70,6 +72,7 @@ void kuge::ClientModule::inject(kw::World& world)
 {
     world.addResource<Ref<IWindow>>(*m_backend.window);
     world.addResource<Ref<IRenderer2D>>(*m_backend.renderer);
+    world.addResource<Ref<IInputSource>>(*m_backend.input);
     world.addResource<Ref<InputMap>>(m_input);
     world.addResource<Ref<AssetManager<Texture>>>(m_textures);
     world.addResource<Ref<Audio>>(m_mixer);
@@ -86,6 +89,7 @@ void kuge::ClientModule::beginFrame(Engine& engine)
 {
     m_textures.pump();
     m_events.clear();
+    m_input.beginFrame();
     m_backend.input->poll(m_events);
     for (const Event& event : m_events) {
         if (std::holds_alternative<QuitEvent>(event)) {
@@ -105,14 +109,39 @@ void kuge::ClientModule::beginFrame(Engine& engine)
     m_backend.renderer->begin(m_config.clearColor);
 }
 
-void kuge::ClientModule::endFrame(Engine&)
+void kuge::ClientModule::saveScreenshot(const std::filesystem::path& file)
+{
+    m_screenshotFile = file;
+    m_screenshotRequested = true;
+}
+
+void kuge::ClientModule::endFrame(Engine& engine)
 {
     if (m_screenshotRequested) {
         m_screenshotRequested = false;
         m_screenshot = m_backend.renderer->readPixels();
+        if (m_screenshotFile) {
+            const std::filesystem::path file = std::move(*m_screenshotFile);
+            m_screenshotFile.reset();
+            if (!m_screenshot || m_screenshot->empty()) {
+                Logger::logger().category("client").warn("screenshot: this backend cannot read its pixels");
+            } else if (std::ofstream out(file, std::ios::binary | std::ios::trunc); !out) {
+                Logger::logger().category("client").warn("screenshot: cannot write '{}'", file.string());
+            } else {
+                const Image& image = *m_screenshot;
+
+                out << "P6\n" << image.width << ' ' << image.height << "\n255\n";
+                for (std::size_t i = 0; i + 3 < image.rgba.size(); i += 4) {
+                    out.write(reinterpret_cast<const char*>(&image.rgba[i]), 3);
+                }
+                Logger::logger().category("client").ok("screenshot: '{}' ({} x {})", file.string(), image.width, image.height);
+            }
+            m_screenshot.reset();
+        }
     }
     m_backend.renderer->present();
-    m_mixer.update();
+    m_mixer.update(engine.time().frameDt);
+    Gauges::global().set("audio.voices", static_cast<double>(m_mixer.voices()));
 }
 
 std::size_t kuge::ClientModule::reloadAssets(void)
@@ -121,10 +150,10 @@ std::size_t kuge::ClientModule::reloadAssets(void)
     const auto tell = [&count](const auto& report) {
         count += report.reloaded.size();
         for (const auto& [path, why] : report.failed) {
-            Logger::logger().warn("reload: '{}' kept as it was: {}", path.string(), why);
+            Logger::logger().category("client").warn("reload: '{}' kept as it was: {}", path.string(), why);
         }
         for (const auto& path : report.reloaded) {
-            Logger::logger().info("reload: '{}'", path.string());
+            Logger::logger().category("client").info("reload: '{}'", path.string());
         }
     };
 

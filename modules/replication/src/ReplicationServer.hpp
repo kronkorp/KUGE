@@ -13,8 +13,15 @@ namespace kuge::replication
     struct ReplicationServerConfig
     {
         std::uint32_t sendInterval = 2;      //!< A snapshot every this many ticks (2 at 60 Hz: 30 snapshots per second)
+        double        sendRate     = 0.0;    //!< Snapshots per second, instead of sendInterval when above 0 (30, 64...). Needs tickRate.
+        std::uint32_t tickRate     = 0;      //!< Of the room (`init().server.tickRate`): what sendRate is a fraction of
         std::size_t   maxHistory   = 64;     //!< Snapshots kept for a client that has not acknowledged them yet
-        std::size_t   maxPartBytes = 6000;   //!< A snapshot that is bigger goes in several packets
+        //! The most bytes of records in one packet. A snapshot that is bigger goes in several packets (parts), and the
+        //! client needs all of them to apply it. 1100 is the payload of one datagram that goes through the Internet
+        //! whole: with the headers of a part (about 50 bytes) it stays under net::DATAGRAM_PAYLOAD (1200), where a bigger
+        //! datagram is cut by IP and lost as a whole when one fragment is. A record bigger than this is not sent (counted
+        //! in stats().oversized, and logged): raise it for a game whose entities weigh more, knowing what it costs.
+        std::size_t   maxPartBytes = 1100;
     };
 
     struct ReplicationServerStats
@@ -24,7 +31,15 @@ namespace kuge::replication
         std::uint64_t bytesSent = 0;         //!< Of the changes (without the headers)
         std::uint64_t fullSnapshots = 0;     //!< Sent from nothing (a new client, or one that asked)
         std::uint64_t acksReceived = 0;
-        std::uint64_t oversized = 0;         //!< Records too big for a packet: not sent
+        std::uint64_t entitiesSent = 0;      //!< Records that were let through to a client at a snapshot (the filter said yes)
+        std::uint64_t entitiesFiltered = 0;  //!< Records that the filter kept from a client at a snapshot
+        std::uint64_t entitiesSkipped = 0;   //!< Records not refreshed at a snapshot because of their rate (setRate)
+        std::uint64_t oversized = 0;         //!< Records over maxPartBytes: not sent
+        std::uint64_t multipartSnapshots = 0;   //!< Snapshots that went in several parts
+        std::uint64_t maxParts = 0;          //!< The most parts one snapshot took
+        //! Bytes of the components sent, by number in the registry (what is in the records, not their headers): where a
+        //! big snapshot goes. The answer to a big snapshot is fewer bytes, not more parts.
+        std::vector<std::uint64_t> componentBytes;
     };
 
     ////////////////////////////////////////////////////////////////////////////
@@ -76,9 +91,17 @@ namespace kuge::replication
             //! What a client may see (interest management): everything if not set
             void setFilter(Filter filter) { m_filter = std::move(filter); }
 
+            //! How often an entity that a client may see is refreshed: every `n`th snapshot (1: every one; 2 or 4 for what is far).
+            //! At the other snapshots the client keeps the record it has, as if the entity had not changed, and a cheap
+            //! snapshot results. An entity the client does not have yet is sent at once.
+            using Rate = std::function<std::uint32_t(net::ConnectionId, NetworkId, const EntityRecord&)>;
+            void setRate(Rate rate) { m_rate = std::move(rate); }
+
             //! Once per tick, with the number of the tick: sends what is due
             void update(std::uint32_t tick);
 
+            //! Ticks between two snapshots (sendInterval, or what sendRate comes to)
+            std::uint32_t                 interval(void) const noexcept { return m_interval; }
             const ReplicationServerStats& stats(void) const noexcept { return m_stats; }
             std::size_t                   tracked(void);
 
@@ -100,9 +123,11 @@ namespace kuge::replication
             const ReplicationRegistry&                 m_registry;
             net::Endpoint&                             m_endpoint;
             ReplicationServerConfig                    m_config;
+            std::uint32_t                              m_interval = 2;
             NetworkId                                  m_nextId = 1;
             std::map<net::ConnectionId, ClientState>   m_clients;
             Filter                                     m_filter;
+            Rate                                       m_rate;
             ReplicationServerStats                     m_stats;
             std::shared_ptr<bool>                      m_alive = std::make_shared<bool>(true);
     };

@@ -24,7 +24,22 @@ namespace kuge::replication
     struct ReplicationClientConfig
     {
         std::uint32_t tickRate           = 60;     //!< Of the server (Welcome says it)
-        double        interpolationDelay = 0.1;    //!< Seconds behind the server that other entities are drawn (a few snapshots)
+        //! How far behind the newest snapshot other entities are drawn, in snapshot intervals. The interval is the one
+        //! the snapshots show (the smallest gap between two that came), so the delay follows the server's rate: 2 at
+        //! 64 snapshots a second is 31 ms, at 30 a second 67 ms. Two is the least that rides over one lost snapshot.
+        double        interpolationIntervals = 2.0;
+        //! The same in seconds, when above 0: it replaces interpolationIntervals (a fixed delay, as before)
+        double        interpolationDelay = 0.0;
+        std::uint32_t snapshotInterval   = 2;      //!< Ticks between two snapshots, until the client has seen two (ReplicationServer::interval())
+        //! Lets the delay grow when the snapshots come late or are lost (the buffer ran dry: stats().starved), by one
+        //! interval each time, up to maxInterpolationIntervals; it comes back to its base slowly (one interval in 5 s)
+        //! while they are steady. Off by default: the delay is then what interpolationIntervals says.
+        bool          adaptiveDelay      = false;
+        double        maxInterpolationIntervals = 6.0;   //!< The most the adaptive delay grows to, in intervals
+        //! Past the newest snapshot, an interpolated component goes on along the trend of its last two values (its
+        //! lerp with t above 1) for at most this many seconds, then waits. 0 (the default): it waits at once, so a
+        //! lost snapshot freezes it. Opt in for shooters; a few tens of milliseconds (0.05) is what hides one loss.
+        double        maxExtrapolation   = 0.0;
         std::size_t   maxStates          = 32;    //!< Snapshots kept to build the next ones from
         std::size_t   maxPending         = 16;    //!< Snapshots that are waiting for their other parts
     };
@@ -39,6 +54,9 @@ namespace kuge::replication
         std::uint64_t wrongSchema = 0;       //!< From a server whose list of components is not ours
         std::uint64_t spawned = 0;
         std::uint64_t destroyed = 0;
+        std::uint64_t incomplete = 0;        //!< Snapshots given up for want of a part (a part was lost, or the next one came first)
+        std::uint64_t starved = 0;           //!< Times the interpolation ran past the newest snapshot (it came late, or was lost)
+        std::uint64_t extrapolated = 0;      //!< Frames in which an interpolated component was extrapolated (maxExtrapolation)
     };
 
     ////////////////////////////////////////////////////////////////////////////
@@ -109,6 +127,21 @@ namespace kuge::replication
             //! Each frame: moves the time of the interpolation, and places the interpolated components
             void update(double frameSeconds);
 
+            //! A snapshot that did not come from the network (a replay): the same as one that did
+            void receive(const SnapshotPacket& packet) { onPacket(packet); }
+
+            //! Called with the whole state of the world each time a snapshot was applied (what a Recorder keeps)
+            using Tap = std::function<void(std::uint32_t tick, std::uint32_t inputAck, const WorldState& state)>;
+            void setTap(Tap tap) { m_tap = std::move(tap); }
+
+            //! Forgets everything it knows, and removes the entities it made (with the hooks of onDestroy): the next snapshot
+            //! must be a full one. A replay that goes back in time starts like that.
+            void reset(void);
+
+            //! Seconds behind the newest snapshot that others are drawn now (the adaptive part included)
+            double                        delay(void) const noexcept;
+            //! Ticks between two snapshots, as the client measures them
+            double                        snapshotInterval(void) const noexcept { return m_interval; }
             std::uint32_t                 lastTick(void) const noexcept { return m_lastApplied; }
             std::uint32_t                 inputAck(void) const noexcept { return m_inputAck; }
             double                        renderTick(void) const noexcept { return m_renderTick; }
@@ -141,6 +174,7 @@ namespace kuge::replication
             void spawn(NetworkId id, const EntityRecord& record, std::uint32_t tick);
             bool isOwned(const EntityRecord& record) const { return m_localPlayer != 0 && record.owner == m_localPlayer && m_predictedTypes.count(record.type) != 0; }
             void ack(std::uint32_t tick);
+            double baseDelay(void) const noexcept;
 
             kw::World&                              m_world;
             const ReplicationRegistry&              m_registry;
@@ -152,6 +186,7 @@ namespace kuge::replication
             std::set<EntityType>                    m_predictedTypes;
             OwnedHook                               m_owned;
             OwnedGoneHook                           m_ownedGone;
+            Tap                                     m_tap;
 
             std::map<std::uint32_t, WorldState>     m_states;        //!< Applied snapshots, by tick
             WorldState                              m_current;       //!< What the World shows (the last applied)
@@ -163,6 +198,10 @@ namespace kuge::replication
             bool                                    m_started = false;
             double                                  m_renderTick = 0.0;
             double                                  m_sinceLatest = 0.0;
+            double                                  m_interval = 2.0;       //!< Ticks between snapshots: the smallest of the last gaps
+            std::deque<std::uint32_t>               m_gaps;
+            double                                  m_extra = 0.0;          //!< Seconds the adaptive delay adds
+            bool                                    m_starved = false;
             ReplicationClientStats                  m_stats;
             std::shared_ptr<bool>                   m_alive = std::make_shared<bool>(true);
     };

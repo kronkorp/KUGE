@@ -33,6 +33,9 @@ namespace kuge::server
                 std::string        name;
                 double             issuedAt;
                 bool               joined = false;   //!< The room welcomed it
+                std::uint64_t      rejoinKey = 0;    //!< What lets this player back into its room (RejoinRoom)
+                bool               away = false;     //!< Its connection to the lobby was lost, and the room keeps its place
+                double             awaySince = 0.0;
             };
 
             struct Room
@@ -41,12 +44,15 @@ namespace kuge::server
                 std::string              type;
                 std::string              name;
                 bool                     isPrivate = false;   //!< Not in the lists, not filled by the automatic matchmaking
+                std::string              options;
                 SceneHandle              handle;
                 std::uint16_t            port = 0;
                 std::string              address;
                 std::size_t              maxPlayers;
                 bool                     ready = false;
+                bool                     open = true;       //!< The room takes newcomers (RoomScene::setOpen)
                 bool                     closing = false;   //!< The game ended: it takes no one more
+                net::RoomEnd             endReason = net::RoomEnd::GameOver;   //!< Why, once it is closing
                 std::set<std::uint32_t>  members;      //!< Player ids: joined, or on their way
                 std::vector<std::uint32_t> waiting;    //!< Told where the room is once it is ready
             };
@@ -63,15 +69,18 @@ namespace kuge::server
                 std::string   roomName;        //!< Create: the name to give. Named: the name the room must have.
                 std::string   playerName;
                 bool          isPrivate = false;
+                std::string   options;         //!< Create
                 std::uint16_t protocol = net::MATCHMAKING_VERSION;
+                std::uint64_t mods = 0;
             };
 
             void request(net::ConnectionId from, Want want);
             void handleList(net::ConnectionId from, const net::ListRooms& request);
             void handleLeave(net::ConnectionId from);
-            void handleGone(net::ConnectionId from);
+            void handleGone(net::ConnectionId from, net::DisconnectReason reason);
+            void handleRejoin(net::ConnectionId from, const net::RejoinRoom& rejoin);
             Room* findRoom(const std::string& type);
-            Room* makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate);
+            Room* makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate, const std::string& options);
             void enter(net::ConnectionId from, Room& room, const std::string& playerName);
             void assign(const Member& member, const Room& room);
             void removeMember(std::uint32_t playerId, bool tellRoom, net::RoomEnd reason);

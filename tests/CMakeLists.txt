@@ -1,5 +1,13 @@
 # What needs no test framework runs on every platform: the boundaries, and the games played for real.
 add_subdirectory(boundaries)
+add_subdirectory(dll_ids)
+
+# Ticket 023: the same floats on every platform. A plain program (no kronklab), so Windows runs it too:
+# the final state of a scripted 2D simulation is hashed, and Linux and Windows must reach the same constant
+add_executable(kuge_float_determinism determinism/float_determinism.cpp)
+target_link_libraries(kuge_float_determinism PRIVATE kuge-physics)
+target_compile_options(kuge_float_determinism PRIVATE ${KUGE_WARNINGS})
+add_test(NAME float_determinism COMMAND kuge_float_determinism)
 
 # The real game, started for real (on SDL's dummy screen), plays a scripted match
 if(TARGET kuge_pong)
@@ -28,6 +36,26 @@ if(TARGET kuge_rtype_server AND TARGET kuge_rtype_client AND TARGET kuge_rtype_h
     endif()
 endif()
 
+# Arena, a 3D game, as real programs: a server and a client over the network, then the host (both in one process)
+if(TARGET kuge_arena3d_server AND TARGET kuge_arena3d_client AND TARGET kuge_arena3d_host)
+    if(KUGE_SH)
+        add_test(NAME arena3d_smoke
+            COMMAND ${KUGE_SH} ${PROJECT_SOURCE_DIR}/cmake/RunArena3D.sh
+                    $<TARGET_FILE:kuge_arena3d_server> $<TARGET_FILE:kuge_arena3d_client> $<TARGET_FILE:kuge_arena3d_host>
+                    ${CMAKE_CURRENT_BINARY_DIR}/arena3d)
+        # The same on the GPU, with SDL's offscreen video driver (an OpenGL context and no window): skipped (77) where
+        # there is no OpenGL 3.3
+        add_test(NAME arena3d_smoke_gl
+            COMMAND ${KUGE_SH} ${PROJECT_SOURCE_DIR}/cmake/RunArena3D.sh
+                    $<TARGET_FILE:kuge_arena3d_server> $<TARGET_FILE:kuge_arena3d_client> $<TARGET_FILE:kuge_arena3d_host>
+                    ${CMAKE_CURRENT_BINARY_DIR}/arena3d_gl)
+        set_tests_properties(arena3d_smoke_gl PROPERTIES
+            ENVIRONMENT "SDL_VIDEODRIVER=offscreen;ARENA_ARGS=--opengl" SKIP_RETURN_CODE 77)
+    else()
+        message(STATUS "No sh found: the Arena smoke tests (cmake/RunArena3D.sh) are not run")
+    endif()
+endif()
+
 # The unit tests run on kronklab, which runs each test in a fork(): Windows does not have it
 if(WIN32)
     return()
@@ -38,17 +66,28 @@ add_executable(kuge_tests
     core/asset_manager_test.cpp
     core/asset_reload_test.cpp
     core/config_file_test.cpp
+    core/utf8_test.cpp
+    core/cvars_test.cpp
     core/engine_test.cpp
     core/fixed_timestep_test.cpp
+    core/json_test.cpp
     core/mailbox_test.cpp
+    core/profiler_test.cpp
+    core/random_test.cpp
     core/math2d_test.cpp
     core/module_test.cpp
+    core/mods_test.cpp
+    core/reflect_test.cpp
     core/save_test.cpp
     core/scene_test.cpp
     core/serializer_test.cpp
     core/snapshot_test.cpp
     core/spawn_test.cpp
     core/tilemap_test.cpp
+    core/time_control_test.cpp
+    core/timeline_test.cpp
+    core/transform3d_test.cpp
+    core/world_history_test.cpp
 )
 target_link_libraries(kuge_tests PRIVATE kuge-core kronklab-static)
 target_compile_options(kuge_tests PRIVATE ${KUGE_WARNINGS})
@@ -77,25 +116,34 @@ if(TARGET kuge-client AND TARGET rtype-room)
 endif()
 
 add_executable(kuge_replication_tests
+    replication/datagram_test.cpp
     replication/prediction_test.cpp
+    replication/rates_test.cpp
+    replication/replication3d_test.cpp
     replication/replication_test.cpp
+    replication/replay_test.cpp
     replication/room_test.cpp
+    replication/shooting_test.cpp
+    replication/visibility_test.cpp
 )
 target_link_libraries(kuge_replication_tests PRIVATE kuge-replication kuge-server kronklab-static)
 target_compile_options(kuge_replication_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_replication_tests kuge_replication_tests)
 
-add_executable(kuge_server_tests server/server_test.cpp)
+add_executable(kuge_server_tests server/server_test.cpp server/stdin_commands_test.cpp server/chat_test.cpp server/mods_test.cpp server/rejoin_test.cpp server/cinematic_test.cpp)
 target_link_libraries(kuge_server_tests PRIVATE kuge-server kronklab-static)
 target_compile_options(kuge_server_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_server_tests kuge_server_tests)
 
 add_executable(kuge_net_tests
+    net/auth_test.cpp
     net/endpoint_test.cpp
+    net/handshake_test.cpp
     net/loopback_test.cpp
     net/net_scene_test.cpp
     net/socket_test.cpp
     net/reliable_test.cpp
+    net/simulated_transport_test.cpp
     net/unreliable_network_test.cpp
     net/wire_test.cpp
 )
@@ -120,17 +168,31 @@ target_link_libraries(kuge_logger_init_tests PRIVATE kuge-logger kronklab-static
 target_compile_options(kuge_logger_init_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_logger_init_tests kuge_logger_init_tests)
 
+if(TARGET kuge-physics3d)
+    add_executable(kuge_animation_tests animation/animation_test.cpp)
+    target_link_libraries(kuge_animation_tests PRIVATE kuge-animation kuge-physics3d kronklab-static)
+    target_compile_options(kuge_animation_tests PRIVATE ${KUGE_WARNINGS})
+    kuge_add_test(kuge_animation_tests kuge_animation_tests)
+endif()
+
 if(TARGET kuge-client)
     add_executable(kuge_client_tests
         client/animation_test.cpp
         client/async_load_test.cpp
         client/audio_test.cpp
+        client/camera_test.cpp
+        client/chat_log_test.cpp
+        client/cinematic_test.cpp
         client/client_module_test.cpp
+        client/debug_test.cpp
+        client/console_test.cpp
         client/hot_reload_test.cpp
         client/image_test.cpp
         client/input_map_test.cpp
         client/keys_test.cpp
+        client/lowpass_test.cpp
         client/platformer_test.cpp
+        client/overlay_test.cpp
         client/pong_test.cpp
         client/sdl_audio_test.cpp
         client/sdl_font_test.cpp
@@ -143,10 +205,39 @@ if(TARGET kuge-client)
         client/ui_layout_test.cpp
         client/ui_render_test.cpp
         client/ui_textfield_test.cpp
+        client/ui_widgets_test.cpp
+        client/window_test.cpp
     )
     target_link_libraries(kuge_client_tests PRIVATE kuge-client kronklab-static)
     target_include_directories(kuge_client_tests PRIVATE ${PROJECT_SOURCE_DIR}/example/pong ${PROJECT_SOURCE_DIR}/example/platformer)
     target_link_libraries(kuge_client_tests PRIVATE kuge-physics)
     target_compile_options(kuge_client_tests PRIVATE ${KUGE_WARNINGS})
     kuge_add_test(kuge_client_tests kuge_client_tests)
+endif()
+
+if(TARGET kuge-render3d)
+    add_executable(kuge_render3d_tests render3d/animator3d_test.cpp render3d/camera_test.cpp render3d/effects_test.cpp render3d/gl_test.cpp render3d/models_test.cpp render3d/render3d_test.cpp)
+    target_link_libraries(kuge_render3d_tests PRIVATE kuge-render3d kronklab-static)
+    target_include_directories(kuge_render3d_tests PRIVATE render3d)
+    target_compile_options(kuge_render3d_tests PRIVATE ${KUGE_WARNINGS})
+    kuge_add_test(kuge_render3d_tests kuge_render3d_tests)
+endif()
+
+if(TARGET kuge-physics3d)
+    add_executable(kuge_physics3d_tests physics3d/physics3d_test.cpp physics3d/physics3d_net_test.cpp
+        physics3d/character_test.cpp physics3d/hitbox_test.cpp)
+    target_link_libraries(kuge_physics3d_tests PRIVATE kuge-physics3d kuge-replication kronklab-static)
+    target_include_directories(kuge_physics3d_tests PRIVATE replication)
+    target_compile_options(kuge_physics3d_tests PRIVATE ${KUGE_WARNINGS})
+    kuge_add_test(kuge_physics3d_tests kuge_physics3d_tests)
+endif()
+
+# The rules of Arena, with no network and no screen (only when the examples are built: its libraries are theirs)
+if(TARGET arena-common)
+    add_executable(kuge_arena3d_tests arena3d/arena3d_test.cpp)
+    target_link_libraries(kuge_arena3d_tests PRIVATE arena-common kronklab-static)
+    target_compile_definitions(kuge_arena3d_tests PRIVATE ARENA_ASSETS_DIR="${PROJECT_SOURCE_DIR}/example/arena3d/assets")
+    target_include_directories(kuge_arena3d_tests PRIVATE ${PROJECT_SOURCE_DIR}/example/arena3d/client)
+    target_compile_options(kuge_arena3d_tests PRIVATE ${KUGE_WARNINGS})
+    kuge_add_test(kuge_arena3d_tests kuge_arena3d_tests)
 endif()

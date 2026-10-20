@@ -26,7 +26,9 @@ namespace kuge::replication
 
     //! What to send so that whoever has `baseline` (null: nothing) can build `current`: one record for each entity
     //! that appeared, changed or went. Each record is complete on its own (see applyOps).
-    std::vector<Bytes> diffOps(const ReplicationRegistry& registry, const WorldState* baseline, const WorldState& current);
+    //! @param bytesByComponent  If given (as big as the registry), adds to each component the bytes that were written for it
+    std::vector<Bytes> diffOps(const ReplicationRegistry& registry, const WorldState* baseline, const WorldState& current,
+        std::vector<std::uint64_t>* bytesByComponent = nullptr);
 
     //! The state that results from `baseline` and the records of diffOps() (concatenated)
     //! @throw SerializerError if the data does not make sense

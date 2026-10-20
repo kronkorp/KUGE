@@ -3,6 +3,7 @@
 #include "sdl/SdlKeys.hpp"
 #include <SDL.h>
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <map>
 #include <memory>
@@ -95,6 +96,72 @@ namespace
     };
 
     ////////////////////////////////////////////////////////////////////////////
+    // An OpenGL 3.3 core context on a window of its own that is never shown. (Not the window of the 2D renderer: SDL's
+    // renderer has its own context there, and the two would fight over it.)
+    class SdlOpenGL : public IOpenGL
+    {
+        public:
+            SdlOpenGL(std::shared_ptr<SdlContext> context, int width, int height) : m_context(std::move(context))
+            {
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+                SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+                m_window.reset(SDL_CreateWindow("KUGE OpenGL", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                    std::max(width, 1), std::max(height, 1), SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN));
+                if (m_window) {
+                    m_gl = SDL_GL_CreateContext(m_window.get());
+                }
+                SDL_GL_ResetAttributes();     // (what SDL's own renderer makes later is not ours to change)
+                if (!m_gl) {
+                    fail("no OpenGL 3.3 context");
+                }
+            }
+
+            ~SdlOpenGL(void) override
+            {
+                if (m_gl) {
+                    SDL_GL_DeleteContext(m_gl);
+                }
+            }
+
+            SdlOpenGL(const SdlOpenGL&)            = delete;
+            SdlOpenGL& operator=(const SdlOpenGL&) = delete;
+
+            void makeCurrent(void) override { SDL_GL_MakeCurrent(m_window.get(), m_gl); }
+
+            void (*procAddress(const char* name))(void) override
+            {
+                return reinterpret_cast<void (*)(void)>(SDL_GL_GetProcAddress(name));
+            }
+
+            void resize(int width, int height) override { SDL_SetWindowSize(m_window.get(), std::max(width, 1), std::max(height, 1)); }
+
+            std::string description(void) override
+            {
+                using GetString = const unsigned char* (*)(unsigned);
+                const auto getString = reinterpret_cast<GetString>(SDL_GL_GetProcAddress("glGetString"));
+
+                if (!getString) {
+                    return "OpenGL";
+                }
+                constexpr unsigned RENDERER = 0x1F01;
+                constexpr unsigned VERSION = 0x1F02;
+                const auto text = [&](unsigned what) {
+                    const unsigned char* value = getString(what);
+
+                    return value ? std::string(reinterpret_cast<const char*>(value)) : std::string("?");
+                };
+
+                return text(RENDERER) + ", OpenGL " + text(VERSION);
+            }
+
+        private:
+            std::shared_ptr<SdlContext>                m_context;   // (the video subsystem lives as long as this)
+            std::unique_ptr<SDL_Window, WindowDeleter> m_window;
+            SDL_GLContext                              m_gl = nullptr;
+    };
+
+    ////////////////////////////////////////////////////////////////////////////
     class SdlWindow : public IWindow
     {
         public:
@@ -112,6 +179,48 @@ namespace
             void setTitle(const std::string& title) override
             {
                 SDL_SetWindowTitle(m_context->window.get(), title.c_str());
+            }
+
+            void setSize(int width, int height) override
+            {
+                SDL_SetWindowSize(m_context->window.get(), std::max(width, 1), std::max(height, 1));
+            }
+
+            void setFullscreen(bool on) override
+            {
+                if (on == fullscreen()) {
+                    return;
+                }
+                SDL_SetWindowFullscreen(m_context->window.get(), on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                if (!on) {
+                    SDL_SetWindowPosition(m_context->window.get(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+                }
+            }
+
+            bool fullscreen(void) const override
+            {
+                return (SDL_GetWindowFlags(m_context->window.get()) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) != 0;
+            }
+
+            void setVsync(bool on) override
+            {
+                SDL_RenderSetVSync(m_context->renderer.get(), on ? 1 : 0);
+            }
+
+            std::string clipboardText(void) const override
+            {
+                std::string text;
+
+                if (char* clipboard = SDL_GetClipboardText()) {
+                    text = clipboard;
+                    SDL_free(clipboard);
+                }
+                return text;
+            }
+
+            void setClipboardText(const std::string& text) override
+            {
+                SDL_SetClipboardText(text.c_str());
             }
 
         private:
@@ -173,6 +282,13 @@ namespace
         public:
             explicit SdlInput(std::shared_ptr<SdlContext> context) : m_context(std::move(context)) {}
 
+            void setRelativeMouse(bool on) override
+            {
+                m_relative = on;
+                SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE);
+                m_skipMove = on;
+            }
+
             void poll(std::vector<Event>& out) override
             {
                 SDL_Event event;
@@ -194,6 +310,11 @@ namespace
                             out.push_back(QuitEvent{});
                         } else if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
                             out.push_back(ResizeEvent{event.window.data1, event.window.data2});
+                        } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST && m_relative) {
+                            SDL_SetRelativeMouseMode(SDL_FALSE);    // (the cursor is given back to whoever has the focus now)
+                        } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED && m_relative) {
+                            SDL_SetRelativeMouseMode(SDL_TRUE);     // (and taken again when the window gets it back)
+                            m_skipMove = true;
                         }
                         break;
                     case SDL_KEYDOWN:
@@ -208,9 +329,12 @@ namespace
                         }
                         break;
                     case SDL_MOUSEMOTION:
+                        // The first move after the mouse is taken is a jump (the cursor is brought to the middle of
+                        // the window): its delta is not a movement of the hand
                         out.push_back(MouseMoveEvent{
                             {static_cast<float>(event.motion.x), static_cast<float>(event.motion.y)},
-                            {static_cast<float>(event.motion.xrel), static_cast<float>(event.motion.yrel)}});
+                            m_skipMove ? Vec2{} : Vec2{static_cast<float>(event.motion.xrel), static_cast<float>(event.motion.yrel)}});
+                        m_skipMove = false;
                         break;
                     case SDL_MOUSEBUTTONDOWN:
                     case SDL_MOUSEBUTTONUP:
@@ -275,6 +399,8 @@ namespace
             }
 
             std::shared_ptr<SdlContext> m_context;
+            bool                        m_relative = false;   //!< The game wants the mouse for a mouse look
+            bool                        m_skipMove = false;   //!< The next move is the mouse being taken: no delta
     };
 
     ////////////////////////////////////////////////////////////////////////////
@@ -301,6 +427,7 @@ namespace
 
             void begin(Color clear) override
             {
+                SDL_RenderSetClipRect(renderer(), nullptr);   // (a clip left from the last frame would cut the clear)
                 SDL_SetRenderDrawColor(renderer(), clear.r, clear.g, clear.b, clear.a);
                 SDL_RenderClear(renderer());
             }
@@ -336,6 +463,35 @@ namespace
                     SDL_DestroyTexture(found->second);
                     m_textures.erase(found);
                 }
+            }
+
+            void updateTexture(TextureId id, std::span<const std::uint8_t> rgba) override
+            {
+                const auto found = m_textures.find(id);
+                int width = 0;
+                int height = 0;
+
+                if (found == m_textures.end() || SDL_QueryTexture(found->second, nullptr, nullptr, &width, &height) != 0
+                    || rgba.size() != static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4) {
+                    throw std::runtime_error("SdlRenderer: unknown texture, or the pixels do not match its size");
+                }
+                if (SDL_UpdateTexture(found->second, nullptr, rgba.data(), width * 4) != 0) {
+                    fail("cannot fill a texture");
+                }
+            }
+
+            void setClip(const std::optional<Rect>& area) override
+            {
+                if (!area) {
+                    SDL_RenderSetClipRect(renderer(), nullptr);
+                    return;
+                }
+                // Whole pixels, rounded outwards: what the clip lets through is never less than what was asked
+                const int left = static_cast<int>(std::floor(area->x));
+                const int top = static_cast<int>(std::floor(area->y));
+                const SDL_Rect clip{left, top, static_cast<int>(std::ceil(area->right())) - left, static_cast<int>(std::ceil(area->bottom())) - top};
+
+                SDL_RenderSetClipRect(renderer(), &clip);
             }
 
             void fillRect(const Rect& destination, Color color) override
@@ -410,10 +566,17 @@ kuge::Backend kuge::makeSdlBackend(const WindowConfig& config)
     backend.input = std::make_unique<SdlInput>(context);
     backend.renderer = std::make_unique<SdlRenderer>(context);
     backend.fonts = makeSdlFontLoader();
+    if (config.openGL) {
+        try {
+            backend.opengl = std::make_unique<SdlOpenGL>(context, config.width, config.height);
+        } catch (const BackendError& error) {
+            Logger::logger().category("client").warn("no OpenGL for the 3D: {}", error.what());
+        }
+    }
     try {
         backend.audio = makeSdlAudio();
     } catch (const AudioError& error) {
-        Logger::logger().warn("no sound: {}", error.what());
+        Logger::logger().category("client").warn("no sound: {}", error.what());
     }
     return backend;
 }

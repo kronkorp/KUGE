@@ -73,11 +73,34 @@ growing without end. Over TCP nothing is ever sent twice.
 `send` returns `false` if it could not be sent: not connected, too big for a packet (a message is at most
 8192 bytes with its header), or too many are waiting. Check it when it matters.
 
+**Over UDP, keep a message under about 1200 bytes** (`DATAGRAM_PAYLOAD`). 8192 is what a transport carries (and TCP
+and the loopback carry it all), but a UDP datagram over what a path carries in one piece (about 1500 bytes on
+Ethernet, 1280 at the least) is cut into fragments by IP, and losing one fragment loses the whole datagram: with 5
+fragments and 2 % of loss, about 10 % of them are lost, and a reliable message is sent again and again. KUGE does not
+cut a message itself (no fragmentation, and no ack per fragment): a big message is the game's to split into several,
+or to make smaller. The endpoint counts the packets it sent over `DATAGRAM_PAYLOAD` on a transport that can lose them
+(`stats().bigPackets`), so a game can see that it does it. Snapshots are cut by the replication, in parts of 1100 bytes
+(see [10](../10-replication-and-prediction/README.md)).
+
 ### Handshake, keep-alive, timeouts
 
 - A client sends `Connect` until the server answers `Accept`. So **"connected" means the other side answered**,
   even over UDP, where a socket knows nothing about who is at the other end. A server that is full, or that has
   another `protocol` version, refuses (`DisconnectReason::Refused`).
+- **The server checks the address before it keeps anything.** Over UDP the first `Connect` is answered with a small
+  `Challenge` (a cookie that only this server can make, for this address and this client); the client repeats its
+  `Connect` with it, and only then is the connection made. A `Connect` from a forged address, which never receives
+  the `Challenge`, leaves no connection, takes none of the `maxConnections` places (the peers that have not answered are
+  at most `maxHalfOpen`, the oldest dropped first) and is answered by less than it sent. The connection costs one more
+  round trip. TCP has proved the address already and skips this. `Connect` packets are counted by address
+  (`connectsPerSecond`, 64 by default, per IP whatever the port: players behind one NAT share it) and the ones
+  over are dropped. See `stats().challenges` and `stats().rateLimited`.
+- **Every packet after the handshake ends with a 4-byte tag** (SipHash-2-4 with a key made of the two sides' secrets
+  of the handshake): a packet with a wrong tag is dropped and counted in `stats().malformed`. **What this protects:**
+  a connection against someone who is not on the path, who knows the addresses and guesses the sequence numbers, and
+  tries to slip a message or a `Goodbye` in. **What it does not:** nothing is encrypted (a message can be read), and
+  someone who reads the handshake has the key, so he can forge packets and replay old ones. A real encryption and the
+  login of players are for later, and need a library. A game with accounts must not count on this alone.
 - A silent connection sends something every second, and a peer that says nothing for 10 seconds is gone
   (`Timeout`). Leaving (`disconnect`, or destroying the endpoint) tells the peer at once, so it need not wait.
 - All the delays are in `EndpointConfig`, with a clock you can replace (tests do).
@@ -107,8 +130,9 @@ kuge::net::LoopbackNetwork network(kuge::net::LoopbackNetwork::Conditions{
     .loss = 0.3, .duplicate = 0.1, .latency = 0.05, .jitter = 0.03, .seed = 7});
 ```
 
-It loses, repeats, delays and reorders packets (the same seed loses the same ones), and its clock can be
-replaced, so a test can make ten seconds pass in no time. The reliable channel is tested over 50 % loss with it.
+It loses, repeats, delays and reorders packets (the same seed loses the same ones), drops the ones over a size
+(`.mtu = 1200`: what a path that cannot carry more does, counted in `packetsTooBig()`), and its clock can be replaced,
+so a test can make ten seconds pass in no time. The reliable channel is tested over 50 % loss with it.
 
 ## In a scene: `Net`
 
@@ -122,6 +146,26 @@ auto& client = net.connect(kuge::net::Protocol::Tcp, "127.0.0.1", 4242);
 
 A scene's endpoints are polled by its own thread and destroyed with the scene (their peers are told). An
 endpoint belongs to the thread that polls it.
+
+### A connection that lives longer than a scene
+
+The `Net` made by `installNet(setup())` dies with its scene. A connection to a lobby must survive the menu, the game and
+the way back: make the `Net` outside, and give it to each scene.
+
+```cpp
+auto net = std::make_shared<kuge::net::Net>();          // in Main (or in the Session the scenes share)
+engine.scenes().change<MainMenu>(net);
+
+void MainMenu::onEnter()
+{
+    kuge::net::installNet(setup(), m_net);               // polls it; no Net of its own
+    auto& net = *world().getResource<kuge::Ref<kuge::net::Net>>();    // (this form works for both installNet())
+}
+```
+
+The system that polls it keeps a `shared_ptr`, so the `Net` is released after the scenes whatever the order. It is polled
+once per tick (`Net::pollTick(Time::tick)`) even when two scenes poll it (one over the other, see 03). A
+`MatchmakingClient(net)` is made over it the same way, and lives as long as the `Net` does.
 
 ## Joining a game: matchmaking
 
@@ -139,6 +183,12 @@ matchmaking.onRoomClosed([](kuge::net::RoomEnd why) { ... });   // the room ende
 matchmaking.onFailed([](const std::string& why) { ... });
 matchmaking.join("deathmatch", "Ana");       // may be called at once: it waits for the lobby
 ```
+
+**Why it failed.** `matchmaking.error()` is a text for the player, and `matchmaking.lastReason()` is the same
+thing for the code: the `DisconnectReason` of the lobby (or room) that was lost. `Refused` means another version
+of the game or a server that is full, and retrying in a loop is pointless; `Timeout` is a server that does not
+answer ("the server does not answer"); `Unreachable` is nobody at that address ("the server cannot be reached").
+`Local` means nothing was lost yet. `onFailed` gets the text, with no change of signature.
 
 The server side is in [09 The server](../09-the-server/README.md).
 

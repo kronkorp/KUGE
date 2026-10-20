@@ -76,15 +76,44 @@ namespace kuge
             //! Where the mouse is, in pixels of the window
             Vec2 mousePosition(void) const noexcept { return m_mouse; }
 
+            //! How far the mouse moved during the frame (y points down), for a mouse look. The client
+            //! starts it again at each frame: nobody has to read it.
+            Vec2 mouseDelta(void) const noexcept { return m_mouseDelta; }
+            void beginFrame(void) noexcept { m_mouseDelta = {}; }
+
+            //! The analog value of an action: the sum, over its bindings, of how far the mouse moved during
+            //! the frame along a bound mouse axis ("Mouse.X"), and of how far a bound stick is pushed
+            //! ("Pad.RightX+", towards that way only), each times its sensitivity. No acceleration, no
+            //! smoothing. A mouse gives a distance (turn by it at once, whatever the frame rate), a stick a speed
+            //! (multiply by the time of the frame). A stick below `setStickDeadzone()` counts as zero.
+            template<typename A>
+            float axisValue(A action) const { return axisOf(actionId(action)); }
+
+            //! A stick pushed less than this is at rest (default 0.15: sticks drift)
+            void setStickDeadzone(float deadzone) noexcept { m_stickDeadzone = deadzone; }
+
             // -- Typing: what a text field needs, which actions are not ------------------
 
             //! What was typed since the last call (UTF-8), once. Kept apart from the actions: typing "w" in a
             //! text field does not press the action that W is bound to, for whoever reads this instead.
             std::string takeTyped(void);
 
-            //! The keys that edit a text (Backspace, Delete, the arrows, Home, End, Enter, Tab), pressed since the
-            //! last call, **with the repeats** of a key that is held, once. Independent of the actions.
+            //! Forgets what was typed and is waiting: the key that opened a text field also typed its character, which must
+            //! not land in it
+            void discardTyped(void) { m_typed.clear(); }
+
+            //! The keys that edit a text (Backspace, Delete, the arrows, Home, End, Enter, Tab, Escape, and V, C, X while
+            //! Ctrl or Cmd is held: paste, copy, cut), pressed since the last call, **with the repeats** of a key that
+            //! is held, once. Independent of the actions.
             std::vector<Key> takeEditKeys(void);
+
+            //! The same keys, without taking them: a console reads Up, Down and Tab before the interface takes them
+            const std::vector<Key>& editKeys(void) const noexcept { return m_editKeys; }
+
+            //! The notches of the mouse wheel since the last call (up is positive, a free wheel gives fractions),
+            //! once. For a list that scrolls by the amount; to react to a notch as an action, bind
+            //! `Binding::wheel(1)` ("Wheel.Up") or `wheel(-1)`: it is pressed for the tick, never held.
+            float takeWheel(void);
 
             // -- Rebinding: "press the key you want" ---------------------------------
 
@@ -128,6 +157,8 @@ namespace kuge
             void refresh(bool latchEdges);
             std::optional<Binding> capturedBy(const Event& event) const;
             void apply(const Event& event);
+            bool commandHeld(void) const;
+            float axisOf(ActionId action) const;
 
             std::array<std::vector<Binding>, MAX_ACTIONS> m_bindings;
             std::array<std::string, MAX_ACTIONS>          m_names;
@@ -137,11 +168,14 @@ namespace kuge
             std::bitset<static_cast<std::size_t>(MouseButton::Count)> m_mouseButtons;
             std::map<int, PadState>                                   m_pads;
             Vec2                                                      m_mouse;
+            Vec2                                                      m_mouseDelta;
             float                                                     m_axisThreshold = 0.5f;
+            float                                                     m_stickDeadzone = 0.15f;
 
             // What was typed, for a text field (bounded: nobody may be reading it)
             std::string                                               m_typed;
             std::vector<Key>                                          m_editKeys;
+            float                                                     m_wheel = 0.0f;
 
             // The actions: held now, and what happened since the last sampleTick()
             std::uint64_t m_down     = 0;

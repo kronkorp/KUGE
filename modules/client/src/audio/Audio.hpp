@@ -2,7 +2,9 @@
 
 #include "Math2D.hpp"
 #include "audio/IAudio.hpp"
+#include <functional>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace kuge
@@ -50,6 +52,30 @@ namespace kuge
             MusicId m_id;
     };
 
+    //! Samples that arrive while they are played (a voice from the network, a synthesiser). Made by
+    //! Audio::createStream(), played by Audio::play(stream): one stream per speaker, each with its own voice.
+    class Stream
+    {
+        public:
+            Stream(IAudio& audio, StreamId id) noexcept : m_audio(audio), m_id(id) {}
+            ~Stream(void) { m_audio.destroyStream(m_id); }
+
+            Stream(const Stream&)            = delete;
+            Stream& operator=(const Stream&) = delete;
+
+            StreamId id(void) const noexcept { return m_id; }
+
+            //! Samples at the end (interleaved, 16 bits). See IAudio::pushSamples().
+            void push(std::span<const std::int16_t> samples) { m_audio.pushSamples(m_id, samples); }
+
+            //! How many frames are waiting to be played
+            std::size_t buffered(void) const { return m_audio.bufferedFrames(m_id); }
+
+        private:
+            IAudio&  m_audio;
+            StreamId m_id;
+    };
+
     //! One playing of a sound. Empty if it could not start (too far to be heard, no free voice).
     struct Voice
     {
@@ -58,11 +84,25 @@ namespace kuge
         explicit operator bool(void) const noexcept { return id != NO_VOICE; }
     };
 
+    //! The groups of volumes a player can set apart, on top of the master volume
+    enum class Bus
+    {
+        Effects,
+        Music,
+        Dialogue,   //!< Spoken lines: they have their own volume, reserved voices and can duck the music
+    };
+
     struct PlayOptions
     {
-        float volume = 1.0f;   //!< 0 to 1
-        float pan    = 0.0f;   //!< -1: all on the left, 1: all on the right
-        bool  loop   = false;
+        float volume  = 1.0f;   //!< 0 to 1
+        float pan     = 0.0f;   //!< -1: all on the left, 1: all on the right
+        bool  loop    = false;
+        float lowpass = 1.0f;   //!< 1: as it is. Less: the highs are cut, down to 0 (far away, behind a wall or the listener)
+        //! Effects (the default) or Dialogue; Music is not for voices and plays as an effect
+        Bus   bus     = Bus::Effects;
+        //! When all the voices are busy, a sound takes the place of one of lower priority, or of the same priority that is
+        //! quieter. A shot of the player is not lost to a far footstep.
+        int   priority = 0;
     };
 
     struct MusicOptions
@@ -70,13 +110,6 @@ namespace kuge
         float volume = 1.0f;
         bool  loop   = true;
         float fadeIn = 0.0f;   //!< Seconds
-    };
-
-    //! The two groups of volumes a player can set apart, on top of the master volume
-    enum class Bus
-    {
-        Effects,
-        Music,
     };
 
     //! Who hears, for a sound that comes from somewhere in the world
@@ -92,6 +125,7 @@ namespace kuge
     {
         float volume;   //!< 1 on the spot, falling to 0 at the end of the range
         float pan;
+        float lowpass = 1.0f;   //!< 1 in 2D; 3D lowers it for what is behind the listener or behind a wall
     };
 
     Spatial spatialize(Vec2 source, const Listener& listener) noexcept;
@@ -126,20 +160,38 @@ namespace kuge
 
             Voice play(const Sound& sound, PlayOptions options = {});
 
+            //! A stream, as a voice (its buses, its priority and its reserved voices are those of a sound).
+            //! It ends when the stream has nothing left to play.
+            Voice play(const Stream& stream, PlayOptions options = {});
+
+            //! @throw AudioError if the rate or the number of channels cannot be played
+            std::shared_ptr<Stream> createStream(int sampleRate, int channels = 1);
+
+            //! Keeps `count` voices for the lines of dialogue (Bus::Dialogue): effects never take them, so a flood of
+            //! effects does not drop a spoken line. When they are all busy, a line of higher priority takes
+            //! the place of the quietest one of lower priority, otherwise it is not played (an empty Voice). 0: none.
+            //! Say it once, at the start.
+            void reserveVoices(Bus bus, int count);
+
+            //! While a line of dialogue plays, the music is multiplied by `musicFactor` (0 to 1; 1: no ducking, the default),
+            //! reaching it, and coming back, over `fadeSeconds`. The volume the player set is not touched.
+            void setDucking(float musicFactor, float fadeSeconds);
+
             //! A sound at a place: louder when near, panned by where it is
             //! @param options  volume and loop are used (the pan is worked out)
             Voice playAt(const Sound& sound, Vec2 source, const Listener& listener, PlayOptions options = {});
 
             void stop(Voice voice);
             bool playing(Voice voice) const;
-            void setVoice(Voice voice, float volume, float pan);
+            void setVoice(Voice voice, float volume, float pan, float lowpass = 1.0f);
 
             void playMusic(const Music& music, MusicOptions options = {});
             void stopMusic(float fadeOut = 0.0f);
             bool musicPlaying(void) const { return m_backend.musicPlaying(); }
 
-            //! Forgets the voices that ended. The client calls it once per loop.
-            void update(void);
+            //! Forgets the voices that ended, and moves the ducking on by the seconds that passed. The client
+            //! calls it once per loop.
+            void update(double seconds = 0.0);
 
             //! Voices that are playing, as far as the last update() knows
             std::size_t voices(void) const noexcept { return m_voices.size(); }
@@ -150,18 +202,32 @@ namespace kuge
                 VoiceId id;
                 float   volume;   //!< Its own, before the buses
                 float   pan;
+                float   lowpass;
+                Bus     bus;
+                int     priority;
+                bool    reserved;
             };
 
-            float heard(float volume) const noexcept
+            float heard(const Playing& voice) const noexcept
             {
-                return m_master * m_bus[static_cast<int>(Bus::Effects)] * volume;
+                return m_master * m_bus[static_cast<int>(voice.bus)] * voice.volume;
             }
-            void applyMusicVolume(void);
+            void  applyMusicVolume(void);
+            void  prune(void);
+            float musicHeard(void) const noexcept
+            {
+                return m_master * m_bus[static_cast<int>(Bus::Music)] * m_musicVolume * m_duck;
+            }
+            Voice start(PlayOptions options, const std::function<VoiceId(float volume, float pan, float lowpass, bool reserved)>& open);
 
             IAudio&               m_backend;
             float                 m_master = 1.0f;
-            float                 m_bus[2] = {1.0f, 1.0f};
+            float                 m_bus[3] = {1.0f, 1.0f, 1.0f};
             float                 m_musicVolume = 1.0f;
+            int                   m_reservedVoices = 0;
+            float                 m_duckTo = 1.0f;      //!< The factor of the music while a line plays
+            float                 m_duckSeconds = 0.0f;
+            float                 m_duck = 1.0f;        //!< Where the music is now, between 1 and m_duckTo
             std::vector<Playing>  m_voices;
     };
 

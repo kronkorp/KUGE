@@ -8,10 +8,14 @@ namespace kuge::replication
     {
         enum Kind : std::uint8_t { Spawn = 1, Update = 2, Destroy = 3 };
 
-        void writeComponents(ByteWriter& out, const std::map<std::uint8_t, Bytes>& components, std::uint64_t mask)
+        void writeComponents(ByteWriter& out, const std::map<std::uint8_t, Bytes>& components, std::uint64_t mask,
+            std::vector<std::uint64_t>* bytesByComponent = nullptr)
         {
             for (const auto& [index, bytes] : components) {
                 if (mask & (std::uint64_t{1} << index)) {
+                    if (bytesByComponent && index < bytesByComponent->size()) {
+                        (*bytesByComponent)[index] += sizeof(std::uint16_t) + bytes.size();
+                    }
                     out.write<std::uint16_t>(static_cast<std::uint16_t>(bytes.size()));
                     out.writeBytes(bytes);
                 }
@@ -45,7 +49,8 @@ namespace kuge::replication
         return state;
     }
 
-    std::vector<Bytes> diffOps(const ReplicationRegistry& registry, const WorldState* baseline, const WorldState& current)
+    std::vector<Bytes> diffOps(const ReplicationRegistry& registry, const WorldState* baseline, const WorldState& current,
+        std::vector<std::uint64_t>* bytesByComponent)
     {
         std::vector<Bytes> ops;
 
@@ -65,7 +70,7 @@ namespace kuge::replication
                 out.write<std::uint16_t>(record.type);
                 out.write<std::uint32_t>(record.owner);
                 out.write<std::uint64_t>(mask);
-                writeComponents(out, record.components, mask);
+                writeComponents(out, record.components, mask, bytesByComponent);
                 ops.push_back(out.bytes());
                 continue;
             }
@@ -93,7 +98,7 @@ namespace kuge::replication
                 out.write<std::uint32_t>(id);
                 out.write<std::uint64_t>(changed);
                 out.write<std::uint64_t>(removed);
-                writeComponents(out, record.components, changed);
+                writeComponents(out, record.components, changed, bytesByComponent);
                 ops.push_back(out.bytes());
             }
         }

@@ -2,9 +2,11 @@
 
 #include "Endpoint.hpp"
 #include "Loopback.hpp"
+#include "Ref.hpp"
 #include "Scene.hpp"
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -61,8 +63,14 @@ namespace kuge::net
             //! Ends an endpoint (its peers are told). The reference is not valid afterwards.
             void remove(Endpoint& endpoint);
 
-            //! Polls every endpoint (what the Network stage does)
+            //! Polls every endpoint
             void poll(void);
+
+            //! Same, but only the first time for a tick of the clock (Time::tick): two scenes that poll the
+            //! same Net (one over the other, see Scene::overlay()) poll it once. This is what the Network
+            //! stage does.
+            //! @return  false if this tick was already polled
+            bool pollTick(std::uint64_t tick);
 
             //! Endpoints that are there (one removed while polling is already not)
             std::size_t count(void) const noexcept;
@@ -78,9 +86,30 @@ namespace kuge::net
 
             std::vector<std::unique_ptr<Slot>>  m_endpoints;
             bool                                m_polling = false;
+            std::optional<std::uint64_t>        m_lastTick;
     };
 
-    //! Gives a scene a Net resource and the system that polls it (Fixed, stage::Network)
+    //! Gives a scene a Net resource and the system that polls it (Fixed, stage::Network). The Net is also
+    //! the resource kuge::Ref<Net>, the same way whoever owns it.
     void installNet(SceneSetup scene);
+
+    ////////////////////////////////////////////////////////////////////////////
+    /**
+     * @brief  Same, with a Net that the game keeps: it outlives the scene, and so do its endpoints
+     *
+     * The connection to a lobby must survive the menu, the game and the way back. The scene only polls the
+     * Net, which is the resource kuge::Ref<Net> of its World (not a Net: there is none), and the system keeps a
+     * reference to it, so it is released after the scene whatever the order of destruction.
+     *
+     *     auto net = std::make_shared<kuge::net::Net>();                // in Main, or in a Session
+     *     engine.scenes().change<Menu>(net);
+     *
+     *     void Menu::onEnter() { kuge::net::installNet(setup(), m_net); ... }
+     *     auto& net = *world().getResource<kuge::Ref<kuge::net::Net>>();
+     *
+     * A MatchmakingClient(net) made over it lives as long as the Net does, not as the scene.
+     */
+    ////////////////////////////////////////////////////////////////////////////
+    void installNet(SceneSetup scene, std::shared_ptr<Net> shared);
 
 }

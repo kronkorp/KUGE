@@ -39,7 +39,7 @@ jobs:
       # kronk3d is left out: nothing builds it yet (it is only for the future 3D module)
       - name: Check out the submodules
         run: |
-          git submodule update --init vendor/kronknet vendor/kronkworld vendor/kronkpool
+          git submodule update --init vendor/kronknet vendor/kronkworld vendor/kronkpool vendor/kronk3d
           git submodule status
 
       # SDL2 & co. come from vcpkg (vcpkg.json), which builds them. What it builds them against is
@@ -134,7 +134,7 @@ jobs:
       - name: Check out the submodules
         shell: bash
         run: |
-          git submodule update --init vendor/kronknet vendor/kronkworld vendor/kronkpool
+          git submodule update --init vendor/kronknet vendor/kronkworld vendor/kronkpool vendor/kronk3d
           git submodule status
 
       # What vcpkg builds depends on vcpkg.json only (its baseline pins every version)

@@ -10,6 +10,9 @@
 namespace kuge
 {
 
+    class DummyInput;
+    class DummyRenderer;
+
     //! A window that is only a size and a title
     class DummyWindow : public IWindow
     {
@@ -19,12 +22,29 @@ namespace kuge
             Vec2 size(void) const override { return m_size; }
             void setTitle(const std::string& title) override { m_title = title; }
 
+            //! Like a real window: the renderer follows, and a ResizeEvent comes (see follow())
+            void setSize(int width, int height) override;
+            void setFullscreen(bool on) override { m_fullscreen = on; }
+            bool fullscreen(void) const override { return m_fullscreen; }
+            void setVsync(bool on) override { m_vsync = on; }
+            bool vsync(void) const noexcept { return m_vsync; }
+
+            //! The renderer and the inputs that setSize() tells (makeDummyBackend() does it)
+            void follow(DummyRenderer* renderer, DummyInput* input) noexcept { m_renderer = renderer; m_input = input; }
+            std::string clipboardText(void) const override { return m_clipboard; }
+            void setClipboardText(const std::string& text) override { m_clipboard = text; }
+
             const std::string& title(void) const noexcept { return m_title; }
             void resize(Vec2 size) noexcept { m_size = size; }
 
         private:
-            Vec2        m_size;
-            std::string m_title;
+            Vec2          m_size;
+            std::string   m_title;
+            std::string   m_clipboard;   //!< (its own: tests do not touch the real clipboard)
+            bool          m_fullscreen = false;
+            bool          m_vsync      = true;
+            DummyRenderer* m_renderer  = nullptr;
+            DummyInput*    m_input     = nullptr;
     };
 
     //! Inputs that the test decides: push() what "happened", the client polls it
@@ -32,6 +52,8 @@ namespace kuge
     {
         public:
             void push(const Event& event) { m_pending.push_back(event); }
+            void setRelativeMouse(bool on) override { m_relativeMouse = on; }
+            bool relativeMouse(void) const noexcept { return m_relativeMouse; }
             void poll(std::vector<Event>& out) override
             {
                 out.insert(out.end(), m_pending.begin(), m_pending.end());
@@ -40,6 +62,7 @@ namespace kuge
 
         private:
             std::vector<Event> m_pending;
+            bool               m_relativeMouse = false;
         };
 
     //! A renderer that draws nothing and remembers what it was asked to draw
@@ -53,6 +76,7 @@ namespace kuge
                 Rect        destination;
                 Color       color;
                 TextureDraw texture;   //!< Kind::Texture only
+                std::optional<Rect> clip;   //!< The clip that was set when it was drawn
             };
 
             struct TextureInfo {
@@ -68,6 +92,8 @@ namespace kuge
             void present(void) override;
             TextureId createTexture(int width, int height, std::span<const std::uint8_t> rgba) override;
             void destroyTexture(TextureId texture) noexcept override;
+            void updateTexture(TextureId texture, std::span<const std::uint8_t> rgba) override;
+            void setClip(const std::optional<Rect>& area) override { m_clip = area; }
             void fillRect(const Rect& destination, Color color) override;
             void strokeRect(const Rect& destination, Color color) override;
             void drawTexture(const TextureDraw& draw) override;
@@ -90,6 +116,7 @@ namespace kuge
         private:
             Vec2                          m_size;
             Color                         m_clear{};
+            std::optional<Rect>           m_clip;
             std::vector<Call>             m_current;
             std::vector<Call>             m_last;
             std::size_t                   m_presented = 0;

@@ -11,6 +11,7 @@
 #include "render/Texture.hpp"
 #include "ui/TextRenderer.hpp"
 #include <chrono>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -39,7 +40,7 @@ namespace kuge
      * Each loop, before the ticks, it reads what happened outside (closing the
      * window stops the engine) and clears the screen; after the frame it shows
      * what was drawn. Each scene gets, as resources of its World:
-     *  - kuge::Ref<IWindow>, Ref<IRenderer2D>, Ref<InputMap>,
+     *  - kuge::Ref<IWindow>, Ref<IRenderer2D>, Ref<InputMap>, Ref<IInputSource>,
      *    Ref<AssetManager<Texture>> (the textures of files), Ref<Audio> with
      *    Ref<AssetManager<Sound>> and Ref<AssetManager<Music>>;
      *  - ActionState (what the player asked for at the last tick, see SampleInput);
@@ -64,6 +65,9 @@ namespace kuge
             AssetManager<Music>&      musics(void) noexcept { return m_musics; }
             TextRenderer&             text(void) noexcept { return m_text; }
 
+            //! The OpenGL context of the backend, null if it has none (see WindowConfig::openGL)
+            IOpenGL*                  opengl(void) noexcept { return m_backend.opengl.get(); }
+
             //! A font of the backend at a size, shared while somebody holds it
             //! @throw FontError if the backend has no fonts, or the file is not one
             std::shared_ptr<IFont> loadFont(const std::filesystem::path& file, int pointSize);
@@ -79,6 +83,10 @@ namespace kuge
 
             //! The image asked for, once. Empty if the backend cannot read it.
             std::optional<Image> takeScreenshot(void);
+
+            //! Writes what the next frame draws to a PPM file (P6) after it is drawn, during play, and says so in the log. The file is
+            //! written by the thread of the frame, once; the picture of a backend that cannot read its pixels is not written.
+            void saveScreenshot(const std::filesystem::path& file);
 
             // Module
             void onAttach(Engine& engine) override;
@@ -101,6 +109,7 @@ namespace kuge
             std::chrono::steady_clock::time_point m_lastWatch = std::chrono::steady_clock::now();
             bool                      m_screenshotRequested = false;
             std::optional<Image>      m_screenshot;
+            std::optional<std::filesystem::path> m_screenshotFile;   //!< Where saveScreenshot() writes the next frame
     };
 
 }

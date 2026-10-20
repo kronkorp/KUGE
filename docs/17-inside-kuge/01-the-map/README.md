@@ -18,7 +18,7 @@ runs.
                              kronkpool   a thread pool (C)
                              kronknet    TCP and UDP sockets (C)
                              kronklab    the test library (C)
-                             plus SDL2, SDL_mixer, SDL_ttf and stb_image for the client only
+                             plus SDL2, SDL_mixer and SDL_ttf for the client only
 ```
 
 KUGE does not reimplement what the kronk* libraries do. Its core **wraps** them: a KUGE scene owns a

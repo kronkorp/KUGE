@@ -44,7 +44,8 @@ R-Type, as a dedicated server, a client and a host, from an empty folder to test
 | Replication (snapshots, interpolation) and client-side prediction | done |
 | One game, three ways (R-Type: server, client, host), with no window on the server | done |
 | Linux (GCC) and Windows (MSVC) | done |
-| 3D (kronk3d) | planned |
+| 3D: scenes, models (OBJ, glTF), animation, cameras, physics (Jolt), replication and prediction | done |
+| A 3D game, three ways (Arena: server, client, host) | done |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
 
@@ -52,7 +53,7 @@ Everything listed as *done* is covered by tests (see [Tests](#tests)).
 
 Requirements: a C++20 compiler (GCC 13 is what it is developed with; on Windows, MSVC: see
 [On Windows](#on-windows)), CMake 3.24 or later, and git. The libraries of the client module
-(SDL2, SDL2_mixer, SDL2_ttf and stb) are not installed by hand: they come from
+(SDL2, SDL2_mixer, SDL2_ttf) are not installed by hand: they come from
 [vcpkg](https://vcpkg.io), which the first `cmake` clones into `.vcpkg/` and which builds them,
 once (a few minutes). See [Dependencies](#dependencies).
 
@@ -84,7 +85,8 @@ ctest --test-dir build --output-on-failure
 | Option | Default | What it does |
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build `kuge-client` (needs SDL2, SDL2_mixer, SDL2_ttf). Turn it off for a server. |
-| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. |
+| `KUGE_BUILD_PHYSICS3D` | `ON` | Build `kuge-physics3d` (needs Jolt, from vcpkg). A server of a 2D game can turn it off. |
+| `KUGE_BUILD_SHARED` | `ON` (`OFF` on Windows) | Also build `kuge.so`, every module in one shared library. Off by default on Windows: a program that links `kuge.dll` and shares a resource or component type with it gets two ids for it (see [14 pitfalls](docs/14-pitfalls/README.md)); link the static modules there. |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. |
@@ -97,11 +99,12 @@ above are):
 
 - `vendor/` holds the submodules (kronkworld, kronkpool, kronknet, kronk3d), and kronkflow and
   kronklab are fetched at a fixed commit. Only one copy of kronkpool is built, the vendored one.
-- SDL2, SDL2_mixer (with OGG, MP3 and FLAC), SDL2_ttf and stb come from vcpkg, in manifest mode:
+- SDL2, SDL2_mixer (with OGG, MP3 and FLAC), SDL2_ttf come from vcpkg, in manifest mode:
   `vcpkg.json` lists them, and its `builtin-baseline` (a commit of vcpkg) fixes their versions.
   The vcpkg used is the toolchain given with `-DCMAKE_TOOLCHAIN_FILE`, or else the one in
   `VCPKG_ROOT`, or else vcpkg cloned at the baseline into `.vcpkg/` (`cmake/Vcpkg.cmake`). With
-  `-DKUGE_BUILD_CLIENT=OFF`, none of them is built.
+  `-DKUGE_BUILD_CLIENT=OFF`, none of them is built. The 3D physics (Jolt) comes from vcpkg too, with
+  its `rtti` feature (KUGE is built with RTTI); `-DKUGE_BUILD_PHYSICS3D=OFF` leaves it out.
 
 A game that fetches KUGE as a subproject lists SDL2 & co. in its own `vcpkg.json`, and gives the
 vcpkg toolchain to its own build: vcpkg only reads the manifest of the top-level project.
@@ -125,7 +128,7 @@ them). What differs from Linux:
 - The player's folders (`userDirectory`) are both in `%APPDATA%`.
 - The unit tests are not built: kronklab runs each test in a `fork()`. `ctest` runs the
   boundaries and the games played for real: `pong_smoke`, `platformer_smoke`, and
-  `rtype_smoke`, which needs the `sh` of Git for Windows.
+  `rtype_smoke` and `arena3d_smoke`, which need the `sh` of Git for Windows.
 - `KUGE_SANITIZE` is for GCC and Clang only.
 
 The CI builds and tests both: Linux with GCC, Windows with MSVC.
@@ -152,6 +155,7 @@ Built with `-DBUILD_EXAMPLES=ON`.
 
 | `build/example/kuge_chat_server`, `kuge_chat_client` | A chat over the network: a server with no window (lobby and rooms of four), and a terminal client. `kuge_chat_client Ana --say hello --wait 2` says it once and leaves. |
 | `build/example/kuge_rtype_server [port]`, `kuge_rtype_client`, `kuge_rtype_host` | R-Type, the small one: up to four ships shoot waves of enemies. The **server** has no window, the **client** connects to it, the **host** runs the room and the window in one process (see [R-Type](#r-type-one-game-three-ways)). Arrows or WASD, Space to fire. `--frames N --screenshot f.ppm` plays a scripted pilot. |
+| `build/example/kuge_arena3d_server [port]`, `kuge_arena3d_client`, `kuge_arena3d_host` | Arena, a 3D shooter: up to four players run, jump, push crates (Jolt) and shoot one another on a map with ramps and cover; the character is the robot of Godot's platformer demo (glTF, with clips for idle, run, jump, falling and shooting), in first person with fog and a day that goes by. Same three programs as R-Type (server, client, host). W A S D or arrows, the mouse turns the view, Space jumps, left button or F fires, V changes the view, Esc frees the mouse. With sounds and sparks. Drawn by the GPU when there is one (`--software` or `--opengl` to choose, `--size 1920x1080`). `--frames N --screenshot f.ppm` plays a scripted player. See [3D](docs/18-3d/README.md). |
 | `build/example/kuge_platformer` | A platformer that uses everything: tilemap, animations, physics, HUD text, menus, sounds and saves. A/D or arrows, Space to jump, Esc to pause (Resume / Save game / Main menu). Collect the 8 coins; avoid the blobs. `--font <file.ttf>` picks the font. |
 
 `kuge_pong --frames 90 --screenshot out.ppm` plays a scripted match without waiting and
@@ -422,7 +426,9 @@ input.pause =
 ```
 
 Only the actions the file mentions are replaced: the defaults survive a file with a few lines.
-`Pad.LeftY-` is a stick pushed the negative way; `Mouse.Left` is a mouse button.
+`Pad.LeftY-` is a stick pushed the negative way; `Mouse.Left` is a mouse button; `Wheel.Up` and `Wheel.Down`
+are the notches of the mouse wheel, which press their action for one tick (a notch is not held). To scroll
+by the amount instead, `InputMap::takeWheel()` gives the notches since the last call (up is positive).
 
 ### Sprites, camera, drawing
 
@@ -564,6 +570,11 @@ Call `installUi(setup(), actions)` after `installClientSystems()`.
 | `UiPanel` | A background and a border. |
 | `UiLabel` | Text (font from the theme unless given), color, wrap width, alignment. |
 | `UiButton` | Text, `enabled`; `hovered` / `focused` / `pressed` are filled in by the interaction. |
+| `UiCheckbox` | A box that is ticked or not, with its `text` after it: `checked`, `enabled`; `hovered` / `focused` are filled in by the interaction. Focused and pressed like a button, it flips `checked` and says `Changed`. |
+| `UiImage` | A picture (`texture`, a part of it with `source`, a `tint`) in the rectangle of its node, which takes the size of the picture if it has none. |
+| `UiScroll` | On a node that has a size and a `UiStack`: the stack scrolls. `offset` (pixels), `notch` (pixels per wheel notch); `extent` (the length of the content) is filled in by the layout. |
+| `UiSlider` | A value from `min` to `max` (`step` per press of left / right, `columns` letters wide if the node has no size): `value`, `enabled`; `hovered` / `focused` / `dragging` are filled in by the interaction. |
+| `UiProgress` | A bar filled for `value / max` (from the left, or from the bottom if `vertical`): `fill`, `back`, `border`. Its size is the node's, else `UiTheme::progressWidth` x `progressHeight`. |
 | `UiTextField` | A line of text that the player types: `text`, `placeholder`, `maxLength` (in characters), `caret`, `columns` (its width if the node has no size), `enabled`; `hovered` / `focused` are filled in by the interaction. |
 
 Resources: `UiTheme` (font and colors, change it for your game), `UiActions` (which of *your*
@@ -599,9 +610,90 @@ action) says `Cancelled`, and the mouse moving over another widget does not take
 a character. When the text is wider than the field, its end (where the caret is) is shown: the renderer
 has no clipping.
 
-Not there yet: selection, copy and paste, a masked field for a password, several lines, and showing the
+**Clipboard.** Ctrl+V (Cmd+V on macOS) pastes at the caret the first line of the clipboard, cut to `maxLength` and
+without control characters; Ctrl+C copies the whole text (there is no selection yet) and Ctrl+X cuts it. The keys
+reach the field as editing keys of `takeEditKeys()` (V, C, X with Ctrl or Cmd held; a V alone is a letter). The clipboard
+itself is `IWindow::clipboardText()` / `setClipboardText()` (SDL's on the SDL backend, a string of its own on the
+dummy one, so a test can set it and read it) and a game reaches it through `Ref<IWindow>`, for a "copy the code" button.
+
+Not there yet: selection, a masked field for a password, several lines, and showing the
 composition of an input method editor (what the OS *commits* arrives as a `TextEvent`; the text being
 composed, `SDL_TEXTEDITING`, is not handled, and this was not tried with one).
+
+**Progress bar.** `UiProgress` shows a ratio (health, XP, loading). The number on it is a `UiLabel` child,
+and a bar whose `max` is 0, or whose `value` is negative or NaN, is empty:
+
+```cpp
+world.add<kuge::UiNode>(bar, kuge::UiNode{.parent = hud, .hasParent = true, .size = {240.0f, 24.0f}});
+world.add<kuge::UiProgress>(bar, kuge::UiProgress{.value = 42.0f, .max = 100.0f});
+world.get<kuge::UiProgress>(bar).value = hp;      // every frame, if it changes
+```
+
+**Check box.** `UiCheckbox` is a choice that is on or off. It is focused like a button, and Enter (your `accept`) or a
+click flips `checked` and puts a `Changed` (not `Activated`) in `UiEvents`; read the value in the component. The tick is a
+filled square in the box, so it does not rely on a colour (`UiTheme::checkMark`):
+
+```cpp
+world.add<kuge::UiNode>(hurry, kuge::UiNode{.parent = form, .hasParent = true});
+world.add<kuge::UiCheckbox>(hurry, kuge::UiCheckbox{.text = "Hurry mode"});
+// ... in a system: Changed, then
+const bool on = world.get<kuge::UiCheckbox>(event.entity).checked;
+```
+
+**Slider.** `UiSlider` is a number in a range, for a volume or a sensitivity. With the focus on it, your `left` and
+`right` actions move `value` by `step` (and no longer move the focus; up, down and Tab still do); a click puts the
+handle at the mouse, which drags it while the button is held (even outside the slider, clamped to `min` and `max`).
+Every change is a `Changed` for its entity, at most one per tick, and none when it did not move (at `max`, a press of
+right says nothing). The number is not drawn: a `UiLabel` next to it, rewritten on `Changed`, does that.
+
+```cpp
+world.add<kuge::UiNode>(music, kuge::UiNode{.parent = menu, .hasParent = true});
+world.add<kuge::UiSlider>(music, kuge::UiSlider{.value = 0.4f});
+// ... on Changed for `music`:
+audio.setBusVolume(kuge::Bus::Music, world.get<kuge::UiSlider>(music).value);
+```
+
+**Image.** `UiImage` is drawn with the rest of the interface, at the depth of its node, so a panel of a higher layer
+covers it and a stack places it like any other child. The texture is yours to load (`client.textures().load(...)`,
+shared): an icon on a button is a `UiImage` child of the button's row. A `UiButton` with an icon inside is not there yet.
+
+```cpp
+world.add<kuge::UiNode>(icon, kuge::UiNode{.parent = row, .hasParent = true, .size = {32.0f, 32.0f}});
+world.add<kuge::UiImage>(icon, kuge::UiImage{.texture = client.textures().load("sword.png")});
+```
+
+**Scroll.** A list that is longer than the screen: give the node a size, a `UiStack` and a `UiScroll`. The children are
+laid out as in the stack, moved back by `offset`; the layout keeps `offset` between 0 and `extent` minus the node. What
+is outside the node is **cut**: `IRenderer2D::setClip` (SDL's clip rectangle) cuts the drawing of the children, and a
+cut part cannot be hovered or clicked. The mouse wheel over the node (the innermost one) moves `offset` by `notch` per
+notch, and when the keyboard or gamepad focus lands on a child that is out, the node scrolls just enough to show it.
+`UiLayoutResult::rects` has every child (the ones outside too); `drawOrder` has only those that show. KUGE draws no
+scroll bar: a game that wants one reads `offset` and `extent`.
+
+```cpp
+world.add<kuge::UiNode>(list, kuge::UiNode{.size = {300.0f, 400.0f}});          // the window on the list
+world.add<kuge::UiStack>(list, kuge::UiStack{});
+world.add<kuge::UiScroll>(list, kuge::UiScroll{});
+// ... then the buttons, as children of `list`: ten of them show four, the wheel shows the others
+```
+
+**The UI at any resolution.** Build the interface for one size, 1280 x 720 say, and let `UiScale` (a resource)
+stretch it to the window. The layout multiplies by `UiScale::value` every pixel number of the components (`offset`,
+`size`, `spacing`, `padding`, `borderWidth`, `wrapWidth`, the `UiScroll` offset and notch) and of the theme (`padding`,
+`focusWidth`, `progressWidth`, `progressHeight`); the components **keep the numbers you gave them**, so the scale can
+change at any time (the next frame takes it) and nothing needs rebuilding. Text stays sharp: a font is not stretched,
+`IFont::scaled(factor)` gives the same font at `factor` times its size (SDL_ttf opens the file again; kept by the font,
+so asking each frame is free). `UiLayoutResult::rects` and the mouse are in pixels of the window, so a click at the
+doubled button presses it; `UiScale::toUi()` gives a mouse position in the units you built in.
+
+```cpp
+const auto window = world.getResource<kuge::Ref<kuge::IWindow>>()->size();
+world.getResource<kuge::UiScale>().value = kuge::uiScaleFor(window);   // min(width / 1280, height / 720); uiScaleFor(window, {640, 360}) for another base
+```
+
+A system that sets a size every frame by itself (an animated panel) writes it in the units it was built in, not
+multiplied. A zero, negative or NaN scale is 1. The scale is not chosen for you (a game may want 1 on a small window,
+or whole numbers only).
 
 The systems: layout (Frame, `Late`), interaction (Fixed, `Input`: nearest-neighbour focus
 navigation with the keyboard or gamepad, mouse hover and click) and drawing (Frame, `Render`,
@@ -742,7 +834,9 @@ server.poll();                 // once per tick: reads, sends what is due, calls
   are full, instead of growing. Over TCP nothing is ever sent twice.
 - **Handshake.** A client sends `Connect` until the server answers `Accept`; "connected" therefore
   means that the other side answered, even over UDP where a socket knows nothing. A server that is
-  full, or has another `protocol` version, refuses (`DisconnectReason::Refused`).
+  full, or has another `protocol` version, refuses (`DisconnectReason::Refused`). Over UDP the server
+  first sends a `Challenge` (a cookie) and makes the connection only when the client has sent it back, so
+  a forged address leaves nothing behind; every packet after that ends with a 4-byte tag (see 08).
 - **Keep-alive and timeouts.** A silent connection sends something every second, and a peer that says
   nothing for 10 seconds is gone (`Timeout`). Leaving (`disconnect`, or destroying the endpoint) tells
   the peer at once. All the delays are in `EndpointConfig`, with a clock you can replace.
@@ -845,7 +939,8 @@ connects to the lobby, `join("deathmatch", "Ana")` asks for a room, and `onJoine
   at that way: but ids go 1, 2, 3..., so the name is the only secret, and there is no password). A name is 1 to 32 bytes
   of UTF-8 with no control character (`validRoomName()`, and `trimRoomName()` drops the blanks at its ends).
   A room that the lobby makes for `join()` is called `"<kind> #<id>"`, and a room sees its name and whether it is
-  private in `init().roomName` and `init().isPrivate`. The client stays in the lobby all along: it can look at
+  private in `init().roomName` and `init().isPrivate`, and its options (`createRoom(..., options)`: an opaque text of at
+  most 128 bytes that the game reads in `init().options` and a list shows in `RoomInfo::options`). The client stays in the lobby all along: it can look at
   the list, leave a room and join another.
 - **Tokens.** The lobby gives the client the address of the room and a random 64-bit token, and tells
   the room to expect it. The token opens the door **once** and expires after `tokenTtl` (10 s): a
@@ -953,7 +1048,7 @@ replication.update(frameSeconds);             // each frame
 
 Entities appear in the World with a `Replicated` (network id, type, owner) and their components, and the prefab
 adds what the server does not send (the sprite). `entity(networkId)` finds one. Interpolated components are
-placed at `interpolationDelay` (0.1 s) behind the newest snapshot: smooth at any frame rate, though snapshots
+placed two snapshot intervals (`interpolationIntervals`: 67 ms at 30 snapshots a second, 31 ms at 64; or `interpolationDelay` in seconds) behind the newest snapshot: smooth at any frame rate, though snapshots
 come 30 times a second and some are lost; past its last value an entity waits, nothing is invented.
 
 ### Prediction
@@ -1120,8 +1215,13 @@ ctest --test-dir build --output-on-failure
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
+| `kuge_render3d_tests` | render3d: sounds at a place (volume, pan, range), particles that are drawn, fall and fade, an orbit camera that stops at walls, a model drawn and lit, the GPU and the CPU drawing the same picture (with an offscreen OpenGL context), the transform and its interpolation, 2D over 3D, models from files (OBJ, glTF, in the background, reloaded), animation (clips, cues, the next clip, a replicated clip), mouse look and cameras |
+| `kuge_physics3d_tests` | physics3d: bodies that fall and rest, kinematic bodies, triggers, layers, rays, characters that stay upright, bit-for-bit replay, and Jolt in a server with a predicting client |
 | `boundary_*` | a module cannot include what it does not link |
 | `rtype_smoke` | the real R-Type programs (server, client, host) play a scripted game and leave a picture that is checked |
+| `kuge_arena3d_tests` | Arena's rules with no network and no screen: the map, ramps, walls, crates, shots, deaths and returns, the end of a match, the clip of each action, the assets |
+| `arena3d_smoke_gl` | the same on the GPU, with SDL's offscreen video driver (an OpenGL 3.3 context and no window); skipped where there is no OpenGL |
+| `arena3d_smoke` | the real Arena programs (server, client, host) play a scripted game: the character runs, jumps and shoots (each clip is played, the bullets are seen), and the picture has the HUD, the shirt and hundreds of colours |
 | `pong_smoke`, `platformer_smoke` | the real binaries play a scripted game and leave a picture that is checked |
 
 On Windows, only `boundary_*` and the `*_smoke` tests are built (see [On Windows](#on-windows)).
@@ -1150,7 +1250,7 @@ modules/client/       kuge-client (input/, render/, animation/, audio/, ui/, bac
 modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net, Matchmaking)
 modules/server/       kuge-server (GameServer, the lobby, RoomScene)
 modules/replication/  kuge-replication (registry, snapshots, interpolation, inputs, prediction)
-example/              the headless example, pong/, platformer/, chat/ and rtype/ (common, server, client, host)
+example/              the headless example, pong/, platformer/, chat/, rtype/ and arena3d/ (common, server, client, host)
 tests/                one folder per module, and the boundary tests
 vendor/               submodules: kronkworld, kronkpool, kronknet, kronk3d
 ```

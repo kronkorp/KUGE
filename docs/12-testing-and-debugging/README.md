@@ -83,6 +83,11 @@ and `EndpointConfig::clock` lets an endpoint use the same clock, so a test can m
 by adding 10.0 to `now`, in no time. Look at `tests/net/net_fixture.hpp` (`Sim`) and
 `tests/replication/rep_fixture.hpp` (`RepSim`): both are small and copyable.
 
+`.mtu = 1200` makes the network drop any packet over that size, as a path does that cannot carry more (counted in
+`packetsTooBig()`): it is how a test shows that a message or a snapshot part is too big for the Internet, which the
+loopback would otherwise carry. To play the attacker, write the packets by hand through a raw transport (`network.connect`
+and `send`), or wrap an endpoint's transport in one that spoils or slips in packets: `tests/net/handshake_test.cpp` does both.
+
 ## Making a test that can fail
 
 After writing a test, **break the code on purpose** and check that the test fails, then put it back. A short
@@ -108,4 +113,137 @@ list of mutations that were used in this project, and what caught them:
 5. **A player sees nothing?** Check, in order: did the client join (`state`)? Is the schema the same on both sides
    (`replication.stats().wrongSchema`)? Did the prefab add a `Sprite`? Is the camera looking at the right place?
 6. **The log.** `Logger::logger().info(...)` is thread-safe and writes to the terminal and to `latest.log` in the
-   current directory.
+   current directory (see "The log", below).
+
+## The console and the variables
+
+A developer who wants to try a boss, a level 8 weapon or another constant should not restart the game. Two pieces, in `kuge-core`, and a
+scene in the client:
+
+```cpp
+kuge::Cvars cvars;
+kuge::Commands commands(cvars);
+
+auto perKill = cvars.add("brainrot_per_kill", 2, kuge::CvarFlag::Cheat, "Rot a kill gives");   // bool, int, float or std::string
+const int rot = perKill.get();                                  // in a system: a handle, no lookup by name, no lock
+commands.add("spawn", [&](const std::vector<std::string>& args) { return spawn(args.at(0)); }, "spawn <enemy>");
+
+commands.run("brainrot_per_kill 5");        // a name alone reads the variable, with a value it sets it: "brainrot_per_kill = 5"
+commands.run("set tick_rate abc");          // "'abc' is not a whole number for tick_rate": the value is kept
+```
+
+`set()` never throws: it answers. Flags: `Persistent` (`cvars.save(config)` / `load(config)`, as `cvar.<name>` in a `ConfigFile`),
+`ServerOnly` and `ClientOnly` (refused on the other side: `setSide()`), `Cheat` (refused unless `setCheats(true)`). Built in: `help`,
+`cvars [filter]`, `set`, `get`, `echo`; words can be quoted: `echo "a b"`. An unknown command is an answer, so is a command that throws.
+
+**In the game:** push a `ConsoleScene(commands, logRing, font, toggleAction)` on a key of your own (the log ring is a `RingLogHandler`
+that you added to the logger, see below). Enter runs a line, Up and Down walk the history, Tab completes a name, Escape closes. The log
+shows in the colour of its level and with the level written; `console_log_level` and `console_log_category` filter it.
+
+**On a server** there is no window: `readCommandsFrom(std::cin, queue)` reads lines on a thread into a `CommandQueue`, and
+`installCommandQueue(setup(), commands, queue)` runs them **in the tick** (a command that changes the world must not run on the thread
+that reads). The answers go to the log under the category `console`. A command that is typed in the console of a client runs on the thread
+of the scenes, in the tick of the console.
+
+## The log
+
+A `Logger` sends every line to its **handlers**: the terminal, a file, and whatever else a game adds. The logger of the process
+(`Logger::logger()`) has the terminal and `latest.log`.
+
+```cpp
+auto& log = Logger::logger();
+
+auto ring = std::make_shared<RingLogHandler>(500);        // the last 500 lines, for a panel of the game
+const auto id = log.addHandler(ring);                     // from any thread; the id takes it away
+lines = ring->snapshot(seen);                             // once per frame, on the UI's thread: the lines newer than `seen`
+log.removeHandler(id);                                    // a scene that listens stops when it leaves
+
+log.logToFile("saves/game.log", 4 * 1024 * 1024);         // over 4 MB it becomes previous.log next to it: two files at most
+```
+
+A handler of your own derives from `ILoggerHandler` (`log(level, text)`, or `handle(record)` for the time and the category apart).
+**It is called with the mutex of the logger held, from any thread**: it must be quick and must not log. `registerHandler(ostream)`
+still works. Each line is made once (`LogRecord`: level, time, category, text), so the terminal, the file and the ring show the same.
+
+**Categories** give a part of the program its own name and level, so that `--debug` does not turn on the net, the physics and the
+game together:
+
+```cpp
+auto net = Logger::logger().category("net");              // a small handle; ask again or keep it
+net.warn("bad packet from {}", peer);                     // "[net] bad packet from 4"
+Logger::logger().setLevel("net", LoggerLevel::DEBUG);     // only the net talks at debug
+Logger::logger().clearLevel("net");                       // and follows the logger again
+```
+
+A category with no level of its own follows the logger's; the calls on `Logger::logger()` itself have no category. KUGE's modules log
+under `net`, `replication`, `server`, `core`, `audio`, `client` and `render3d`.
+
+## Seeing why it is slow: the profiler
+
+Every system of every scene is timed by the scene itself, under the name of its class and the category of its stage. Nothing is recorded
+(and a scope costs one relaxed read) until you turn it on:
+
+```
+profile start          # in the console, or kuge::Profiler::instance().enable(true)
+...play...
+profile top 10         # the ten names that cost the most, with their calls
+profile save trace.json
+```
+
+Open `trace.json` in [Perfetto](https://ui.perfetto.dev) or `chrome://tracing`: one row per thread (the main loop, each room), one box per
+system, the loop's own `tick` and `frame` around them. A system that is slow shows as a wide box in the row of its tick. Mark your own
+scopes with `KUGE_PROFILE_SCOPE("pick targets")` (a string literal, or `Profiler::intern(name)`). Each thread keeps its last 32768 events.
+
+`engine.stats()` (`FrameStats`) is always on: frames per second, the mean frame, the mean of the worst 1 %, the cost of a tick. The
+`fps` command prints it, and `DebugOverlay` (client) shows it in a corner with a graph of the last frames, the slowest systems of the last
+second, the gauges (`Gauges::global().set("audio.voices", n)`) and the network line. A budget to start from, at 60 ticks a second (16.6 ms
+for everything; first guesses to be replaced by yours):
+
+| Stage | Budget | What eats it |
+|---|---|---|
+| Network | 1 ms | too many endpoints, a handler that does work |
+| Input, Simulation | 5 ms | AI over many entities: use the interest filter, or `sortedView` once |
+| Physics | 3 ms | many bodies; check `debug_colliders` for colliders that should not exist |
+| Late, Replication | 3 ms | snapshots of too many components |
+| Frame / Render | 4 ms | sprites drawn off screen, text re-laid out each frame |
+
+## Debug options
+
+Variables and commands, from the console (see "The console and the variables"). Nothing is drawn or computed when they are off.
+
+| | |
+|---|---|
+| `debug_colliders on` | The shape of every `Collider` over the sprites: blue static, green moving, yellow trigger (a circle is shown by its box) |
+| `debug_bounds on` | The box of every `Sprite` |
+| `debug_camera on` | The edge of what the camera shows, and its center |
+| `pause`, `step [n]`, `timescale <x>` | Stop the fixed ticks (frames are still drawn), run n ticks and stop again, slow time down (0.25) or speed it up (2). The step keeps its size, so the simulation gives the same result after the same number of ticks. Refused on a server unless cheats are on |
+| `net_lag <ms>`, `net_loss <%>`, `net_jitter <ms>`, `net_dup <%>`, `net_sim off`, `net_stats` | Try the game against a bad network while playing, and read its numbers (next section) |
+| `screenshot [file]` | The next frame, as a PPM picture |
+| `--debug net,physics` | `Logger::debugCategories("net,physics")`: only those categories talk at debug level |
+
+Install them with `registerDebugCvars(cvars)` and `installDebug(setup(), flags)` in the scene, `registerEngineCommands(engine, commands)`,
+`registerClientCommands(client, commands)` and `net::registerNetCommands(commands, [&] { return &endpoint; })`. `debug_colliders` draws the 2D
+colliders (`kuge-physics`); the 3D ones and `debug_entities` (a label with the components of each entity, which needs the registry of
+reflection, ticket 042) are not there yet.
+
+## A bad network, and the net graph
+
+The subject asks for a game that holds with loss, repeats and delay. `LoopbackNetwork::Conditions` does it between two scenes of a test; a
+**`SimulatedTransport`** does it on any transport, UDP or TCP, on any machine, with no outside tool (clumsy, netem):
+
+```cpp
+kuge::net::EndpointConfig config;
+config.simulate = kuge::net::LoopbackNetwork::Conditions{.loss = 0.02, .duplicate = 0.02, .latency = 0.075, .seed = 7};
+auto& client = net.connect(kuge::net::Protocol::Udp, "127.0.0.1", 4242, config);       // 2 % loss and repeats, 150 ms of round trip
+client.setSimulation(kuge::net::LoopbackNetwork::Conditions{.latency = 0.2});         // changed while playing; std::nullopt lifts it
+```
+
+Conditions apply to each packet **in each direction**, so `latency` is paid twice by a round trip. The same seed loses the same packets. A
+transport that is reliable (TCP) only gets the delay, in order: it must not lose what it has promised not to lose.
+
+To read a connection, a `net::NetMeter` turns the counters of an endpoint into a `NetReport` (round trip with its low and high, bytes and
+packets a second each way, resends, duplicates, bad packets); `describe(report)` is one line for a log, and `DebugOverlay` draws it with a graph of
+the round trip of the last 5 seconds. How to read it: a round trip that jumps is jitter; `resends` that climb are loss; `dup` is repeats or
+resends that crossed; `bad` should stay 0. A room logs the same line for itself every `ServerConfig::statsEvery` seconds (5; 0: never). For a
+measurement with the numbers of the subject (2 % loss and repeats, over 150 ms, 5 KB/s): the configuration above, then `net_stats` or the
+overlay while the game sends 5 KB/s.

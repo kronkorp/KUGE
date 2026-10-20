@@ -47,7 +47,13 @@ threads, share only what is read-only or atomic, otherwise use messages ([04](..
 
 **Follow the player with the camera.** A Frame system: `camera.position = playerPosition;`.
 
-**Draw the screen at a fixed logical size.** `camera.zoom = min(screen.x / W, screen.y / H)` and centre the camera (R-Type).
+**Draw the screen at a fixed logical size.** `camera.logicalSize = {W, H}` and a `fit` (`Letterbox`, `IntegerLetterbox`...): any window shows the same world ([05](../05-the-client/README.md)).
+
+**Make a pause menu.** A `Scene` pushed with `engine.scenes().push<PauseMenu>()` whose `overlay()` is `OverlayMode::Transparent`: the game under it is still drawn and keeps its network, but its rules stand still ([03](../03-scenes-systems-and-the-ecs/README.md)).
+
+**Change the size of the window.** `client.window().setSize(1920, 1080)` or `setFullscreen(true)`.
+
+**Turn a first person camera with the mouse.** Bind `Binding::mouseAxis(0)` and `mouseAxis(1, -1)` (inverted y) to two actions, turn a `ViewAngles` with `input.axisValue(...)` each frame, send `packAngle(view.yaw)` in the input.
 
 **Take a screenshot.** `client.requestScreenshot()` before a step, `client.takeScreenshot()` after.
 
@@ -84,6 +90,8 @@ endpoint.send(peer, Emote{2}, kuge::net::Channel::Reliable);                    
 
 **Simulate a bad network in a test.** `LoopbackNetwork::Conditions{.loss = 0.2, .latency = 0.05, ...}` ([08](../08-the-network/README.md)).
 
+**Keep a connection from one scene to the next.** `installNet(setup(), sharedNet)` with a `std::shared_ptr<Net>` that the scenes receive ([08](../08-the-network/README.md)).
+
 **Know how long a round trip is.** `endpoint.rtt(connection)` (nothing before the first ack).
 
 ## Server
@@ -94,7 +102,7 @@ endpoint.send(peer, Emote{2}, kuge::net::Channel::Reliable);                    
 
 **Kick a player.** `kick(networkId)` in a room; the player is told `RoomClosed{Kicked}`.
 
-**End a game.** `finish(kuge::net::RoomEnd::GameOver)`.
+**End a game.** `finish(kuge::net::RoomEnd::GameOver)`, or `finish(kuge::net::RoomEnd::Victory)` when the players won.
 
 **Read server statistics from a status thread.** `server.stats().rooms.load()` (atomics).
 

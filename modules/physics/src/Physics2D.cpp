@@ -291,7 +291,9 @@ void kuge::Physics2D::moveAlong(Mover& mover, int axis, float delta)
         if (blocked) {
             Body& body = *mover.body;
 
-            (axis == 0 ? body.velocity.x : body.velocity.y) = 0.0f;
+            float& along = axis == 0 ? body.velocity.x : body.velocity.y;
+
+            along = body.restitution > 0.0f ? -along * body.restitution : 0.0f;
             if (axis == 0) {
                 (sign > 0.0f ? body.contacts.right : body.contacts.left) = true;
             } else {

@@ -11,8 +11,9 @@ kuge::TileRange kuge::visibleTiles(const TileMap& map, Vec2 position, Vec2 scale
     if (!(width > 0.0f) || !(height > 0.0f) || !(camera.zoom > 0.0f)) {
         return range;
     }
-    const Vec2 topLeft = camera.screenToWorld({0.0f, 0.0f}, screen);
-    const Vec2 bottomRight = camera.screenToWorld(screen, screen);
+    const CameraView shown = camera.view(screen);
+    const Vec2 topLeft = shown.screenToWorld({shown.area.x, shown.area.y});
+    const Vec2 bottomRight = shown.screenToWorld({shown.area.x + shown.area.w, shown.area.y + shown.area.h});
 
     range.x0 = std::max(0, static_cast<int>(std::floor((topLeft.x - position.x) / width)));
     range.y0 = std::max(0, static_cast<int>(std::floor((topLeft.y - position.y) / height)));

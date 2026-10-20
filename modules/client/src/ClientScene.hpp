@@ -28,13 +28,14 @@ namespace kuge
         protected:
             //! Fixed, Input: SampleInput then SnapshotTransforms.
             //! Fixed, Late: AnimateSprites.
-            //! Frame, Render: SpriteRender (sprites and tilemaps).
+            //! Frame, Render: SpriteRender (sprites and tilemaps), then DebugRender (what the developer asked to see: debug_colliders...).
             void installClientSystems(void)
             {
                 addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<SampleInput>());
                 addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<SnapshotTransforms>());
                 addSystem(kw::Schedule::Fixed, stage::Late, std::make_unique<AnimateSprites>());
                 addSystem(kw::Schedule::Frame, stage::Render, std::make_unique<SpriteRender>());
+                addSystem(kw::Schedule::Frame, stage::Render, std::make_unique<DebugRender>());
             }
     };
 

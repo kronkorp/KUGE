@@ -73,7 +73,7 @@ void kuge::TickDriver::driverMain(void)
 
                     m_pool.post([this, raw] { tick(*raw); });
                 } catch (const std::exception& e) {
-                    Logger::logger().error("A scene cannot be run: {}", e.what());
+                    Logger::logger().category("core").error("A scene cannot be run: {}", e.what());
                     item->running = false;
                     item->finished = true;
                 }
@@ -105,17 +105,17 @@ void kuge::TickDriver::tick(Item& item)
             }
         }
     } catch (const std::exception& e) {
-        Logger::logger().error("A scene threw and is stopped: {}", e.what());
+        Logger::logger().category("core").error("A scene threw and is stopped: {}", e.what());
         over = true;
     } catch (...) {
-        Logger::logger().error("A scene threw and is stopped");
+        Logger::logger().category("core").error("A scene threw and is stopped");
         over = true;
     }
     if (over) {
         try {
             item.loop->finish();
         } catch (...) {
-            Logger::logger().error("A scene threw while being left");
+            Logger::logger().category("core").error("A scene threw while being left");
         }
     }
     {

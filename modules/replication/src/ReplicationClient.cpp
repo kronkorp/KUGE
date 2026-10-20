@@ -7,7 +7,7 @@ namespace kuge::replication
 {
 
     ReplicationClient::ReplicationClient(kw::World& world, const ReplicationRegistry& registry, ReplicationClientConfig config)
-        : m_world(world), m_registry(registry), m_config(config)
+        : m_world(world), m_registry(registry), m_config(config), m_interval(std::max<std::uint32_t>(1, config.snapshotInterval))
     {
     }
 
@@ -43,6 +43,23 @@ namespace kuge::replication
         }
     }
 
+    void ReplicationClient::reset(void)
+    {
+        applyToWorld(WorldState{}, m_lastApplied, 0);   // everything is gone, with the hooks
+        m_current.clear();
+        m_states.clear();
+        m_pending.clear();
+        m_gaps.clear();
+        m_lastApplied = 0;
+        m_inputAck = 0;
+        m_started = false;
+        m_renderTick = 0.0;
+        m_sinceLatest = 0.0;
+        m_extra = 0.0;
+        m_starved = false;
+        m_interval = std::max<std::uint32_t>(1, m_config.snapshotInterval);
+    }
+
     // -- Receiving --------------------------------------------------------------------------------------
     void ReplicationClient::onPacket(const SnapshotPacket& packet)
     {
@@ -70,6 +87,7 @@ namespace kuge::replication
         ++pending.have;
         if (pending.have < pending.parts.size()) {
             while (m_pending.size() > m_config.maxPending) {
+                ++m_stats.incomplete;
                 m_pending.erase(m_pending.begin());
             }
             return;
@@ -82,6 +100,9 @@ namespace kuge::replication
         }
         const std::uint32_t tick = packet.tick, base = pending.baseTick, inputAck = pending.inputAck;
 
+        for (auto old = m_pending.begin(); old != m_pending.end() && old->first < tick; ++old) {
+            ++m_stats.incomplete;   // an older one that was still waiting for a part
+        }
         m_pending.erase(m_pending.begin(), m_pending.upper_bound(tick));   // this one, and the older ones that will not come
         process(tick, base, inputAck, ops);
     }
@@ -107,13 +128,24 @@ namespace kuge::replication
             next = applyOps(m_registry, *baseline, ops);
         } catch (const SerializerError& error) {
             ++m_stats.malformed;
-            Logger::logger().warn("replication: a snapshot was dropped: {}", error.what());
+            Logger::logger().category("replication").warn("replication: a snapshot was dropped: {}", error.what());
             if (baseTick != 0) {
                 ack(0);   // it was built on one that this client has, and does not fit: start again from nothing
             }
             return;
         }
+        // The gap between two snapshots that came: a lost one makes it a multiple, so the smallest of the last few is the interval
+        if (m_lastApplied != 0 && tick > m_lastApplied) {
+            m_gaps.push_back(tick - m_lastApplied);
+            if (m_gaps.size() > 8) {
+                m_gaps.pop_front();
+            }
+            m_interval = *std::min_element(m_gaps.begin(), m_gaps.end());
+        }
         applyToWorld(next, tick, inputAck);
+        if (m_tap) {
+            m_tap(tick, inputAck, next);
+        }
         m_states[tick] = std::move(next);
         while (m_states.size() > m_config.maxStates) {
             m_states.erase(m_states.begin());
@@ -124,7 +156,7 @@ namespace kuge::replication
         m_sinceLatest = 0.0;
         if (!m_started) {
             m_started = true;
-            m_renderTick = tick - m_config.interpolationDelay * m_config.tickRate;
+            m_renderTick = tick - delay() * m_config.tickRate;
         }
         ack(tick);
     }
@@ -224,34 +256,70 @@ namespace kuge::replication
     }
 
     // -- Interpolation ----------------------------------------------------------------------------------
+    double ReplicationClient::baseDelay(void) const noexcept
+    {
+        if (m_config.interpolationDelay > 0.0) {
+            return m_config.interpolationDelay;
+        }
+        return m_config.interpolationIntervals * m_interval / std::max<std::uint32_t>(1, m_config.tickRate);
+    }
+
+    double ReplicationClient::delay(void) const noexcept
+    {
+        return baseDelay() + m_extra;
+    }
+
     void ReplicationClient::update(double frameSeconds)
     {
         if (!m_started) {
             return;
         }
         const double rate = m_config.tickRate;
-        const double delay = m_config.interpolationDelay * rate;
+        const double intervalSeconds = m_interval / rate;
 
         m_sinceLatest += frameSeconds;
+        // The buffer ran dry: no snapshot for as long as the delay. Each time it happens, an adaptive delay grows by an
+        // interval; while it does not, it shrinks back (one interval in 5 s).
+        // (Strictly: at exactly the delay the drawing reaches the newest snapshot, and has not run past it. That is the
+        // case of one lost snapshot with a delay of two intervals, which this rides over.)
+        const bool starved = m_sinceLatest > delay() + 1e-6;
+
+        if (starved && !m_starved) {
+            ++m_stats.starved;
+            if (m_config.adaptiveDelay) {
+                const double most = std::max(0.0, m_config.maxInterpolationIntervals * intervalSeconds - baseDelay());
+
+                m_extra = std::min(m_extra + intervalSeconds, most);
+            }
+        } else if (!starved && m_extra > 0.0) {
+            m_extra = std::max(0.0, m_extra - frameSeconds * intervalSeconds / 5.0);
+        }
+        m_starved = starved;
         // Drawn `delay` behind the newest snapshot, moving on with the clock, and easing towards where that should be
-        const double target = m_lastApplied - delay + m_sinceLatest * rate;
+        const double target = m_lastApplied - delay() * rate + m_sinceLatest * rate;
+        const double ahead = m_config.maxExtrapolation * rate;   // ticks past the newest snapshot that may be drawn
 
         m_renderTick += frameSeconds * rate;
         m_renderTick += (target - m_renderTick) * std::min(1.0, frameSeconds * 5.0);
-        m_renderTick = std::min(m_renderTick, static_cast<double>(m_lastApplied));
+        m_renderTick = std::min(m_renderTick, static_cast<double>(m_lastApplied) + ahead);
 
         for (auto& [id, tracked] : m_entities) {
             for (auto& [index, samples] : tracked.samples) {
                 const auto& entry = m_registry.entry(index);
 
-                while (samples.size() >= 2 && samples[1].tick <= m_renderTick) {
+                // (With extrapolation on, the last two stay: their trend is what goes on past the newest)
+                while (samples.size() >= (ahead > 0.0 ? 3u : 2u) && samples[1].tick <= m_renderTick) {
                     samples.pop_front();
                 }
                 try {
                     if (samples.size() >= 2 && entry.interpolate) {
                         const double span = static_cast<double>(samples[1].tick) - samples[0].tick;
-                        const double t = std::clamp((m_renderTick - samples[0].tick) / span, 0.0, 1.0);
+                        const double most = ahead > 0.0 ? 1.0 + ahead / span : 1.0;
+                        const double t = std::clamp((m_renderTick - samples[0].tick) / span, 0.0, most);
 
+                        if (t > 1.0) {
+                            ++m_stats.extrapolated;
+                        }
                         entry.interpolate(m_world, tracked.entity, samples[0].bytes, samples[1].bytes, static_cast<float>(t));
                     } else if (!samples.empty()) {
                         entry.apply(m_world, tracked.entity, samples.back().bytes);   // one value: it waits there

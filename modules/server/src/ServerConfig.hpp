@@ -17,6 +17,10 @@ namespace kuge::server
         std::size_t maxPlayers  = 8;
         double      idleTimeout = 30.0;                       //!< A room with no player for this long closes (seconds)
         RunPolicy   policy      = RunPolicy::Dedicated;       //!< Where the rooms run: a thread each, or the workers
+        //! A player whose connection is lost (a timeout; not one who leaves, is sent away, or when the game ends) keeps its place this long
+        //! (seconds) and can come back with MatchmakingClient::rejoin(), as the same player with the same network id. The room is told
+        //! `onPlayerAway` at once and `onPlayerLeft` when the time is up. 0: a lost connection is a player who left (as always).
+        double      reconnectSeconds = 0.0;
     };
 
     //! How the server is reached and what it is allowed to do
@@ -49,6 +53,10 @@ namespace kuge::server
         double                  closeDelay     = 0.1;                  //!< A room that finishes runs this long before it tells its players (0: at once), so that the last snapshots leave first
         double                  linger         = 0.3;                  //!< Then it waits this long for its last messages to leave
 
+        std::uint64_t           mods           = 0;                    //!< Mods::fingerprint() of the server: a client whose mods are not these is refused (JoinError::Mods). 0: no mods.
+
+        double                  statsEvery     = 5.0;                  //!< A room logs its network numbers this often (INFO, category "server"; 0: never)
+
         net::EndpointConfig     endpoint;                              //!< Timeouts, and the clock, for the lobby and the rooms
 
         double now(void) const
@@ -64,6 +72,7 @@ namespace kuge::server
         std::string     roomType;
         std::string     roomName;            //!< What its creator called it ("<type> #<id>" for a room that the lobby made)
         bool            isPrivate = false;   //!< In no list: only its name and its id let anyone in
+        std::string     options;             //!< What its creator set (net::CreateRoom::options): opaque to KUGE, empty for a room the lobby made
         RoomTypeConfig  type;
         ServerConfig    server;
         std::uint16_t   port = 0;          //!< Sockets
@@ -85,10 +94,11 @@ namespace kuge::server
     // -- What lobby and rooms say to each other (scene messages: no network) ----------------------
     namespace detail
     {
-        struct ExpectPlayer  { std::uint32_t playerId; std::string name; std::uint64_t token; };
+        struct ExpectPlayer  { std::uint32_t playerId; std::string name; std::uint64_t token; bool rejoin = false; };
         struct KickPlayer    { std::uint32_t playerId; net::RoomEnd reason; };
         struct RoomReady     { std::uint32_t roomId; };
-        struct RoomClosing   { std::uint32_t roomId; };      //!< The game ended: no more players, and the ones it has may join again
+        struct RoomOpen      { std::uint32_t roomId; bool open; };   //!< The room takes newcomers again, or no more (RoomScene::setOpen)
+        struct RoomClosing   { std::uint32_t roomId; net::RoomEnd reason; };   //!< The game ended: no more players, and the ones it has may join again
         struct RoomFailed    { std::uint32_t roomId; std::string why; };
         struct PlayerJoined  { std::uint32_t roomId; std::uint32_t playerId; };
         struct PlayerLeft    { std::uint32_t roomId; std::uint32_t playerId; };

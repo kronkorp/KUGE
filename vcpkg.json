@@ -5,6 +5,15 @@
   "description": "Kronk Ultra Game Engine",
   "builtin-baseline": "2750401336fb7c95f6619657a46a7e798661341c",
   "features": {
+    "physics3d": {
+      "description": "The 3D physics module: Jolt (with RTTI, which KUGE is built with)",
+      "dependencies": [
+        {
+          "name": "joltphysics",
+          "features": ["rtti"]
+        }
+      ]
+    },
     "client": {
       "description": "The client module: window, inputs, 2D drawing, sounds and text",
       "dependencies": [
@@ -21,8 +30,7 @@
           "default-features": false,
           "features": ["libflac", "mpg123"]
         },
-        "sdl2-ttf",
-        "stb"
+        "sdl2-ttf"
       ]
     }
   }

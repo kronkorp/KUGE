@@ -2,6 +2,7 @@ extern "C" {
     #include "kronklab/kronklab.h"
 }
 #include "input/InputMap.hpp"
+#include "input/ViewAngles.hpp"
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -158,6 +159,86 @@ Test(inputmap, editing_keys)
         input.handle(press(kuge::Key::Backspace));
     }
     Assert(input.takeEditKeys().size() <= 64, "what is kept is bounded");
+}
+
+// Ctrl+V, C, X (Cmd on macOS) are editing keys for a text field; the same letters alone are text
+Test(inputmap, clipboard_keys)
+{
+    kuge::InputMap input;
+
+    input.handle(press(kuge::Key::V));
+    input.handle(kuge::KeyEvent{kuge::Key::V, false});
+    AssertEq(input.takeEditKeys().size(), 0, "a V alone is a letter");
+    input.handle(press(kuge::Key::LCtrl));
+    input.handle(press(kuge::Key::V));
+    input.handle(press(kuge::Key::C));
+    input.handle(kuge::KeyEvent{kuge::Key::LCtrl, false});
+    input.handle(press(kuge::Key::X));
+    input.handle(press(kuge::Key::RGui));
+    input.handle(press(kuge::Key::X));
+    const auto keys = input.takeEditKeys();
+
+    AssertEq(keys.size(), 3, "V and C with Ctrl, X with Cmd, got %zu", keys.size());
+    Assert(keys[0] == kuge::Key::V && keys[1] == kuge::Key::C && keys[2] == kuge::Key::X, "in order");
+}
+
+// -- The mouse wheel ---------------------------------------------------------------------------------------------
+Test(inputmap, wheel_presses_an_action)
+{
+    kuge::InputMap input;
+    const auto notch = [](float y) { return kuge::MouseWheelEvent{{0.0f, y}}; };
+
+    input.bind(Action::Jump, kuge::Binding::wheel(1));
+    input.bind(Action::Shoot, kuge::Binding::wheel(-1));
+    input.handle(notch(1.0f));
+    auto state = input.sampleTick(1);
+    Assert(state.wasPressed(Action::Jump) && !state.wasPressed(Action::Shoot), "up presses the action bound to up");
+    Assert(!state.isDown(Action::Jump), "for the tick only: it is not held");
+    state = input.sampleTick(2);
+    Assert(state.pressed == 0 && state.down == 0, "and not the next one");
+    input.handle(notch(-2.0f));
+    state = input.sampleTick(3);
+    Assert(state.wasPressed(Action::Shoot) && !state.wasPressed(Action::Jump), "down presses the other");
+    input.handle(notch(0.0f));
+    Assert(input.sampleTick(4).pressed == 0, "a wheel that did not turn presses nothing");
+}
+
+Test(inputmap, wheel_notches_are_taken)
+{
+    kuge::InputMap input;
+
+    input.handle(kuge::MouseWheelEvent{{0.0f, 1.0f}});
+    input.handle(kuge::MouseWheelEvent{{0.0f, 2.0f}});
+    input.handle(kuge::MouseWheelEvent{{0.0f, -0.5f}});
+    AssertEq(input.takeWheel(), 2.5f, "the notches add up");
+    AssertEq(input.takeWheel(), 0.0f, "and are given once");
+    for (int i = 0; i < 1000; ++i) {
+        input.handle(kuge::MouseWheelEvent{{0.0f, 1.0f}});
+    }
+    Assert(input.takeWheel() <= 100.0f, "what nobody reads does not pile up");
+}
+
+Test(inputmap, wheel_is_a_binding)
+{
+    AssertStrEq(kuge::Binding::wheel(1).toString().c_str(), "Wheel.Up", "up as text");
+    AssertStrEq(kuge::Binding::wheel(-1).toString().c_str(), "Wheel.Down", "down as text");
+    Assert(kuge::Binding::parse("wheel.up") == kuge::Binding::wheel(1), "read back, whatever the case");
+    Assert(kuge::Binding::parse(" Wheel.Down ") == kuge::Binding::wheel(-1), "with spaces around");
+    Assert(!kuge::Binding::parse("Wheel.Left").has_value(), "no other way");
+    Assert(!kuge::Binding::parse("Wheel.Upper").has_value(), "not a prefix of a word");
+    kuge::InputMap input;
+    input.declare(Action::Jump, "up");
+    input.bind(Action::Jump, kuge::Binding::wheel(1));
+    kuge::ConfigFile config;
+    input.save(config);
+    kuge::InputMap other;
+    other.declare(Action::Jump, "up");
+    other.load(config);
+    Assert(other.bindings(Action::Jump).size() == 1 && other.bindings(Action::Jump)[0] == kuge::Binding::wheel(1), "saved and loaded");
+    input.startCapture();
+    input.handle(kuge::MouseWheelEvent{{0.0f, -1.0f}});
+    const auto captured = input.takeCaptured();
+    Assert(captured.has_value() && *captured == kuge::Binding::wheel(-1), "and a rebinding can pick it");
 }
 
 Test(inputmap, sticks_need_a_push)
@@ -413,4 +494,76 @@ Test(inputmap, readme_keybinds_file)
     Assert(input.bindings(Action::Jump).size() == 3, "up has its three inputs");
     Assert(input.bindings(Action::Menu).empty(), "pause has none");
     std::filesystem::remove(path);
+}
+
+Test(inputmap, mouse_axis_has_a_value)
+{
+    kuge::InputMap input;
+
+    input.bind(Action::Left, kuge::Binding::mouseAxis(0));
+    input.bind(Action::Right, kuge::Binding::mouseAxis(0, 2.0f));
+    input.bind(Action::Jump, kuge::Binding::mouseAxis(1, -1.0f));
+    input.handle(kuge::MouseMoveEvent{{10.0f, 4.0f}, {10.0f, -4.0f}});
+    Assert(input.axisValue(Action::Left) == 10.0f, "x as it came");
+    Assert(input.axisValue(Action::Right) == 20.0f, "twice with a sensitivity of 2");
+    Assert(input.axisValue(Action::Jump) == 4.0f, "y inverted");
+    Assert(input.axisValue(Action::Shoot) == 0.0f, "nothing for an action with no axis");
+    Assert(input.sampleTick(1).down == 0, "a move is not a press");
+    input.beginFrame();
+    Assert(input.axisValue(Action::Left) == 0.0f, "and nothing the next frame");
+}
+
+Test(inputmap, stick_is_an_axis_too)
+{
+    kuge::InputMap input;
+
+    input.bind(Action::Left, kuge::Binding::axis(kuge::GamepadAxis::RightX, 1));
+    input.bind(Action::Left, kuge::Binding::axis(kuge::GamepadAxis::RightX, -1));
+    input.handle(stick(0, kuge::GamepadAxis::RightX, 0.1f));
+    Assert(input.axisValue(Action::Left) == 0.0f, "a stick at rest drifts a little: dead zone");
+    input.handle(stick(0, kuge::GamepadAxis::RightX, 0.8f));
+    Assert(input.axisValue(Action::Left) == 0.8f, "pushed right");
+    input.handle(stick(0, kuge::GamepadAxis::RightX, -0.5f));
+    Assert(input.axisValue(Action::Left) == -0.5f, "pushed left: the two bindings make one axis");
+}
+
+Test(inputmap, axes_in_the_keybinds_file)
+{
+    kuge::InputMap input;
+    kuge::ConfigFile config;
+
+    input.declare(Action::Left, "look_x");
+    input.declare(Action::Right, "look_y");
+    config.set("input.look_x", "Mouse.X*2.5, Pad.RightX+*3");
+    config.set("input.look_y", "Mouse.Y*-1");
+    input.load(config);
+    Assert(input.bindings(Action::Left).size() == 2, "two inputs for the x look");
+    Assert(input.bindings(Action::Left)[0] == kuge::Binding::mouseAxis(0, 2.5f), "the mouse, with its sensitivity");
+    Assert(input.bindings(Action::Right)[0] == kuge::Binding::mouseAxis(1, -1.0f), "inverted y");
+
+    kuge::ConfigFile saved;
+
+    input.save(saved);
+    Assert(saved.getString("input.look_x") == "Mouse.X*2.5, Pad.RightX+*3", "and they come back as they were: %s", saved.getString("input.look_x").c_str());
+    Assert(!kuge::Binding::parse("Space*2"), "a key has no sensitivity");
+    Assert(!kuge::Binding::parse("Mouse.X*fast"), "nor is a bad number one");
+    Assert(kuge::Binding::parse("Mouse.X1") == kuge::Binding(kuge::MouseButton::X1), "(the button X1 is not the axis X)");
+}
+
+Test(inputmap, view_angles_clamp_and_pack)
+{
+    kuge::ViewAngles view;
+
+    view.turn(0.0f, -100000.0f);
+    Assert(view.pitch == kuge::ViewAngles::MAX_PITCH, "looking up stops at 89 degrees");
+    view.turn(0.0f, 1000000.0f);
+    Assert(view.pitch == -kuge::ViewAngles::MAX_PITCH, "and down too");
+    view.turn(1000.0f, 0.0f, 1.0f);   // many turns
+    Assert(view.yaw >= -3.1416f && view.yaw < 3.1416f, "yaw stays in one turn: %f", view.yaw);
+    for (const float angle : {0.0f, 1.0f, -1.0f, 3.1f, -3.1f, 0.001f}) {
+        const float back = kuge::unpackAngle(kuge::packAngle(angle));
+
+        Assert(std::fabs(back - angle) < 0.0001f, "%f survives 16 bits, got %f", angle, back);
+    }
+    Assert(kuge::packAngle(7.0f) == kuge::packAngle(7.0f - 6.2831853f), "a turn more is the same angle");
 }

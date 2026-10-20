@@ -114,7 +114,7 @@ kuge::Engine::Engine(Config config)
     if (config.maxFps != 0 && config.maxFps < config.tickRate) {
         throw std::invalid_argument("Engine: maxFps must be 0 or at least tickRate");
     }
-    Logger::logger().info("Engine constructed");
+    Logger::logger().category("core").info("Engine constructed");
 }
 
 kuge::Engine::~Engine(void)
@@ -125,7 +125,7 @@ kuge::Engine::~Engine(void)
     while (!m_modules.empty()) {
         m_modules.pop_back();
     }
-    Logger::logger().info("Engine destroyed");
+    Logger::logger().category("core").info("Engine destroyed");
 }
 
 kuge::SceneManager& kuge::Engine::scenes(void) noexcept
@@ -137,6 +137,13 @@ const kuge::Time& kuge::Engine::time(void) const noexcept
 {
     return m_main.time();
 }
+
+const kuge::FrameStats& kuge::Engine::stats(void) const noexcept { return m_main.stats(); }
+void kuge::Engine::setPaused(bool paused) noexcept { m_main.setPaused(paused); }
+bool kuge::Engine::paused(void) const noexcept { return m_main.paused(); }
+void kuge::Engine::advance(std::uint32_t ticks) noexcept { m_main.advance(ticks); }
+void kuge::Engine::setTimeScale(double scale) noexcept { m_main.setTimeScale(scale); }
+double kuge::Engine::timeScale(void) const noexcept { return m_main.timeScale(); }
 
 const kuge::Engine::Config& kuge::Engine::config(void) const noexcept
 {
@@ -248,14 +255,14 @@ void kuge::Engine::runDedicated(Dedicated& runner)
             }
         }
     } catch (const std::exception& e) {
-        Logger::logger().error("A scene threw and is stopped: {}", e.what());
+        Logger::logger().category("core").error("A scene threw and is stopped: {}", e.what());
     } catch (...) {
-        Logger::logger().error("A scene threw and is stopped");
+        Logger::logger().category("core").error("A scene threw and is stopped");
     }
     try {
         runner.loop->finish();   // left by the thread that ran it
     } catch (...) {
-        Logger::logger().error("A scene threw while being left");
+        Logger::logger().category("core").error("A scene threw while being left");
     }
     runner.finished = true;
 }
@@ -343,9 +350,9 @@ void kuge::Engine::stepSideLoops(double frameSeconds)
         try {
             alive = loop.step(frameSeconds, m_stop);
         } catch (const std::exception& e) {
-            Logger::logger().error("A scene threw and is stopped: {}", e.what());
+            Logger::logger().category("core").error("A scene threw and is stopped: {}", e.what());
         } catch (...) {
-            Logger::logger().error("A scene threw and is stopped");
+            Logger::logger().category("core").error("A scene threw and is stopped");
         }
         if (alive) {
             ++i;
@@ -353,7 +360,7 @@ void kuge::Engine::stepSideLoops(double frameSeconds)
             try {
                 loop.finish();
             } catch (...) {
-                Logger::logger().error("A scene threw while being left");
+                Logger::logger().category("core").error("A scene threw while being left");
             }
             m_side.erase(m_side.begin() + static_cast<std::ptrdiff_t>(i));
         }

@@ -310,3 +310,83 @@ Test(net_scene, endpoints_from_handlers)
     engine.spawn<NetScene>(kuge::RunPolicy::Dedicated, second);   // (the room exists now: it was made by the handler)
     Assert(waitUntil([&secondHeard] { return secondHeard >= 1; }, 10.0), "and the endpoint made from the handler works");
 }
+
+namespace
+{
+    // Polls a Net that the test keeps
+    class Holder : public kuge::Scene
+    {
+        public:
+            explicit Holder(std::shared_ptr<Net> net) : m_net(std::move(net)) {}
+
+            void onEnter(void) override { installNet(setup(), m_net); }
+
+        private:
+            std::shared_ptr<Net> m_net;
+    };
+}
+
+Test(net_scene, shared_net_survives_scenes)
+{
+    LoopbackNetwork network;
+    auto net = std::make_shared<Net>();
+    std::vector<std::uint32_t> heard;
+    ConnectionId link = 0;
+    bool connected = false;
+    kuge::Engine engine;
+
+    Endpoint& server = net->listen("shared", network);
+    server.on<Number>([&](ConnectionId, const Number& number) { heard.push_back(number.value); });
+    Endpoint& client = net->connect("shared", network);
+    client.onConnected([&](ConnectionId id) { link = id; connected = true; client.send(id, Number{1}); });
+
+    engine.scenes().change<Holder>(net);
+    for (int i = 0; i < 200 && heard.empty(); ++i) {
+        engine.step(1.0 / 60.0);
+    }
+    Assert(connected && heard.size() == 1, "the first scene polls it: %zu heard", heard.size());
+
+    engine.scenes().change<Holder>(net);   // the first scene is gone
+    engine.step(1.0 / 60.0);
+    Assert(net->count() == 2, "the endpoints are still there");
+    client.send(link, Number{2});
+    for (int i = 0; i < 200 && heard.size() < 2; ++i) {
+        engine.step(1.0 / 60.0);
+    }
+    Assert(heard.size() == 2 && heard[1] == 2, "and the second scene polls them: %zu heard", heard.size());
+    engine.scenes().clear();
+    Assert(net->count() == 2, "the scenes do not end what they do not own");
+}
+
+Test(net_scene, one_poll_per_tick)
+{
+    Net net;
+
+    Assert(net.pollTick(5), "the first call for a tick polls");
+    Assert(!net.pollTick(5), "the second, from another scene, does not");
+    Assert(net.pollTick(6), "the next tick does");
+}
+
+Test(net_scene, a_scene_has_a_net_ref)
+{
+    kuge::Engine engine;
+    bool same = false;
+
+    class Plain : public kuge::Scene
+    {
+        public:
+            explicit Plain(bool* same) : m_same(same) {}
+
+            void onEnter(void) override
+            {
+                installNet(setup());
+                *m_same = &world().getResource<Net>() == &*world().getResource<kuge::Ref<Net>>();
+            }
+
+        private:
+            bool* m_same;
+    };
+    engine.scenes().change<Plain>(&same);
+    engine.step(0.0);
+    Assert(same, "its own Net is also reachable as a Ref, like a shared one");
+}

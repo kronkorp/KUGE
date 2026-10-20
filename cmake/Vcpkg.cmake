@@ -1,5 +1,5 @@
 # Where the third-party libraries come from: vcpkg, in manifest mode. vcpkg.json lists them (SDL2,
-# SDL2_mixer, SDL2_ttf, stb) and pins their versions with its builtin-baseline, so a machine with
+# SDL2_mixer, SDL2_ttf) and pins their versions with its builtin-baseline, so a machine with
 # a compiler, CMake and git builds the same ones as the CI, and nothing is installed on the system.
 #
 # Included before project(), which is when vcpkg installs what vcpkg.json asks for. The vcpkg used:
@@ -15,10 +15,14 @@ if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     return()
 endif()
 
-# The client's libraries are a feature of the manifest: a server (KUGE_BUILD_CLIENT=OFF) builds
+# The client's libraries and Jolt are features of the manifest: a server (KUGE_BUILD_CLIENT=OFF) builds
 # without SDL, as it links without it
 if(NOT DEFINED KUGE_BUILD_CLIENT OR KUGE_BUILD_CLIENT)
     list(APPEND VCPKG_MANIFEST_FEATURES client)
+endif()
+# Same for the 3D physics (Jolt)
+if(NOT DEFINED KUGE_BUILD_PHYSICS3D OR KUGE_BUILD_PHYSICS3D)
+    list(APPEND VCPKG_MANIFEST_FEATURES physics3d)
 endif()
 
 set(KUGE_VCPKG_DIR "${CMAKE_SOURCE_DIR}/.vcpkg" CACHE PATH "Where vcpkg is cloned when VCPKG_ROOT is not set")

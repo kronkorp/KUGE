@@ -234,3 +234,97 @@ Test(sdlaudio, a_machine_with_no_sound)
     sound.reset();
     setenv("SDL_AUDIODRIVER", "dummy", 1);
 }
+
+namespace
+{
+    // Waits (at most `seconds`) for something that the audio thread does
+    template<typename Done>
+    bool waitFor(Done done, double seconds = 3.0)
+    {
+        const auto end = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
+
+        while (!done()) {
+            if (std::chrono::steady_clock::now() > end) {
+                return false;
+            }
+            wait(5);
+        }
+        return true;
+    }
+}
+
+Test(sdlaudio, reserved_voices_apart)
+{
+    useNoSoundCard();
+    SoundFile file("sdl_reserved", 2.0);
+    auto audio = kuge::makeSdlAudio();
+    const kuge::SoundId sound = audio->loadSound(file.path);
+    std::vector<kuge::VoiceId> voices;
+
+    audio->reserveVoices(2);
+    while (const kuge::VoiceId voice = audio->play(sound, 0.1f, 0.0f, true)) {
+        voices.push_back(voice);
+    }
+    AssertEq(voices.size(), 30, "the effects get 32 - 2 (got %zu)", voices.size());
+    const kuge::VoiceId first = audio->play(sound, 0.1f, 0.0f, true, true);
+    const kuge::VoiceId second = audio->play(sound, 0.1f, 0.0f, true, true);
+
+    Assert(first != kuge::NO_VOICE && second != kuge::NO_VOICE, "two lines still play");
+    Assert(audio->play(sound, 0.1f, 0.0f, true, true) == kuge::NO_VOICE, "a third has no room");
+    audio->stop(first);
+    Assert(audio->play(sound, 0.1f, 0.0f, true, true) != kuge::NO_VOICE, "a reserved voice that is free is used again");
+    audio->setVoice(second, 0.5f, 0.0f, 0.2f);   // (a muffled voice: must not hurt)
+    audio->stop(second);
+    for (kuge::VoiceId voice : voices) {
+        audio->stop(voice);
+    }
+    audio->destroySound(sound);
+}
+
+Test(sdlaudio, a_stream_plays_and_ends)
+{
+    useNoSoundCard();
+    auto audio = kuge::makeSdlAudio();
+    const kuge::StreamId stream = audio->createStream(22050, 1);
+    std::vector<std::int16_t> samples(4410);   // 0.2 s
+
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        samples[i] = static_cast<std::int16_t>(8000.0 * std::sin(6.283185307 * 440.0 * static_cast<double>(i) / 22050.0));
+    }
+    Assert(audio->playStream(stream, 1.0f, 0.0f, false) == kuge::NO_VOICE, "nothing in it yet: no voice");
+    audio->pushSamples(stream, samples);
+    AssertEq(audio->bufferedFrames(stream), 4410, "all the frames wait (got %zu)", audio->bufferedFrames(stream));
+    const auto started = std::chrono::steady_clock::now();
+    const kuge::VoiceId voice = audio->playStream(stream, 1.0f, 0.0f, false);
+
+    Assert(voice != kuge::NO_VOICE && audio->playing(voice), "it plays");
+    Assert(audio->playStream(stream, 1.0f, 0.0f, false) == kuge::NO_VOICE, "one voice at a time for a stream");
+    Assert(waitFor([&] { return !audio->playing(voice); }), "and it ends by itself");
+    const double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+
+    Assert(took > 0.1 && took < 1.5, "after about 0.2 s: %f", took);
+    AssertEq(audio->bufferedFrames(stream), 0, "nothing is left");
+    audio->stop(voice);
+    audio->pushSamples(stream, samples);
+    Assert(audio->playStream(stream, 1.0f, 0.0f, false) != kuge::NO_VOICE, "it plays again with new samples");
+    audio->destroyStream(stream);   // (while it plays: the mixer lets it go first)
+    bool refused = false;
+
+    try { audio->createStream(44100, 3); } catch (const kuge::AudioError&) { refused = true; }
+    Assert(refused, "three channels are refused");
+}
+
+Test(sdlaudio, a_stream_is_resampled)
+{
+    useNoSoundCard();
+    auto audio = kuge::makeSdlAudio();
+    const kuge::StreamId stream = audio->createStream(11025, 2);   // a quarter of the rate of the mixer, in stereo
+    std::vector<std::int16_t> samples(2 * 2205, 1000);               // 0.2 s
+
+    audio->pushSamples(stream, samples);
+    const kuge::VoiceId voice = audio->playStream(stream, 1.0f, 0.0f, false);
+
+    Assert(voice != kuge::NO_VOICE, "it plays");
+    Assert(waitFor([&] { return !audio->playing(voice); }), "it ends");
+    audio->destroyStream(stream);
+}

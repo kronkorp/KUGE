@@ -44,6 +44,10 @@ world.add<kuge::Collider>(coin, kuge::Collider::circle(8.0f).asTrigger());
   wall, and they **slide** along walls.
 - `body.contacts` says which sides touch a wall (a collider with no body, or a solid tile), **even when the body
   stands still**. That is what a "can I jump?" test reads.
+- A body can **bounce**: `body.restitution` is what a wall that stops it gives back of its speed along the axis of the wall
+  (0, the default: it stops and slides; 1: it comes back as fast as it came; 0.5: at half the speed). The other axis is not
+  touched, so a body that meets a wall at an angle bounces off it. Solid tiles bounce like colliders. "The edge of the screen" is not a
+  thing of the physics: put four static colliders there.
 - Bodies are **boxes**; circles are walls, triggers and things to query.
 - Bodies do **not** stop each other. To know who touches whom, use a trigger, or your own test. (R-Type's bullets
   and enemies use a simple box overlap test in the rules, not the physics.)
@@ -77,6 +81,19 @@ This is not a nicety. It is what lets:
   [10](../10-replication-and-prediction/README.md));
 - a **test** assert exact positions;
 - a **replay** exist.
+
+**Across platforms.** Bit for bit also needs the compiler not to change the arithmetic. The 2D physics uses only
+`+ - * /` and `sqrt`, which IEEE 754 makes exact, so it gives the same bits on Linux, Windows and ARM as long as the
+code is built without fast-math and without fused multiply-add: that is what the `kuge-determinism` target sets
+(`-ffp-contract=off -fno-fast-math`, `/fp:precise`), and every KUGE module links it. A game that predicts its own code
+links it too. The test `float_determinism` runs 10 000 ticks of a scripted scene (dynamic and kinematic bodies,
+tiles, a trigger, pushes from a fixed integer generator), hashes the final state and compares it with a constant;
+the CI of Linux and of Windows must both reach it. If you change the physics on purpose, the constant changes, and
+it must be the same on both. (Checked: on x86 with `-march=haswell` and `-ffp-contract=fast` the hash differs and the
+test fails.)
+
+**Not covered:** the 3D physics (Jolt) is bit for bit on one machine only, and is not part of that test; `sin`,
+`cos`, `pow`... in your own predicted code, which come from each platform's maths library.
 
 ## Using it without a scene
 

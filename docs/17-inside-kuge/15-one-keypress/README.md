@@ -43,7 +43,7 @@ The room is a scene on its own thread (a dedicated `SceneLoop`), in the server's
 |---|---|---|---|
 | 18 | Ana, `Network` stage | `ReplicationClient::onPacket`: parts assembled, built from the acknowledged baseline, applied. The ship is hers and predicted, so its position goes to `Prediction::reconcile`: server state after #N, inputs after #N replayed. Same result as predicted: **nothing moves**. A `SnapshotAck` goes back. | 13, 14 |
 | 19 | Ben, `Network` stage | The same snapshot, applied to Ben's World: Ana's ship gets a new position **sample**. | 13 |
-| 20 | Ben, each frame | `ReplicationClient::update` places Ana's ship 0.1 s behind the newest snapshot, between two samples. Ben sees her move, smoothly, about half a round trip + the room's margin + half a round trip + 0.1 s after she pressed. | 13 |
+| 20 | Ben, each frame | `ReplicationClient::update` places Ana's ship two snapshot intervals (67 ms at 30 a second) behind the newest snapshot, between two samples. Ben sees her move, smoothly, about half a round trip + the room's margin + half a round trip + 67 ms after she pressed. | 13 |
 
 ## The budget
 
@@ -51,7 +51,7 @@ The room is a scene on its own thread (a dedicated `SceneLoop`), in the server's
 |---|---|
 | Ana | at most one loop (plus the screen) |
 | The room | half a round trip, plus up to a tick of waiting, plus the input margin (`jitter`, 2 ticks) |
-| Ben | what the room needed, plus half a round trip, plus the interpolation delay (0.1 s) |
+| Ben | what the room needed, plus half a round trip, plus the interpolation delay (two snapshot intervals: 67 ms) |
 
 With 50 ms each way, Ben sees Ana's move about 0.25 s after it happened, and it looks smooth. Ana sees it at once,
 and the room agrees with her afterwards, most of the time without changing a pixel. That is the whole of what KUGE's

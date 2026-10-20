@@ -72,7 +72,7 @@ using WorldState = std::map<NetworkId, EntityRecord>;
 
 ```cpp
 // modules/replication/src/ReplicationServer.cpp, ReplicationServer::update (shortened)
-... the clients whose last snapshot is at least sendInterval ticks old (2: 30 snapshots a second)
+... the clients whose last snapshot is at least m_interval ticks old (sendInterval, or sendRate over tickRate: 2 is 30 snapshots a second at 60 Hz)
 const auto current = std::make_shared<const WorldState>(captureState(m_world, m_registry));   // once
 
 for (const net::ConnectionId connection : due) {
@@ -82,7 +82,7 @@ for (const net::ConnectionId connection : due) {
 
 // ReplicationServer::send
 const std::vector<Bytes> ops = diffOps(m_registry, client.baseline.get(), *view);
-... the records packed into parts of at most maxPartBytes (6000): a big snapshot takes several packets
+... the records packed into parts of at most maxPartBytes (1100, the payload of a datagram that is not cut by IP): a big snapshot takes several packets
 ... each part: SnapshotPacket{schema, tick, baseTick = client.baselineTick, inputAck, part, parts, ops}, unreliable
 client.history[tick] = view;                          // what was sent, until the client says it has it
 ```
@@ -144,20 +144,20 @@ left wrong.
 
 ```cpp
 // ReplicationClient::update(frameSeconds), each frame
-const double delay = m_config.interpolationDelay * rate;             // 0.1 s, in ticks
 m_sinceLatest += frameSeconds;
-const double target = m_lastApplied - delay + m_sinceLatest * rate;  // where the "render clock" should be
+... starved: no snapshot for longer than delay() (the adaptive delay grows, or shrinks back)
+const double target = m_lastApplied - delay() * rate + m_sinceLatest * rate;   // delay(): 2 snapshot intervals, 67 ms at 30 a second
 
 m_renderTick += frameSeconds * rate;                                 // it moves with real time...
 m_renderTick += (target - m_renderTick) * std::min(1.0, frameSeconds * 5.0);   // ...and eases towards the target
-m_renderTick = std::min(m_renderTick, static_cast<double>(m_lastApplied));    // never past the last snapshot
+m_renderTick = std::min(m_renderTick, m_lastApplied + maxExtrapolation * rate);   // never past the last snapshot (but for maxExtrapolation)
 
 ... for each interpolated component: drop the samples older than m_renderTick,
 ... and lerp between the two that surround it (one sample left: it stays there, nothing is invented)
 ```
 
-The client draws other entities at a moment 0.1 s behind the newest snapshot. With 30 snapshots a second there are
-about three snapshots in that margin. A lost one only means interpolating across a wider gap, never a jump.
+The client draws other entities at a moment two snapshot intervals behind the newest snapshot (67 ms at 30 snapshots a
+second). There are about two snapshots in that margin. A lost one only means interpolating across a wider gap, never a jump.
 
 ## Lab
 

@@ -333,7 +333,7 @@ Test(server, a_client_that_never_comes)
     Assert(raw.until([&raw] { return !raw.assigned.empty(); }), "assigned a place");
     Assert(waitUntil([&] { return harness.server->stats().players == 1; }), "which is kept for it");
     Assert(raw.until([&] { return harness.server->stats().players == 0; }, 5.0), "but not for ever");
-    Assert(!raw.closed.empty(), "and it is told");
+    Assert(raw.until([&] { return !raw.closed.empty(); }), "and it is told");   // (the stat goes down a moment before the message arrives)
 }
 
 Test(server, many_clients_many_rooms)
@@ -721,4 +721,217 @@ Test(server, named_rooms_over_sockets)
     ben.joinNamed(ana.roomId, "Over tcp");
     Assert(ben.until([&] { ana.poll(); return ben.inRoom(); }), "the right one gets in");
     AssertEq(ben.roomId, ana.roomId, "into the same room");
+}
+
+// -- Why a client could not join (ticket 001) ---------------------------------------------------
+Test(server, a_refusal_says_why)
+{
+    Harness harness([](ServerConfig& c) { c.endpoint.protocol = 50; });   // another version than the client's
+    TestClient ana("Ana");
+
+    ana.matchmaking.connectLobby("lobby", harness.network);
+    ana.join();
+    Assert(ana.until([&] { return ana.matchmaking.state() == State::Failed; }), "the lobby refuses the client");
+    AssertEq(static_cast<int>(ana.matchmaking.lastReason()), static_cast<int>(net::DisconnectReason::Refused), "for a refusal");
+    Assert(ana.matchmaking.error().find("refused") != std::string::npos, "and the text says it: %s", ana.matchmaking.error().c_str());
+    Assert(!ana.failures.empty() && ana.failures.back() == ana.matchmaking.error(), "onFailed gets the same text");
+}
+
+Test(server, a_lobby_nobody_runs)
+{
+    net::LoopbackNetwork nowhere;
+    TestClient ana("Ana");
+
+    ana.matchmaking.connectLobby("lobby", nowhere);
+    Assert(ana.until([&] { return ana.matchmaking.state() == State::Failed; }), "there is nobody");
+    AssertEq(static_cast<int>(ana.matchmaking.lastReason()), static_cast<int>(net::DisconnectReason::Unreachable), "it cannot be reached");
+    AssertStrEq(ana.matchmaking.error().c_str(), "the server cannot be reached", "and the text says it");
+}
+
+Test(server, a_silent_lobby)
+{
+    // A lobby that accepts the connection and never answers the handshake: the client gives up after connectTimeout
+    net::LoopbackNetwork network;
+    auto deaf = network.listen("lobby");
+    TestClient ana("Ana");
+    net::EndpointConfig config;
+
+    config.connectTimeout = 0.3;
+    ana.matchmaking.connectLobby("lobby", network, config);
+    Assert(ana.until([&] { return ana.matchmaking.state() == State::Failed; }), "the client gives up");
+    AssertEq(static_cast<int>(ana.matchmaking.lastReason()), static_cast<int>(net::DisconnectReason::Timeout), "it timed out");
+    AssertStrEq(ana.matchmaking.error().c_str(), "the server does not answer", "and the text says it");
+}
+
+// -- The server stops (ticket 040) ---------------------------------------------------------------
+Test(server, stopping_says_why)
+{
+    for (int round = 0; round < 10; ++round) {
+        auto harness = std::make_unique<Harness>();
+        TestClient ana("Ana"), ben("Ben");
+
+        ana.connect(*harness);
+        ben.connect(*harness);
+        ana.join();
+        ben.join();
+        Assert(ana.until([&] { ben.poll(); return ana.inRoom() && ben.inRoom(); }), "round %d: in the room", round);
+        harness.reset();     // the server stops with two players in a room
+        Assert(ana.until([&] { ben.poll(); return !ana.closed.empty() && !ben.closed.empty(); }, 5.0), "round %d: both hear that the room closed", round);
+        AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::ServerStopping), "round %d: because the server stopped", round);
+        AssertEq(static_cast<int>(ben.closed[0]), static_cast<int>(net::RoomEnd::ServerStopping), "round %d: for both", round);
+        Assert(ana.until([&] { ben.poll(); return ana.matchmaking.state() == State::Failed && ben.matchmaking.state() == State::Failed; }, 5.0), "round %d: then the lobby is lost", round);
+        AssertEq(ana.closed.size(), 1, "round %d: and the room was not reported twice", round);
+    }
+}
+
+Test(server, stopping_a_finishing_room)
+{
+    // A room that is finishing, with its players not told yet (closeDelay), keeps the reason of its game
+    auto harness = std::make_unique<Harness>([](ServerConfig& c) { c.closeDelay = 30.0; });
+    TestClient ana("Ana");
+
+    ana.connect(*harness);
+    ana.join();
+    Assert(ana.until([&] { return ana.inRoom(); }), "in the room");
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, FinishNow{});
+    Assert(waitUntil([] { return roomLog().finished == 1; }), "the room is finishing, its players not told yet");
+    Assert(ana.until([&] { const auto* list = ana.list(); return list && list->total == 0; }), "and the lobby knows (a room that ends is not listed)");
+    harness.reset();
+    Assert(ana.until([&] { return !ana.closed.empty(); }, 5.0), "the player hears the end");
+    AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::GameOver), "with the reason of the game, not the server's");
+}
+
+// -- Rooms with options (ticket 008) -----------------------------------------------------------
+Test(server, a_room_has_options)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    ana.create("Hurry", false, "duel", "hurry=1");
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens a room with options");
+    {
+        std::lock_guard lock(roomLog().mutex);
+        Assert(roomLog().roomOptions.size() == 1 && roomLog().roomOptions[0] == "hurry=1", "the room reads them in init()");
+    }
+    const auto* list = ben.list();
+
+    Assert(list != nullptr && list->rooms.size() == 1, "the room is listed");
+    AssertStrEq(list->rooms[0].options.c_str(), "hurry=1", "with its options");
+    ben.join();
+    Assert(ben.until([&] { return ben.inRoom(); }), "Ben asks for any room");
+    TestClient carl("Carl");
+
+    carl.connect(harness);
+    carl.join("duel");
+    Assert(carl.until([&] { return carl.inRoom(); }), "and Carl, whose room the lobby makes");
+    const auto* both = carl.list();
+
+    Assert(both != nullptr && both->rooms.size() == 2, "two rooms");
+    AssertStrEq(both->rooms[1].options.c_str(), "", "the one that the lobby made has none");
+}
+
+Test(server, bad_options_are_refused)
+{
+    Harness harness;
+    TestClient ana("Ana");
+
+    ana.connect(harness);
+    std::size_t refusals = 0;
+
+    for (const std::string& bad : {std::string(net::MAX_ROOM_OPTIONS + 1, 'x'), std::string("\xFF\xFE"), std::string("two\nlines")}) {
+        ana.create("Room", false, "duel", bad);
+        ++refusals;
+        Assert(ana.until([&] { return ana.failures.size() == refusals; }), "bad options are refused");
+        AssertStrEq(ana.failures.back().c_str(), "these are not options for a room", "for that reason");
+    }
+    Assert(ana.inLobby(), "the client is still in the lobby");
+    AssertEq(harness.server->stats().rooms, 0, "no room was made");
+    ana.create("Room", false, "duel", std::string(net::MAX_ROOM_OPTIONS, 'x'));
+    Assert(ana.until([&] { return ana.inRoom(); }), "128 bytes are accepted");
+}
+
+// -- A game that is won (ticket 009) ---------------------------------------------------------------
+Test(server, a_room_ends_in_victory)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    ana.join();
+    ben.join();
+    Assert(ana.until([&] { ben.poll(); return ana.inRoom() && ben.inRoom(); }), "in the room");
+    const auto first = ana.roomId;
+
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, WinNow{});
+    Assert(ana.until([&] { ben.poll(); return !ana.closed.empty() && !ben.closed.empty(); }), "both are told the room closed");
+    AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::Victory), "Ana: it was won");
+    AssertEq(static_cast<int>(ben.closed[0]), static_cast<int>(net::RoomEnd::Victory), "Ben: too");
+    Assert(ana.inLobby() && ben.inLobby(), "they are back in the lobby");
+    Assert(waitUntil([&] { return harness.server->stats().rooms == 0; }), "and the lobby counts the room as closed, as for GameOver");
+    Assert(waitUntil([] { return roomLog().exited == 1; }), "its scene was left");
+    ana.join();
+    Assert(ana.until([&] { return ana.joined == 2 && ana.inRoom(); }), "a new game can start at once");
+    Assert(ana.roomId != first, "in a new room");
+    Assert(std::string(net::describe(net::RoomEnd::Victory)) != net::describe(net::RoomEnd::GameOver), "and the two have a text of their own");
+}
+
+Test(server, victory_honours_closeDelay)
+{
+    // The room that is won tells its players closeDelay later, as for any end: what it did on the last tick leaves first
+    Harness harness([](ServerConfig& c) { c.closeDelay = 0.6; });
+    TestClient ana("Ana");
+
+    ana.connect(harness);
+    ana.join();
+    Assert(ana.until([&] { return ana.inRoom(); }), "in the room");
+    const auto sent = std::chrono::steady_clock::now();
+
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, WinNow{});
+    Assert(ana.until([&] { return !ana.closed.empty(); }), "told");
+    Assert(std::chrono::steady_clock::now() - sent >= std::chrono::milliseconds(500), "not before the delay");
+    AssertEq(static_cast<int>(ana.closed[0]), static_cast<int>(net::RoomEnd::Victory), "with the reason of the game");
+}
+
+// -- A room that is closed to newcomers (ticket 018) -------------------------------------------------
+Test(server, a_closed_room_takes_no_one)
+{
+    Harness harness;
+    TestClient ana("Ana"), ben("Ben"), carl("Carl");
+
+    ana.connect(harness);
+    ben.connect(harness);
+    carl.connect(harness);
+    ana.create("Match");
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana opens a room");
+    const auto id = ana.roomId;
+    const auto* list = ben.list();
+
+    Assert(list != nullptr && list->rooms.size() == 1 && list->rooms[0].open, "it is open");
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, SetDoor{false});
+    Assert(ben.until([&] { const auto* l = ben.list(); return l && l->rooms.size() == 1 && !l->rooms[0].open; }), "the game starts: the list says it is not open (but still lists it)");
+
+    ben.joinNamed(id, "Match");
+    Assert(ben.until([&] { return !ben.failures.empty(); }), "a join by id is refused");
+    AssertStrEq(ben.failures[0].c_str(), "this game has already started", "because the game started");
+    Assert(ben.inLobby() && ben.joined == 0, "Ben never got a Welcome");
+    {
+        std::lock_guard lock(roomLog().mutex);
+        AssertEq(roomLog().joined.size(), 1, "and the room never saw him");
+    }
+
+    // The automatic matchmaking has a room of its own made, instead of putting Carl in the one that runs
+    carl.join();
+    Assert(carl.until([&] { return carl.inRoom(); }), "a quick play lands somewhere");
+    Assert(carl.roomId != id, "in a new room");
+    AssertEq(harness.server->stats().rooms, 2, "which was made for him");
+
+    // Open again: the room takes newcomers
+    ana.matchmaking.room()->send(net::CLIENT_CONNECTION, SetDoor{true});
+    Assert(ben.until([&] { const auto* l = ben.list(); return l && l->rooms.size() == 2 && l->rooms[0].open; }), "the room is open again");
+    ben.joinNamed(id, "Match");
+    Assert(ben.until([&] { return ben.inRoom(); }), "Ben joins it");
+    AssertEq(ben.roomId, id, "it is Ana's");
 }

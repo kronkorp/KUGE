@@ -23,6 +23,7 @@ Read them in order the first time. Each page stands alone afterwards.
 | [08 The network](08-the-network/README.md) | Endpoints, typed messages, reliable channels, TCP, UDP and the in-memory loopback |
 | [09 The server](09-the-server/README.md) | A lobby, rooms, tokens, and how a player is matched to a game |
 | [10 Replication and prediction](10-replication-and-prediction/README.md) | Showing a world to clients, interpolation, and making your own player answer at once |
+| [18 3D](18-3d/README.md) | Models, animation, cameras, Jolt physics, 3D on a network, and Arena, a 3D game in three programs |
 
 ## Make R-Type, from A to Z
 
@@ -48,5 +49,6 @@ Read them in order the first time. Each page stands alone afterwards.
 | [13 Cookbook](13-cookbook/README.md) | Short recipes for things you will want to do |
 | [14 Pitfalls](14-pitfalls/README.md) | The traps that were met while building the engine |
 | [15 Glossary](15-glossary/README.md) | Words used everywhere |
+| [19 Network protocol (RFC)](19-network-protocol-rfc/README.md) | The wire protocol as a specification: packets, channels, handshake, lobby, replication (in French) |
 
 The [README of the repository](../README.md) is the reference; these pages are the explanation.

@@ -30,8 +30,18 @@ else()
     set(KUGE_WARNINGS -Wall -Wextra)
 endif()
 
-option(KUGE_BUILD_SHARED  "Also build kuge.so, an aggregate of every module" ON)
+# Ticket 039: OFF by default on Windows. kronkworld numbers its resource and component types with a
+# counter in its headers, and a DLL and a program each have their own copy: kuge.dll and the game would
+# give two ids to the same type (UiTheme...) and the game reads garbage. Link the static modules there.
+# Needs kronkworld to number its types by name (see tests/dll_ids, which turns red when it does).
+if(WIN32)
+    set(KUGE_BUILD_SHARED_DEFAULT OFF)
+else()
+    set(KUGE_BUILD_SHARED_DEFAULT ON)
+endif()
+option(KUGE_BUILD_SHARED  "Also build kuge.so (kuge.dll: see ticket 039, OFF by default on Windows), an aggregate of every module" ${KUGE_BUILD_SHARED_DEFAULT})
 option(KUGE_BUILD_CLIENT  "Build the client module (window, inputs, 2D rendering: needs SDL2)" ON)
+option(KUGE_BUILD_PHYSICS3D "Build the 3D physics module (needs Jolt)" ON)
 option(BUILD_EXAMPLES     "Build the example/ executables" OFF)
 option(BUILD_TESTS        "Build the tests (run them with ctest)" OFF)
 set(KUGE_SANITIZE "" CACHE STRING "Build with a sanitizer: address (+ undefined) or thread")
@@ -85,13 +95,13 @@ endif()
 # SDL2 comes last: the static SDL2_mixer and SDL2_ttf use it, and their targets do not say so.
 if(KUGE_BUILD_CLIENT)
     # (A game that fetches KUGE must give its own build the vcpkg toolchain, and list them in its
-    # own vcpkg.json: without vcpkg, stb is nowhere to be found)
+    # own vcpkg.json: without vcpkg, SDL is nowhere to be found)
     if(NOT VCPKG_TOOLCHAIN)
         message(FATAL_ERROR
-            "The client module's libraries (SDL2, SDL2_mixer, SDL2_ttf, stb) come from vcpkg, and this "
+            "The client module's libraries (SDL2, SDL2_mixer, SDL2_ttf) come from vcpkg, and this "
             "build has no vcpkg toolchain. Built on its own, KUGE finds one (cmake/Vcpkg.cmake). "
             "A game that fetches KUGE: pass -DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake "
-            "and list sdl2, sdl2-mixer, sdl2-ttf and stb in the game's vcpkg.json (see KUGE's). "
+            "and list sdl2, sdl2-mixer and sdl2-ttf in the game's vcpkg.json (see KUGE's). "
             "A server: -DKUGE_BUILD_CLIENT=OFF needs none of them.")
     endif()
     # SDL2_mixer's config turns CMAKE_FIND_PACKAGE_PREFER_CONFIG on for whoever finds it, when it is
@@ -103,7 +113,6 @@ if(KUGE_BUILD_CLIENT)
     find_package(SDL2 CONFIG REQUIRED)
     find_package(SDL2_mixer CONFIG REQUIRED)
     find_package(SDL2_ttf CONFIG REQUIRED)
-    find_package(Stb REQUIRED)   # header-only image loader: Stb_INCLUDE_DIR
 
     set(KUGE_SDL_TARGETS "")
     foreach(target SDL2_mixer::SDL2_mixer SDL2_ttf::SDL2_ttf SDL2::SDL2)
@@ -115,6 +124,18 @@ if(KUGE_BUILD_CLIENT)
             message(FATAL_ERROR "SDL was found, but neither ${target} nor ${target}-static is a target")
         endif()
     endforeach()
+endif()
+
+# Jolt (3D physics), from vcpkg too
+if(KUGE_BUILD_PHYSICS3D)
+    if(NOT VCPKG_TOOLCHAIN)
+        message(FATAL_ERROR
+            "The 3D physics module needs Jolt, which comes from vcpkg, and this build has no vcpkg toolchain. "
+            "Built on its own, KUGE finds one (cmake/Vcpkg.cmake). A game that fetches KUGE: pass "
+            "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake and list joltphysics (with "
+            "its rtti feature) in the game's vcpkg.json, or -DKUGE_BUILD_PHYSICS3D=OFF.")
+    endif()
+    find_package(Jolt CONFIG REQUIRED)
 endif()
 
 FetchContent_Declare(
@@ -134,10 +155,32 @@ unset(BUILD_TESTING)
 # rest (their shared libraries, kronklab) only when something needs it.
 set_property(DIRECTORY "${kronkflow_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL ON)
 
+# Ticket 023: what the room and the client both run (physics, replication, prediction) must give the same
+# floats on every platform. An interface target that every module links PUBLIC, so that a game linking a
+# module gets the flags for its own predicted code too (or links kuge-determinism itself):
+#  - no fast-math: it reorders operations and assumes there is no NaN;
+#  - no fused multiply-add: GCC and Clang fuse a * b + c into one rounding by default where the CPU has
+#    FMA (ARM always, x86 with -march=haswell or native), which two machines that differ will not both do.
+#    MSVC's /fp:precise does not fuse (it is the default, spelt out so that nobody changes it by accident).
+# Not covered: sin, cos, pow... come from each platform's maths library and may differ in the last bit
+# (the 2D physics only uses + - * / and sqrt, which are exact); and Jolt (3D physics), see docs/06-physics.
+add_library(kuge-determinism INTERFACE)
+add_library(kuge::determinism ALIAS kuge-determinism)
+if(MSVC)
+    target_compile_options(kuge-determinism INTERFACE $<$<COMPILE_LANGUAGE:CXX>:/fp:precise>)
+else()
+    target_compile_options(kuge-determinism INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off -fno-fast-math>)
+endif()
+foreach(flags CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_MINSIZEREL)
+    if("${${flags}}" MATCHES "-ffast-math|-Ofast|/fp:fast")
+        message(FATAL_ERROR "${flags} has a fast-math option ('${${flags}}'): the physics would no longer give "
+            "the same floats on every platform (ticket 023, docs/14-pitfalls)")
+    endif()
+endforeach()
+
 include(cmake/KugeModule.cmake)
 
-# Vendored libraries, compiled from the submodules. kronk3d is only needed by
-# the 3D module.
+# Vendored libraries, compiled from the submodules.
 #
 # kronknet is built by its own CMake: only it knows which of its sources are
 # for which platform. Its tests are hidden from it, like kronkflow's.
@@ -145,6 +188,9 @@ set(BUILD_TESTS OFF)
 add_subdirectory(vendor/kronknet EXCLUDE_FROM_ALL)
 unset(BUILD_TESTS)
 set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kronknet-static)
+# kronk3d (v0.1.0) too, and it needs nothing from vcpkg. Its example and tests are off when it is
+# not the top-level project. Built only when a target links kronk3d::static (or kronk3d::shared).
+add_subdirectory(vendor/kronk3d EXCLUDE_FROM_ALL)
 kuge_vendor(kronkworld DEPENDS kronkflow)
 
 # ---------------------------------------------------------------------------
@@ -156,13 +202,23 @@ add_subdirectory(modules/net)
 add_subdirectory(modules/server)
 add_subdirectory(modules/replication)
 add_subdirectory(modules/physics)
+add_subdirectory(modules/animation)
+if(KUGE_BUILD_PHYSICS3D)
+    add_subdirectory(modules/physics3d)
+endif()
 if(KUGE_BUILD_CLIENT)
     add_subdirectory(modules/client)
+    add_subdirectory(modules/render3d)
 endif()
 
 # kuge.so: every module in one shared library (games can also link the modules
 # they use directly, which is what the example does)
 if(KUGE_BUILD_SHARED)
+    if(WIN32)
+        message(WARNING "kuge.dll: a program that links it and uses a resource or a component type on both "
+            "sides (installUi puts UiTheme, the game reads it) gets two ids for it and crashes. "
+            "Link the static modules instead (ticket 039).")
+    endif()
     add_library(kuge SHARED cmake/aggregate.cpp)
     set_target_properties(kuge PROPERTIES
         PREFIX ""

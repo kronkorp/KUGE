@@ -1,7 +1,9 @@
 #include "Net.hpp"
 #include "SocketTransport.hpp"
 #include "Stage.hpp"
+#include "Time.hpp"
 #include <algorithm>
+#include <stdexcept>
 
 namespace kuge::net
 {
@@ -73,23 +75,49 @@ namespace kuge::net
         std::erase_if(m_endpoints, [](const auto& slot) { return slot->removed; });
     }
 
+    bool Net::pollTick(std::uint64_t tick)
+    {
+        if (m_lastTick == tick) {
+            return false;
+        }
+        m_lastTick = tick;
+        poll();
+        return true;
+    }
+
     namespace
     {
         class PollNet final : public kw::ISystem
         {
             public:
+                explicit PollNet(std::shared_ptr<Net> keep = {}) : m_keep(std::move(keep)) {}
+
                 bool handle(kw::World& world) override
                 {
-                    world.getResource<Net>().poll();
+                    world.getResource<Ref<Net>>()->pollTick(world.getResource<Time>().tick);
                     return true;
                 }
+
+            private:
+                std::shared_ptr<Net> m_keep;   // (a Net of the game: it is not released before the system)
         };
     }
 
     void installNet(SceneSetup scene)
     {
-        scene.world().addResource<Net>();
+        Net& net = scene.world().addResource<Net>();
+
+        scene.world().addResource<Ref<Net>>(net);
         scene.addSystem(kw::Schedule::Fixed, stage::Network, std::make_unique<PollNet>());
+    }
+
+    void installNet(SceneSetup scene, std::shared_ptr<Net> shared)
+    {
+        if (!shared) {
+            throw std::invalid_argument("installNet: no Net to share");
+        }
+        scene.world().addResource<Ref<Net>>(*shared);
+        scene.addSystem(kw::Schedule::Fixed, stage::Network, std::make_unique<PollNet>(std::move(shared)));
     }
 
 }
