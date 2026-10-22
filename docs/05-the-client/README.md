@@ -221,6 +221,12 @@ left / right, or the mouse; `Changed` when it moves). A long list is a node with
 (`IRenderer2D::setClip`). The wheel is also an input: `Binding::wheel(1)` is "Wheel.Up".
 `UiImage` puts a texture (an icon, a portrait) in the rectangle of a node.
 
+**Order, and removing.** A `UiStack` lays its children out (and Tab and the drawing go) in the order the `UiNode`s were *made* (`UiNode::sequence`,
+a number that only goes up), not in the order of their entities: the world gives entity numbers back in the order they were freed, so a list
+rebuilt after removals would come out in any order. Nodes copied from one template share a sequence and fall back to the entity order. `world.remove(e)` removes
+that entity only: a node whose parent is gone is drawn as a root, for ever, and the log says so once. `removeUiTree(world, e)` removes a node with everything
+that hangs from it.
+
 **Any resolution.** Build the UI for 1280 x 720 and set `UiScale::value = uiScaleFor(window.size())` when the window
 changes: the layout multiplies every pixel number by it (the components keep theirs) and the text is drawn with the
 same font at `value` times its size (`IFont::scaled()`), so it stays sharp. `installUi(setup(), actions)` adds the systems: layout, focus
