@@ -255,12 +255,13 @@ namespace kuge::net
         }
     }
 
-    void MatchmakingClient::join(const std::string& roomType, const std::string& playerName)
+    void MatchmakingClient::join(const std::string& roomType, const std::string& playerName, const std::string& options)
     {
         JoinRoom request;
 
         request.roomType = roomType;
         request.playerName = playerName;
+        request.options = options;
         request.mods = m_mods;
         request.token = m_token;
         start(std::move(request));
