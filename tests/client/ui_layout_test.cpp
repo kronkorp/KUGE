@@ -263,3 +263,51 @@ Test(uilayout, without_a_font)
     AssertEq(calls.size(), 1, "the button is a box (only its text is missing), the label draws nothing: got %zu", calls.size());
     Assert(calls[0].kind == kuge::DummyRenderer::Call::Kind::Fill, "a plain box");
 }
+
+Test(uilayout, children_in_creation_order)
+{
+    FontFile font;
+    kw::Entity column = 0, kids[4] = {};
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            kw::Entity spare[4] = {};
+
+            for (kw::Entity& entity : spare) {
+                entity = uiNode(w, {});
+            }
+            for (int i : {2, 0, 3, 1}) {   // given back in this order: the next ones are made in this order
+                w.remove(spare[i]);
+            }
+            column = uiNode(w, {.size = {100.0f, 300.0f}});
+            w.add<kuge::UiStack>(column, kuge::UiStack{});
+            for (kw::Entity& kid : kids) {
+                kid = uiChild(w, column, {.size = {0.0f, 10.0f}});
+            }
+        });
+    });
+
+    Assert(!(kids[0] < kids[1] && kids[1] < kids[2] && kids[2] < kids[3]), "the test needs entities that are not in the order they were made");
+    for (int i = 1; i < 4; ++i) {
+        Assert(rectOf(fx, kids[i]).y > rectOf(fx, kids[i - 1]).y, "child %d comes after child %d, got %f and %f", i, i - 1, rectOf(fx, kids[i]).y, rectOf(fx, kids[i - 1]).y);
+    }
+}
+
+Test(uilayout, remove_a_whole_tree)
+{
+    FontFile font;
+    kw::Entity root = 0, child = 0, grandchild = 0, other = 0;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            root = uiNode(w, {.size = {100.0f, 100.0f}});
+            child = uiChild(w, root, {.size = {10.0f, 10.0f}});
+            grandchild = uiChild(w, child, {.size = {5.0f, 5.0f}});
+            other = uiNode(w, {.size = {10.0f, 10.0f}});
+        });
+    });
+
+    Assert(shown(fx, root) && shown(fx, child) && shown(fx, grandchild), "all of it is there");
+    kuge::removeUiTree(fx.scene->world(), root);
+    fx.frame();
+    Assert(!shown(fx, root) && !shown(fx, child) && !shown(fx, grandchild), "no node is left behind");
+    Assert(shown(fx, other), "what is not under it stays");
+}

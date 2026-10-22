@@ -69,6 +69,9 @@ namespace kuge
 
     enum class TextAlign : std::uint8_t { Left, Center, Right };
 
+    //! The next number of creation of a UiNode. Not inline: the counter must be one for the whole process, also across kuge.dll and a program.
+    std::uint64_t nextUiSequence(void) noexcept;
+
     struct UiNode
     {
         kw::Entity parent    = 0;
@@ -78,9 +81,13 @@ namespace kuge
         Vec2       size{};                //!< 0: as big as what it holds (text, children)
         bool       visible   = true;      //!< With everything inside it
         int        layer     = 0;         //!< Higher is drawn over
+        //! When the node was made (a number that only goes up), not its entity: the world gives numbers back in the order they
+        //! were freed, so a list rebuilt after removals has its entities in any order. A stack lays its children out, and Tab
+        //! and the drawing go, in this order (then by entity, for nodes copied from one template).
+        std::uint64_t sequence = nextUiSequence();
     };
 
-    //! A column or a row of the children of this node, in the order of their entities
+    //! A column or a row of the children of this node, in the order they were made (UiNode::sequence)
     struct UiStack
     {
         Direction direction = Direction::Vertical;
@@ -88,6 +95,10 @@ namespace kuge
         float     padding   = 8.0f;   //!< Between the children and the border
         Align     align     = Align::Stretch;
     };
+
+    //! Removes the node and everything that hangs from it (its children, theirs...). `world.remove(entity)` removes the one
+    //! entity only, and what hangs from it stays on the screen, as roots.
+    void removeUiTree(kw::World& world, kw::Entity entity);
 
     //! On a node that has a UiStack and a size: the stack is longer than the node and scrolls. The children are laid out
     //! as in the stack, moved back by `offset`; only what is inside the rectangle of the node is drawn (the renderer
