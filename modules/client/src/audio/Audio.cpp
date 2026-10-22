@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 
 namespace
 {
@@ -171,6 +172,7 @@ void kuge::Audio::setVoice(Voice voice, float volume, float side, float lowpass)
 void kuge::Audio::playMusic(const Music& music, MusicOptions options)
 {
     m_musicVolume = unit(options.volume);
+    m_onMusicFinished = std::move(options.onFinished);
     m_backend.playMusic(music.id(), musicHeard(), options.loop, std::max(options.fadeIn, 0.0f));
 }
 
@@ -194,6 +196,12 @@ void kuge::Audio::prune(void)
 void kuge::Audio::update(double seconds)
 {
     prune();
+    if (m_backend.takeMusicFinished() && m_onMusicFinished) {
+        const auto done = std::move(m_onMusicFinished);   // it may call playMusic(), which sets a new one
+
+        m_onMusicFinished = nullptr;
+        done();
+    }
     const bool speaking = std::any_of(m_voices.begin(), m_voices.end(), [](const Playing& p) { return p.bus == Bus::Dialogue; });
     const float target = speaking ? m_duckTo : 1.0f;
 

@@ -328,3 +328,32 @@ Test(sdlaudio, a_stream_is_resampled)
     Assert(waitFor([&] { return !audio->playing(voice); }), "it ends");
     audio->destroyStream(stream);
 }
+
+Test(sdlaudio, music_transport)
+{
+    useNoSoundCard();
+    SoundFile file("sdl_transport", 2.0);
+    auto audio = kuge::makeSdlAudio();
+    const kuge::MusicId music = audio->loadMusic(file.path);
+
+    Assert(!audio->takeMusicFinished() && audio->musicLength() == 0.0, "nothing plays, nothing ended");
+    audio->playMusic(music, 0.5f, false, 0.0f);
+    Assert(audio->musicLength() > 1.9 && audio->musicLength() < 2.1, "its length, got %f", audio->musicLength());
+    audio->pauseMusic();
+    Assert(audio->musicPaused() && audio->musicPlaying(), "paused is still playing");
+    audio->resumeMusic();
+    Assert(!audio->musicPaused(), "resumed");
+    audio->seekMusic(99.0);
+    audio->seekMusic(-3.0);
+    audio->stopMusic(0.0f);
+    Assert(!audio->takeMusicFinished(), "a stop is not an end");
+    audio->playMusic(music, 0.5f, false, 0.0f);
+    bool ended = false;
+
+    for (int tries = 0; tries < 400 && !ended; ++tries) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        ended = audio->takeMusicFinished();
+    }
+    Assert(ended, "a music of 2 seconds ends");
+    Assert(!audio->musicPlaying() && !audio->takeMusicFinished(), "and it is told once");
+}

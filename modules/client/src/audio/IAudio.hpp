@@ -88,7 +88,25 @@ namespace kuge
             virtual void playMusic(MusicId music, float volume, bool loop, float fadeInSeconds) = 0;
             virtual void setMusicVolume(float volume) = 0;
             virtual void stopMusic(float fadeOutSeconds) = 0;
+            //! True while a music is loaded and not over, a paused one included. False right after playMusic() if the
+            //! music could not start.
             virtual bool musicPlaying(void) const = 0;
+
+            //! Keeps the place of the music. Nothing happens if there is none, or it is paused already.
+            virtual void pauseMusic(void) = 0;
+            virtual void resumeMusic(void) = 0;
+            virtual bool musicPaused(void) const = 0;
+
+            //! Seconds from the start of the music that plays (0 if none), and its length (0 if the format does not tell)
+            virtual double musicPosition(void) const = 0;
+            virtual double musicLength(void) const = 0;
+
+            //! Moves the music that plays to this place (brought back inside it). Slow on some formats (mp3 reads it again).
+            virtual void seekMusic(double seconds) = 0;
+
+            //! True once for a music that came to its end by itself (not one that was stopped or replaced, not a looping
+            //! one). A flag the audio thread may set: the caller reads it from its own loop.
+            virtual bool takeMusicFinished(void) = 0;
     };
 
 }

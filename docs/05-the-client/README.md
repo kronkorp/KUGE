@@ -198,6 +198,12 @@ once the nearest are kept. The default priority is 0, so a game that sets none s
 **Ducking.** `audio.setDucking(0.3f, 0.2f)`: while a line of the dialogue plays, the music is multiplied by 0.3, getting there and coming
 back over 0.2 s. The slider of the player is not touched. The client calls `audio.update(seconds)` once per loop; a test calls it itself.
 
+**Music player.** `pauseMusic()` / `resumeMusic()` keep the place (a paused music is still `musicPlaying()`), `musicPosition()` and `musicLength()`
+give seconds for a progress bar (`musicLength()` is 0 when the format does not tell), `seekMusic(seconds)` moves inside it (slow for mp3). To start the
+next track, give `{.loop = false, .onFinished = ...}` to `playMusic`: it is called from `audio.update()`, on the game's thread, when the music ends by
+itself, never for a looping one or after `stopMusic()`, and it may call `playMusic` again. A music that failed to start is not `musicPlaying()` right
+after `playMusic`, and never calls `onFinished`. With `DummyAudio`, `advanceMusic(seconds)` moves the clock and `setMusicLength(seconds)` sets the length.
+
 **Streams.** Samples that arrive while they are played, a voice from the network or a synthesiser: one stream per speaker.
 
 ```cpp
