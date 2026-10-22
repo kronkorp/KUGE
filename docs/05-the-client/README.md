@@ -198,6 +198,12 @@ once the nearest are kept. The default priority is 0, so a game that sets none s
 **Ducking.** `audio.setDucking(0.3f, 0.2f)`: while a line of the dialogue plays, the music is multiplied by 0.3, getting there and coming
 back over 0.2 s. The slider of the player is not touched. The client calls `audio.update(seconds)` once per loop; a test calls it itself.
 
+**Music player.** `pauseMusic()` / `resumeMusic()` keep the place (a paused music is still `musicPlaying()`), `musicPosition()` and `musicLength()`
+give seconds for a progress bar (`musicLength()` is 0 when the format does not tell), `seekMusic(seconds)` moves inside it (slow for mp3). To start the
+next track, give `{.loop = false, .onFinished = ...}` to `playMusic`: it is called from `audio.update()`, on the game's thread, when the music ends by
+itself, never for a looping one or after `stopMusic()`, and it may call `playMusic` again. A music that failed to start is not `musicPlaying()` right
+after `playMusic`, and never calls `onFinished`. With `DummyAudio`, `advanceMusic(seconds)` moves the clock and `setMusicLength(seconds)` sets the length.
+
 **Streams.** Samples that arrive while they are played, a voice from the network or a synthesiser: one stream per speaker.
 
 ```cpp
@@ -220,6 +226,12 @@ left / right, or the mouse; `Changed` when it moves). A long list is a node with
 `UiScroll`: the mouse wheel scrolls it, the keyboard focus brings its child into view, and what is outside is cut
 (`IRenderer2D::setClip`). The wheel is also an input: `Binding::wheel(1)` is "Wheel.Up".
 `UiImage` puts a texture (an icon, a portrait) in the rectangle of a node.
+
+**Order, and removing.** A `UiStack` lays its children out (and Tab and the drawing go) in the order the `UiNode`s were *made* (`UiNode::sequence`,
+a number that only goes up), not in the order of their entities: the world gives entity numbers back in the order they were freed, so a list
+rebuilt after removals would come out in any order. Nodes copied from one template share a sequence and fall back to the entity order. `world.remove(e)` removes
+that entity only: a node whose parent is gone is drawn as a root, for ever, and the log says so once. `removeUiTree(world, e)` removes a node with everything
+that hangs from it.
 
 **Any resolution.** Build the UI for 1280 x 720 and set `UiScale::value = uiScaleFor(window.size())` when the window
 changes: the layout multiplies every pixel number by it (the components keep theirs) and the text is drawn with the

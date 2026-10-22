@@ -1,6 +1,7 @@
 extern "C" {
     #include "kronklab/kronklab.h"
 }
+#include "Endpoint.hpp"
 #include "Matchmaking.hpp"
 #include "Wire.hpp"
 
@@ -247,4 +248,17 @@ Test(wire, room_options)
     Assert(!validRoomOptions("a\nb"), "no line break");
     Assert(!validRoomOptions(std::string("a\0b", 3)), "no zero");
     Assert(!validRoomOptions("a\xC2\x85" "b"), "no control character of Latin-1");
+}
+
+Test(net, the_address_of_a_peer)
+{
+    using kuge::net::addressOf;
+
+    AssertStrEq(addressOf("203.0.113.7:5000").c_str(), "203.0.113.7", "ipv4");
+    AssertStrEq(addressOf("[2001:db8::1]:5000").c_str(), "2001:db8::1", "ipv6, in brackets");
+    AssertStrEq(addressOf("[::1]:80").c_str(), "::1", "the shortest ipv6");
+    AssertStrEq(addressOf("2001:db8::1").c_str(), "2001:db8::1", "an ipv6 with no port is left alone");
+    AssertStrEq(addressOf("loopback #3 'room'").c_str(), "loopback #3 'room'", "not an ip: as it is");
+    AssertStrEq(addressOf("").c_str(), "", "nothing");
+    AssertStrEq(addressOf("[broken").c_str(), "[broken", "a bracket never closed");
 }

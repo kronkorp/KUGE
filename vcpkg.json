@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
   "name": "kuge",
-  "version-string": "0.2.0",
+  "version-string": "0.3.0",
   "description": "Kronk Ultra Game Engine",
   "builtin-baseline": "2750401336fb7c95f6619657a46a7e798661341c",
   "features": {

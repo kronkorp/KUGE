@@ -12,11 +12,16 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace kuge::net
 {
+
+    //! The address in what Endpoint::peer() describes, without the port: "203.0.113.7:5000" gives "203.0.113.7" and
+    //! "[2001:db8::1]:5000" gives "2001:db8::1". Anything that is not an ip and a port (a loopback peer, nothing) comes back as it is.
+    std::string addressOf(std::string_view peer);
 
     class SimulatedTransport;
 

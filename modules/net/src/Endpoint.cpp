@@ -412,6 +412,19 @@ namespace kuge::net
         return found->second.reliable.rtt();
     }
 
+    std::string addressOf(std::string_view peer)
+    {
+        if (peer.starts_with('[')) {
+            const std::size_t close = peer.find("]:");
+
+            return close == std::string_view::npos ? std::string(peer) : std::string(peer.substr(1, close - 1));
+        }
+        const std::size_t colon = peer.find(':');
+
+        // One colon: "ip:port". Several, and no brackets: an IPv6 address that has no port
+        return colon != std::string_view::npos && colon == peer.rfind(':') ? std::string(peer.substr(0, colon)) : std::string(peer);
+    }
+
     std::string Endpoint::peer(ConnectionId id) const
     {
         const auto found = m_connections.find(id);
