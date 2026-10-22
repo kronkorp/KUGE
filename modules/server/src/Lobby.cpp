@@ -64,6 +64,7 @@ namespace kuge::server
             want.playerName = join.playerName;
             want.protocol = join.protocol;
             want.mods = join.mods;
+            want.token = join.token;
             request(from, std::move(want));
         });
         m_endpoint->on<net::CreateRoom>([this](net::ConnectionId from, const net::CreateRoom& create) {
@@ -77,6 +78,7 @@ namespace kuge::server
             want.options = create.options;
             want.protocol = create.protocol;
             want.mods = create.mods;
+            want.token = create.token;
             request(from, std::move(want));
         });
         m_endpoint->on<net::JoinNamedRoom>([this](net::ConnectionId from, const net::JoinNamedRoom& join) {
@@ -88,6 +90,7 @@ namespace kuge::server
             want.playerName = join.playerName;
             want.protocol = join.protocol;
             want.mods = join.mods;
+            want.token = join.token;
             request(from, std::move(want));
         });
         m_endpoint->on<net::ListRooms>([this](net::ConnectionId from, const net::ListRooms& list) { handleList(from, list); });
@@ -217,6 +220,25 @@ namespace kuge::server
 
     void LobbyScene::request(net::ConnectionId from, Want want)
     {
+        if (const auto& authenticate = m_state->config.authenticate) {
+            std::optional<std::uint32_t> who;
+
+            if (want.token.size() <= net::MAX_AUTH_TOKEN) {
+                who = authenticate(want.token, net::addressOf(m_endpoint->peer(from)));
+            }
+            if (!who || *who == 0) {
+                ++m_state->stats.authRefused;
+                refuse(from, net::JoinError::Unauthenticated);
+                return;
+            }
+            const auto other = m_members.find(*who);
+
+            if (other != m_members.end() && other->second.connection != from) {
+                refuse(from, net::JoinError::AlreadyJoined);   // an account is in one room at a time (it comes back with RejoinRoom)
+                return;
+            }
+            want.playerId = *who;
+        }
         if (!tryJoin(from, want, false)) {
             m_retries.push_back(Retry{from, std::move(want), m_state->config.now() + 0.25});
         }
@@ -241,9 +263,9 @@ namespace kuge::server
     }
 
     // What a room does when a player is put in it: the room is told to expect the token, the client is told where to go
-    void LobbyScene::enter(net::ConnectionId from, Room& room, const std::string& playerName)
+    void LobbyScene::enter(net::ConnectionId from, Room& room, const std::string& playerName, std::uint32_t playerId)
     {
-        Member member{m_nextPlayer++, from, room.id, newToken(), playerName, m_state->config.now(), false};
+        Member member{playerId ? playerId : m_nextPlayer++, from, room.id, newToken(), playerName, m_state->config.now(), false};
 
         member.rejoinKey = newToken();
 
@@ -356,7 +378,7 @@ namespace kuge::server
             refuse(from, net::JoinError::Full);
             return true;
         }
-        enter(from, *room, want.playerName);
+        enter(from, *room, want.playerName, want.playerId);
         return true;
     }
 

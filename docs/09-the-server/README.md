@@ -61,7 +61,7 @@ you:
 A `Player` has `playerId` (server-wide), `name`, `networkId` (**in this room**: 1, 2, 3…, never reused: how the
 game names this player), `connection`, and `address`: the IP the connection comes from, without the port (`"203.0.113.7"`, `"2001:db8::1"`;
 `net::addressOf(endpoint.peer(connection))` is how the room makes it). The handshake proved it, but it is not a player: several players can share
-one address, and one player can change it. For stats by player, wait for authentication (not there yet).
+one address, and one player can change it. For stats by player, use `playerId` with authentication (below).
 
 ## Running the server
 
@@ -142,6 +142,28 @@ matchmaking.joinRoom(12, "Secret", "Ben");                           // the id A
 - The room sees its own name, whether it is private and its options in `init().roomName`, `init().isPrivate` and
   `init().options`.
 - The lobby does not limit how often a client asks for the list.
+
+## Who a player is
+
+KUGE does not know what an account is: the game does. A client gives the token it got from the game (`matchmaking.setToken(...)`: a ticket from your
+backend, a signed text, at most 512 bytes), and the server turns it into a player:
+
+```cpp
+kuge::server::ServerConfig config;
+
+config.authenticate = [&](const std::string& token, const std::string& address) -> std::optional<std::uint32_t> {
+    return accounts.playerOfTicket(token);          // the id of the account, not 0; nothing: refused
+};
+```
+
+The lobby asks it for every request to join a room (`JoinRoom`, `CreateRoom`, `JoinNamedRoom`), on its own thread, so it must be quick: check a signature or
+a table, do not call a backend there. A player it does not know is told `JoinError::Unauthenticated` (`stats().authRefused` counts them), and the id it
+answers is `Player::playerId` in the room, the same every time that account plays. The same id twice at once is refused as `AlreadyJoined`: the second
+connection of an account uses `rejoin()` (it has the key) or waits for the first to go. Without `authenticate`, nothing is checked and the lobby numbers the
+players itself.
+
+The token travels in the clear, like everything else (see the RFC, section 10): give out tokens that are used once or run out quickly, and keep the secrets of
+your backend out of the game.
 
 ## A text chat
 

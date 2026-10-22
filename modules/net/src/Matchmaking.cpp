@@ -18,6 +18,7 @@ namespace kuge::net
                 case JoinError::InvalidOptions:  return "these are not options for a room";
                 case JoinError::Started:         return "this game has already started";
                 case JoinError::Mods:            return "your mods are not the server's";
+                case JoinError::Unauthenticated: return "the server does not know who you are";
             }
             return "refused";
         }
@@ -261,6 +262,7 @@ namespace kuge::net
         request.roomType = roomType;
         request.playerName = playerName;
         request.mods = m_mods;
+        request.token = m_token;
         start(std::move(request));
     }
 
@@ -275,6 +277,7 @@ namespace kuge::net
         request.isPrivate = isPrivate;
         request.options = options;
         request.mods = m_mods;
+        request.token = m_token;
         start(std::move(request));
     }
 
@@ -286,6 +289,7 @@ namespace kuge::net
         request.roomName = roomName;
         request.playerName = playerName;
         request.mods = m_mods;
+        request.token = m_token;
         start(std::move(request));
     }
 
