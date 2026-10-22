@@ -72,6 +72,8 @@ namespace kuge::server
                 std::string   options;         //!< Create
                 std::uint16_t protocol = net::MATCHMAKING_VERSION;
                 std::uint64_t mods = 0;
+                std::string   token;
+                std::uint32_t playerId = 0;    //!< What ServerConfig::authenticate answered (0: the lobby chooses)
             };
 
             void request(net::ConnectionId from, Want want);
@@ -81,7 +83,7 @@ namespace kuge::server
             void handleRejoin(net::ConnectionId from, const net::RejoinRoom& rejoin);
             Room* findRoom(const std::string& type);
             Room* makeRoom(const std::string& type, const ServerState::RoomType& kind, const std::string& name, bool isPrivate, const std::string& options);
-            void enter(net::ConnectionId from, Room& room, const std::string& playerName);
+            void enter(net::ConnectionId from, Room& room, const std::string& playerName, std::uint32_t playerId);
             void assign(const Member& member, const Room& room);
             void removeMember(std::uint32_t playerId, bool tellRoom, net::RoomEnd reason);
             void endRoom(std::uint32_t roomId, net::RoomEnd reason, bool keepPort = false);

@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace kuge::server
@@ -55,6 +56,13 @@ namespace kuge::server
 
         std::uint64_t           mods           = 0;                    //!< Mods::fingerprint() of the server: a client whose mods are not these is refused (JoinError::Mods). 0: no mods.
 
+        //! Who a player is. Called by the lobby for every request to join a room, with the token the client gave (MatchmakingClient::setToken(),
+        //! empty if none) and the address it comes from (without the port), on the lobby's thread, so it must be quick (a check of a signature
+        //! or a table; ask a backend ahead of time, not here). It answers the id of the player (not 0), which is Player::playerId in the room,
+        //! or nothing: the player is refused with JoinError::Unauthenticated. The same id twice at once is refused as AlreadyJoined, so an
+        //! account is in one room at a time. Empty (the default): nobody is checked, and the lobby gives its own ids.
+        std::function<std::optional<std::uint32_t>(const std::string& token, const std::string& address)> authenticate;
+
         double                  statsEvery     = 5.0;                  //!< A room logs its network numbers this often (INFO, category "server"; 0: never)
 
         net::EndpointConfig     endpoint;                              //!< Timeouts, and the clock, for the lobby and the rooms
@@ -89,6 +97,7 @@ namespace kuge::server
         std::atomic<std::size_t>  roomsMade{0};
         std::atomic<std::size_t>  joins{0};
         std::atomic<std::size_t>  refused{0};
+        std::atomic<std::size_t>  authRefused{0};    //!< Requests that ServerConfig::authenticate turned down (also counted in `refused`)
     };
 
     // -- What lobby and rooms say to each other (scene messages: no network) ----------------------
