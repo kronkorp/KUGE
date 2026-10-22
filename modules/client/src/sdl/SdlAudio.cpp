@@ -359,18 +359,20 @@ namespace
                     return;
                 }
                 Mix_VolumeMusic(mixVolume(volume));
-                if (fadeInSeconds > 0.0f) {
-                    Mix_FadeInMusic(found->second, loop ? -1 : 1, static_cast<int>(fadeInSeconds * 1000.0f));
-                } else {
-                    Mix_PlayMusic(found->second, loop ? -1 : 1);
-                }
-                m_playingMusic = music;
+                const int started = fadeInSeconds > 0.0f
+                    ? Mix_FadeInMusic(found->second, loop ? -1 : 1, static_cast<int>(fadeInSeconds * 1000.0f))
+                    : Mix_PlayMusic(found->second, loop ? -1 : 1);
+
+                // A music that did not start is not one that will end: takeMusicFinished() says nothing about it
+                m_playingMusic = started == 0 ? music : NO_MUSIC;
+                m_musicLoops = loop;
             }
 
             void setMusicVolume(float volume) override { Mix_VolumeMusic(mixVolume(volume)); }
 
             void stopMusic(float fadeOutSeconds) override
             {
+                m_playingMusic = NO_MUSIC;   // stopped by us: not an end
                 if (fadeOutSeconds > 0.0f) {
                     Mix_FadeOutMusic(static_cast<int>(fadeOutSeconds * 1000.0f));
                 } else {
@@ -379,6 +381,45 @@ namespace
             }
 
             bool musicPlaying(void) const override { return Mix_PlayingMusic() != 0; }
+
+            void pauseMusic(void) override { Mix_PauseMusic(); }
+            void resumeMusic(void) override { Mix_ResumeMusic(); }
+            bool musicPaused(void) const override { return Mix_PausedMusic() != 0; }
+
+            // -1 from SDL_mixer: this format cannot tell
+            double musicPosition(void) const override
+            {
+                const auto found = m_musics.find(m_playingMusic);
+
+                return found == m_musics.end() ? 0.0 : std::max(Mix_GetMusicPosition(found->second), 0.0);
+            }
+
+            double musicLength(void) const override
+            {
+                const auto found = m_musics.find(m_playingMusic);
+
+                return found == m_musics.end() ? 0.0 : std::max(Mix_MusicDuration(found->second), 0.0);
+            }
+
+            void seekMusic(double seconds) override
+            {
+                if (m_playingMusic == NO_MUSIC) {
+                    return;
+                }
+                const double length = musicLength();
+
+                Mix_SetMusicPosition(length > 0.0 ? std::clamp(seconds, 0.0, length) : std::max(seconds, 0.0));
+            }
+
+            // Read on the main thread (no hook on the audio thread): the music that is not heard any more, without having been stopped by us
+            bool takeMusicFinished(void) override
+            {
+                if (m_playingMusic == NO_MUSIC || m_musicLoops || Mix_PlayingMusic() != 0) {
+                    return false;
+                }
+                m_playingMusic = NO_MUSIC;
+                return true;
+            }
 
         private:
             // The first free channel of the pool: the reserved ones, or the others
@@ -443,6 +484,7 @@ namespace
             SoundId                                    m_lastSound = 0;
             MusicId                                    m_lastMusic = 0;
             MusicId                                    m_playingMusic = NO_MUSIC;
+            bool                                       m_musicLoops = false;
             VoiceId                                    m_counter = 0;
     };
 }

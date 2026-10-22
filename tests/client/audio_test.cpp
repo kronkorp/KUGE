@@ -404,3 +404,91 @@ Test(audio, a_stream_plays_what_comes)
     try { studio.mixer.createStream(0, 1); } catch (const kuge::AudioError&) { refused = true; }
     Assert(refused, "a stream with no rate is not one");
 }
+
+Test(audio, music_pause_keeps_place)
+{
+    Studio studio;
+
+    studio.audio.setMusicLength(100.0);
+    studio.mixer.pauseMusic();
+    Assert(!studio.mixer.musicPaused(), "nothing to pause");
+    studio.mixer.playMusic(studio.music);
+    studio.audio.advanceMusic(12.0);
+    studio.mixer.pauseMusic();
+    studio.audio.advanceMusic(30.0);
+    Assert(studio.mixer.musicPlaying() && studio.mixer.musicPaused(), "paused is still playing");
+    Assert(near(static_cast<float>(studio.mixer.musicPosition()), 12.0f), "it did not move while paused, got %f", studio.mixer.musicPosition());
+    studio.mixer.resumeMusic();
+    studio.audio.advanceMusic(3.0);
+    Assert(!studio.mixer.musicPaused() && near(static_cast<float>(studio.mixer.musicPosition()), 15.0f), "it goes on from there, got %f", studio.mixer.musicPosition());
+    Assert(near(static_cast<float>(studio.mixer.musicLength()), 100.0f), "its length");
+    studio.mixer.stopMusic();
+    Assert(!studio.mixer.musicPaused() && studio.mixer.musicPosition() == 0.0 && studio.mixer.musicLength() == 0.0, "a stopped music has no place");
+}
+
+Test(audio, music_seek)
+{
+    Studio studio;
+
+    studio.audio.setMusicLength(100.0);
+    studio.mixer.seekMusic(40.0);
+    Assert(studio.mixer.musicPosition() == 0.0, "nothing to move");
+    studio.mixer.playMusic(studio.music);
+    studio.mixer.seekMusic(40.0);
+    Assert(near(static_cast<float>(studio.mixer.musicPosition()), 40.0f), "moved");
+    studio.mixer.seekMusic(500.0);
+    Assert(near(static_cast<float>(studio.mixer.musicPosition()), 100.0f), "not past the end");
+    studio.mixer.seekMusic(-5.0);
+    Assert(studio.mixer.musicPosition() == 0.0, "not before the start");
+}
+
+Test(audio, music_tells_its_end)
+{
+    Studio studio;
+    int ended = 0;
+
+    studio.audio.setMusicLength(10.0);
+    studio.mixer.playMusic(studio.music, {.loop = false, .onFinished = [&] { ++ended; }});
+    studio.audio.advanceMusic(9.0);
+    studio.mixer.update();
+    AssertEq(ended, 0, "not yet");
+    studio.audio.advanceMusic(2.0);
+    studio.mixer.update();
+    Assert(ended == 1 && !studio.mixer.musicPlaying(), "it ended, and was told");
+    studio.mixer.update();
+    AssertEq(ended, 1, "once");
+}
+
+Test(audio, music_end_is_not_a_stop)
+{
+    Studio studio;
+    int ended = 0;
+
+    studio.audio.setMusicLength(10.0);
+    studio.mixer.playMusic(studio.music, {.onFinished = [&] { ++ended; }});
+    studio.audio.advanceMusic(25.0);
+    studio.mixer.update();
+    Assert(studio.mixer.musicPlaying() && ended == 0, "a looping music does not end");
+    studio.mixer.playMusic(studio.music, {.loop = false, .onFinished = [&] { ++ended; }});
+    studio.mixer.stopMusic();
+    studio.mixer.update();
+    AssertEq(ended, 0, "nor does one that is stopped");
+}
+
+Test(audio, music_end_starts_the_next)
+{
+    Studio studio;
+    kuge::Music other(studio.audio, studio.audio.loadMusic(studio.file.path));
+    int second = 0;
+
+    studio.audio.setMusicLength(10.0);
+    studio.mixer.playMusic(studio.music, {.loop = false, .onFinished = [&] {
+        studio.mixer.playMusic(other, {.loop = false, .onFinished = [&] { ++second; }});
+    }});
+    studio.audio.advanceMusic(10.0);
+    studio.mixer.update();
+    Assert(studio.audio.music().music == other.id() && studio.mixer.musicPlaying(), "the callback started another music");
+    studio.audio.advanceMusic(10.0);
+    studio.mixer.update();
+    AssertEq(second, 1, "and that one is told too");
+}

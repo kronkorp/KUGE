@@ -3,6 +3,7 @@
 #include "audio/IAudio.hpp"
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace kuge
@@ -47,6 +48,8 @@ namespace kuge
                 float   fadeIn  = 0.0f;
                 float   fadeOut = 0.0f;
                 bool    playing = false;
+                bool    paused  = false;
+                double  position = 0.0;
             };
 
             SoundId loadSound(const std::filesystem::path& file) override;
@@ -69,6 +72,13 @@ namespace kuge
             void    setMusicVolume(float volume) override;
             void    stopMusic(float fadeOutSeconds) override;
             bool    musicPlaying(void) const override { return m_music.playing; }
+            void    pauseMusic(void) override { m_music.paused = m_music.playing; }
+            void    resumeMusic(void) override { m_music.paused = false; }
+            bool    musicPaused(void) const override { return m_music.paused; }
+            double  musicPosition(void) const override { return m_music.position; }
+            double  musicLength(void) const override { return m_music.playing ? m_musicLength : 0.0; }
+            void    seekMusic(double seconds) override;
+            bool    takeMusicFinished(void) override { return std::exchange(m_musicFinished, false); }
 
             // -- What tests look at -------------------------------------------------------------
             const Voice*      voice(VoiceId id) const;
@@ -84,6 +94,13 @@ namespace kuge
             void consume(StreamId stream, std::size_t frames);
             const Stream* stream(StreamId id) const;
 
+            //! The clock of the music: moves it on as if this many seconds were played. At its end a music loops, or is over
+            //! (and takeMusicFinished() says so). Nothing moves while it is paused.
+            void advanceMusic(double seconds);
+
+            //! The length of every music (default 60 seconds)
+            void setMusicLength(double seconds) noexcept { m_musicLength = seconds; }
+
             //! At most this many voices at once (default 32)
             void setMaxVoices(std::size_t count) noexcept { m_maxVoices = count; }
 
@@ -97,6 +114,8 @@ namespace kuge
             StreamId                       m_nextStream = 1;
             std::size_t                    m_reserved = 0;
             MusicState                     m_music;
+            double                         m_musicLength = 60.0;
+            bool                           m_musicFinished = false;
             SoundId                        m_nextSound = 1;
             MusicId                        m_nextMusic = 1;
             VoiceId                        m_nextVoice = 1;

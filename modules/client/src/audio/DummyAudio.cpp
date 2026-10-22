@@ -1,5 +1,6 @@
 #include "audio/DummyAudio.hpp"
 #include <algorithm>
+#include <cmath>
 #include <format>
 
 kuge::SoundId kuge::DummyAudio::loadSound(const std::filesystem::path& file)
@@ -35,6 +36,8 @@ void kuge::DummyAudio::destroyMusic(MusicId music) noexcept
     m_musics.erase(music);
     if (m_music.music == music) {
         m_music.playing = false;
+        m_music.paused = false;
+        m_music.position = 0.0;
     }
 }
 
@@ -151,6 +154,7 @@ void kuge::DummyAudio::playMusic(MusicId music, float volume, bool loop, float f
         return;
     }
     m_music = MusicState{music, volume, loop, fadeInSeconds, 0.0f, true};
+    m_musicFinished = false;
 }
 
 void kuge::DummyAudio::setMusicVolume(float volume)
@@ -162,6 +166,33 @@ void kuge::DummyAudio::stopMusic(float fadeOutSeconds)
 {
     m_music.fadeOut = fadeOutSeconds;
     m_music.playing = false;
+    m_music.paused = false;
+    m_music.position = 0.0;
+}
+
+void kuge::DummyAudio::seekMusic(double seconds)
+{
+    if (m_music.playing) {
+        m_music.position = std::clamp(seconds, 0.0, m_musicLength);
+    }
+}
+
+void kuge::DummyAudio::advanceMusic(double seconds)
+{
+    if (!m_music.playing || m_music.paused) {
+        return;
+    }
+    m_music.position += seconds;
+    if (m_music.position < m_musicLength) {
+        return;
+    }
+    if (m_music.loop) {
+        m_music.position = std::fmod(m_music.position, m_musicLength);
+    } else {
+        m_music.position = 0.0;
+        m_music.playing = false;
+        m_musicFinished = true;
+    }
 }
 
 const kuge::DummyAudio::Voice* kuge::DummyAudio::voice(VoiceId id) const
