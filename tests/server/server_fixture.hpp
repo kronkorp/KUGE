@@ -36,6 +36,7 @@ struct RoomLog
     std::vector<std::string>                               away;       //!< Players whose connection was lost and whose place is kept
     std::vector<std::pair<std::string, std::uint32_t>>     rejoined;   //!< Players that came back: their name, and their network id
     std::vector<std::uint32_t>                             networkIds;
+    std::vector<std::string>                               addresses;   //!< Player::address of each player that joined
     std::vector<std::thread::id>                           threads;
     std::vector<std::pair<std::string, bool>>              roomNames;   //!< What each room was told of its name, and of its privacy
     std::vector<std::string>                               roomOptions; //!< ... and of its options
@@ -96,6 +97,7 @@ class TestRoom : public kuge::server::RoomScene
             std::lock_guard lock(roomLog().mutex);
             roomLog().joined.push_back(player.name);
             roomLog().networkIds.push_back(player.networkId);
+            roomLog().addresses.push_back(player.address);
         }
 
         void onCinematicEnded(const std::string& id, bool completed) override

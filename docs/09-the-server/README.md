@@ -59,7 +59,9 @@ you:
 | hooks | `onRoomEnter`, `onRoomExit`, `onPlayerJoined`, `onPlayerLeft`, `onRoomMessage` |
 
 A `Player` has `playerId` (server-wide), `name`, `networkId` (**in this room**: 1, 2, 3…, never reused: how the
-game names this player), and `connection`.
+game names this player), `connection`, and `address`: the IP the connection comes from, without the port (`"203.0.113.7"`, `"2001:db8::1"`;
+`net::addressOf(endpoint.peer(connection))` is how the room makes it). The handshake proved it, but it is not a player: several players can share
+one address, and one player can change it. For stats by player, wait for authentication (not there yet).
 
 ## Running the server
 

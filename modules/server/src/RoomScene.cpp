@@ -153,6 +153,7 @@ namespace kuge::server
                     m_endpoint->disconnect(previous);   // the room had not noticed the loss yet: the old connection goes
                 }
                 who.connection = from;
+                who.address = net::addressOf(m_endpoint->peer(from));
                 who.away = false;
                 m_lastActive = now();
                 m_endpoint->send(from, net::Welcome{who.networkId, m_init.roomId, m_init.server.tickRate});
@@ -162,7 +163,7 @@ namespace kuge::server
             }
             // Its place is gone (the time ran out): it is a new player, like any other
         }
-        Player who{expected.playerId, expected.name, m_nextNetworkId++, from};
+        Player who{expected.playerId, expected.name, m_nextNetworkId++, from, net::addressOf(m_endpoint->peer(from))};
 
         m_players[who.networkId] = who;
         m_endpoint->send(from, net::Welcome{who.networkId, m_init.roomId, m_init.server.tickRate});
