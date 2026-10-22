@@ -165,6 +165,27 @@ players itself.
 The token travels in the clear, like everything else (see the RFC, section 10): give out tokens that are used once or run out quickly, and keep the secrets of
 your backend out of the game.
 
+## Who plays with whom
+
+By default `JoinRoom` puts a player in the fullest room that has a place. A game that has its own rule (a level, a region, a party, a queue by rank) gives
+the lobby a **picker**:
+
+```cpp
+config.roomPicker = [&](const kuge::server::JoinRequest& who, const std::vector<kuge::net::RoomInfo>& open) -> std::optional<kuge::server::RoomChoice> {
+    for (const auto& room : open) {
+        if (room.options == who.options) return RoomChoice::join(room.roomId);   // the same mode as this player asked for
+    }
+    return who.waited > 30.0 ? RoomChoice::make(who.options)   // nobody for 30 seconds: a room of its own
+                             : RoomChoice::wait();             // asked again at the next tick, `who.waited` is larger
+};
+```
+
+`who.options` is what the client gave to `matchmaking.join(type, name, options)` (a `validRoomOptions()` text, opaque to KUGE), `who.playerId` is the
+answer of `authenticate` (0 if there is none) and `open` the public rooms of that kind that have a place. The picker answers a room to join (one of those it
+was given), to make one (with its options, which are then in its `RoomInfo`), or to wait; `std::nullopt` is the usual rule. A player who waits is in the
+lobby's queue until the picker answers something else or it calls `leave()`. Like `authenticate`, the picker runs on the lobby's thread and must be quick.
+It is asked for `JoinRoom` only: `CreateRoom` and `JoinNamedRoom` are the client's choice.
+
 ## A text chat
 
 `enableChat()` in `onRoomEnter()` is all a room writes:

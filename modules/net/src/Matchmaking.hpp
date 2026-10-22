@@ -31,7 +31,8 @@ namespace kuge::net
     //! RoomTypeConfig::reconnectSeconds).
     //! 4: JoinRoom, CreateRoom and JoinNamedRoom carry the fingerprint of the player's mods, and JoinError::Mods says they are not the server's.
     //! 5: JoinRoom, CreateRoom and JoinNamedRoom carry a `token` that the server's ServerConfig::authenticate checks, and JoinError::Unauthenticated says it did not.
-    constexpr std::uint16_t MATCHMAKING_VERSION = 5;
+    //! 6: JoinRoom carries `options`, what the player says about the game it wants, for ServerConfig::roomPicker.
+    constexpr std::uint16_t MATCHMAKING_VERSION = 6;
 
     //! The longest token the lobby looks at (bytes). A longer one is refused as Unauthenticated, without being given to the game.
     constexpr std::size_t MAX_AUTH_TOKEN = 512;
@@ -103,12 +104,13 @@ namespace kuge::net
 
     struct JoinRoom
     {
-        KUGE_MESSAGE(JoinRoom, roomType, playerName, protocol, mods, token)
+        KUGE_MESSAGE(JoinRoom, roomType, playerName, protocol, mods, token, options)
         std::string   roomType;
         std::string   playerName;
         std::uint16_t protocol = MATCHMAKING_VERSION;
         std::uint64_t mods = 0;   //!< Mods::fingerprint() of this player (0: none)
         std::string   token;      //!< What the game gave this player to prove who it is (MatchmakingClient::setToken()), at most MAX_AUTH_TOKEN bytes
+        std::string   options;    //!< What the player says about the game it wants (a validRoomOptions() text). Opaque to KUGE: only ServerConfig::roomPicker reads it.
     };
 
     //! What the lobby says of a room that anyone can join: enough to choose one
@@ -282,7 +284,8 @@ namespace kuge::net
             void setToken(std::string token) { m_token = std::move(token); }
 
             //! Asks for a room of a kind. Called before the lobby answered, it is sent when it does.
-            void join(const std::string& roomType, const std::string& playerName);
+            //! @param options  Told to ServerConfig::roomPicker if the server has one (a mode, a level, a party): a validRoomOptions() text, else refused
+            void join(const std::string& roomType, const std::string& playerName, const std::string& options = "");
 
             //! Asks which public rooms there are (of a kind, or all of them if it is empty). The answer goes to the
             //! handler of onRoomList(). It can be asked in the lobby or in a room, and before the lobby answered.

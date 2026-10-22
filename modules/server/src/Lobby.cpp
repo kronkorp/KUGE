@@ -61,6 +61,7 @@ namespace kuge::server
 
             want.kind = Want::Kind::Auto;
             want.type = join.roomType;
+            want.options = join.options;
             want.playerName = join.playerName;
             want.protocol = join.protocol;
             want.mods = join.mods;
@@ -134,13 +135,25 @@ namespace kuge::server
         m_endpoint->send(to, net::JoinRefused{why});
     }
 
+    // A room that a request for "any room of this kind" may be put in. A private room is never filled by chance.
+    bool LobbyScene::joinable(const Room& room, const std::string& type)
+    {
+        return room.type == type && !room.isPrivate && room.open && !room.closing && room.members.size() < room.maxPlayers;
+    }
+
+    net::RoomInfo LobbyScene::infoOf(const Room& room)
+    {
+        return net::RoomInfo{room.id, room.type, room.name, static_cast<std::uint32_t>(room.members.size()),
+            static_cast<std::uint32_t>(room.maxPlayers), room.options, room.open};
+    }
+
     LobbyScene::Room* LobbyScene::findRoom(const std::string& type)
     {
         Room* best = nullptr;
 
         for (auto& [id, room] : m_rooms) {
-            // The fullest room that still has a place: games start sooner. A private room is never filled by chance.
-            if (room.type == type && !room.isPrivate && room.open && !room.closing && room.members.size() < room.maxPlayers && (!best || room.members.size() > best->members.size())) {
+            // The fullest room that still has a place: games start sooner
+            if (joinable(room, type) && (!best || room.members.size() > best->members.size())) {
                 best = &room;
             }
         }
@@ -220,6 +233,7 @@ namespace kuge::server
 
     void LobbyScene::request(net::ConnectionId from, Want want)
     {
+        want.since = m_state->config.now();
         if (const auto& authenticate = m_state->config.authenticate) {
             std::optional<std::uint32_t> who;
 
@@ -255,8 +269,7 @@ namespace kuge::server
             }
             ++reply.total;
             if (reply.rooms.size() < net::MAX_LISTED_ROOMS) {
-                reply.rooms.push_back(net::RoomInfo{room.id, room.type, room.name, static_cast<std::uint32_t>(room.members.size()),
-                    static_cast<std::uint32_t>(room.maxPlayers), room.options, room.open});
+                reply.rooms.push_back(infoOf(room));
             }
         }
         m_endpoint->send(from, reply);
@@ -332,16 +345,53 @@ namespace kuge::server
         Room* room = nullptr;
 
         switch (want.kind) {
-            case Want::Kind::Auto:
-                room = findRoom(want.type);
+            case Want::Kind::Auto: {
+                std::optional<RoomChoice> choice;
+
+                if (!want.options.empty() && !net::validRoomOptions(want.options)) {
+                    refuse(from, net::JoinError::InvalidOptions);
+                    return true;
+                }
+                if (m_state->config.roomPicker) {
+                    std::vector<net::RoomInfo> open;
+
+                    for (const auto& [id, candidate] : m_rooms) {
+                        if (joinable(candidate, want.type)) {
+                            open.push_back(infoOf(candidate));
+                        }
+                    }
+                    choice = m_state->config.roomPicker(JoinRequest{want.type, want.playerName, want.options, want.playerId,
+                        net::addressOf(m_endpoint->peer(from)), m_state->config.now() - want.since}, open);
+                }
+                if (choice && choice->kind == RoomChoice::Kind::Wait) {
+                    return false;   // asked again at the next tick
+                }
+                if (choice && choice->kind == RoomChoice::Kind::Join) {
+                    const auto chosen = m_rooms.find(choice->roomId);
+
+                    if (chosen == m_rooms.end() || !joinable(chosen->second, want.type)) {
+                        refuse(from, net::JoinError::UnknownRoom);
+                        return true;
+                    }
+                    room = &chosen->second;
+                    break;
+                }
+                if (choice && !net::validRoomOptions(choice->options)) {
+                    refuse(from, net::JoinError::InvalidOptions);
+                    return true;
+                }
+                if (!choice) {
+                    room = findRoom(want.type);
+                }
                 if (!room && m_rooms.size() < m_state->config.maxRooms) {
-                    room = makeRoom(want.type, *kind, "", false, "");
+                    room = makeRoom(want.type, *kind, "", false, choice ? choice->options : "");
                     if (!room) {
                         refuse(from, net::JoinError::RoomFailed);
                         return true;
                     }
                 }
                 break;
+            }
             case Want::Kind::Create:
                 if (m_rooms.size() >= m_state->config.maxRooms) {
                     refuse(from, net::JoinError::Full);
@@ -407,6 +457,7 @@ namespace kuge::server
 
     void LobbyScene::handleLeave(net::ConnectionId from)
     {
+        std::erase_if(m_retries, [from](const Retry& retry) { return retry.connection == from; });   // (a player who waits for a room gives up)
         const auto found = m_byConnection.find(from);
 
         if (found != m_byConnection.end()) {

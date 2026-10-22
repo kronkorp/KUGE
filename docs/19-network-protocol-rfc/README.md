@@ -147,7 +147,7 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 
 | Message | Sens | Champs, dans l'ordre | Rôle |
 | --- | --- | --- | --- |
-| `JoinRoom` | C→L | roomType (chaîne), playerName (chaîne), protocol (u16), mods (u64), token (chaîne) | demande une salle d'un type, que le lobby choisit |
+| `JoinRoom` | C→L | roomType (chaîne), playerName (chaîne), protocol (u16), mods (u64), token (chaîne), options (chaîne) | demande une salle d'un type, que le lobby choisit (ou le jeu, voir `ServerConfig::roomPicker`) |
 | `CreateRoom` | C→L | roomType, roomName, playerName (chaînes), isPrivate (bool), options (chaîne), protocol (u16), mods (u64), token (chaîne) | crée une salle nommée, avec des options que KUGE ne lit pas, et y place le client |
 | `JoinNamedRoom` | C→L | roomId (u32), roomName, playerName (chaînes), protocol (u16), mods (u64), token (chaîne) | entre dans la salle dont l'id et le nom correspondent |
 | `ListRooms` | C→L | roomType (chaîne, vide pour tous) | demande les salles publiques |
@@ -184,7 +184,7 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 | `HelloError` | 0 UnknownToken, 1 Closing |
 | `RoomEnd` | 0 GameOver, 1 Idle, 2 ServerStopping, 3 Kicked, 4 Error, 5 Victory |
 
-Un nom de salle est valide s'il fait de 1 à 32 octets d'UTF-8 correct (RFC 3629), sans caractère de contrôle (U+0000 à U+001F, U+007F à U+009F) et sans espace ni tabulation à ses extrémités. Le lobby refuse les autres avec `JoinError::InvalidName`. `mods` est l'empreinte (`Mods::fingerprint()`, 0 : aucun mod) des mods du joueur ; si elle n'est pas celle du serveur (`ServerConfig::mods`), le lobby répond `JoinError::Mods`. `token` (au plus 512 octets, `MAX_AUTH_TOKEN`) est ce que le jeu a donné au joueur pour prouver qui il est : si le serveur a une `ServerConfig::authenticate`, le lobby l'appelle avec le `token` et l'adresse de la connexion, et un joueur qu'elle ne reconnaît pas est refusé avec `JoinError::Unauthenticated` (sinon le `token` est ignoré). Le `token` passe en clair, comme le reste (section 10). Les `options` d'une salle font au plus 128 octets d'UTF-8 correct, sans caractère de contrôle ; le lobby refuse les autres avec `JoinError::InvalidOptions`.
+Un nom de salle est valide s'il fait de 1 à 32 octets d'UTF-8 correct (RFC 3629), sans caractère de contrôle (U+0000 à U+001F, U+007F à U+009F) et sans espace ni tabulation à ses extrémités. Le lobby refuse les autres avec `JoinError::InvalidName`. `mods` est l'empreinte (`Mods::fingerprint()`, 0 : aucun mod) des mods du joueur ; si elle n'est pas celle du serveur (`ServerConfig::mods`), le lobby répond `JoinError::Mods`. `token` (au plus 512 octets, `MAX_AUTH_TOKEN`) est ce que le jeu a donné au joueur pour prouver qui il est : si le serveur a une `ServerConfig::authenticate`, le lobby l'appelle avec le `token` et l'adresse de la connexion, et un joueur qu'elle ne reconnaît pas est refusé avec `JoinError::Unauthenticated` (sinon le `token` est ignoré). Le `token` passe en clair, comme le reste (section 10). Les `options` d'un `JoinRoom` sont ce que le joueur dit de la partie qu'il veut : même règle que celles de `CreateRoom` (`JoinError::InvalidOptions`), et seule `ServerConfig::roomPicker` les lit. Les `options` d'une salle font au plus 128 octets d'UTF-8 correct, sans caractère de contrôle ; le lobby refuse les autres avec `JoinError::InvalidOptions`.
 
 ## 6. Cycle de vie d'une connexion
 
@@ -353,7 +353,7 @@ Une donnée invalide est jetée et comptée dans les statistiques de l'endpoint 
 | Version | Où | Valeur | Contrôle |
 | --- | --- | --- | --- |
 | `protocol` | `Connect` (u16) | 2 | égalité exacte, sinon `Reject` |
-| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom`, `RejoinRoom` (u16) | 5 | égalité exacte, sinon `JoinRefused(Protocol)` |
+| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom`, `RejoinRoom` (u16) | 6 | égalité exacte, sinon `JoinRefused(Protocol)` |
 | `schema` | `SnapshotPacket` (u32) | hash du registre | égalité, sinon instantané ignoré |
 
 Les messages n'ont pas de version propre : ajouter, retirer ou réordonner un champ d'un `KUGE_MESSAGE` casse la lecture, et le message est jeté comme malformé. Un tel changement dans le lobby ou la salle MUST s'accompagner d'une hausse de `protocol`. Le `schema` change quand les noms, les modes ou l'ordre des composants changent ; il ne change pas quand le format d'octets d'un composant change, et ce cas n'est pas détecté.
