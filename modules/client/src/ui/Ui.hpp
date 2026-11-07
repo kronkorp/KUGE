@@ -139,6 +139,9 @@ namespace kuge
         Color fill{30, 32, 44, 235};
         Color border{170, 175, 200, 255};
         float borderWidth = 2.0f;
+        //! Pixels: the corners are round, the fill and the border follow (and so does a click: one in a cut corner is
+        //! outside). Half of the shorter side or more: a pill, or a circle. Negative: `UiTheme::radius`. 0: square.
+        float radius = -1.0f;
     };
 
     //! A bar that is filled for `value / max` of its width (or of its height, from the bottom). The size of its node
@@ -249,6 +252,9 @@ namespace kuge
         Color focusRing{255, 214, 90, 255};
         float focusWidth = 3.0f;
         float padding = 10.0f;     //!< Between the text of a button (or a text field) and its border
+        //! The corners of the buttons, the text fields, and the panels that have no `radius` of their own, in pixels: a
+        //! whole game is square or round by this one number. 0: square.
+        float radius = 0.0f;
 
         // Text fields (the focus ring and the disabled colors are the buttons')
         Color fieldFill{24, 26, 38, 255};
@@ -272,7 +278,7 @@ namespace kuge
     //! How big the interface is drawn (a resource). It is built for one size of window, 1280 x 720 say, and this makes it
     //! bigger on a bigger screen: the layout multiplies by `value` every pixel number of the components (`offset`,
     //! `size`, `spacing`, `padding`, `borderWidth`, `wrapWidth`, `UiScroll::offset` and `notch`) and of the theme
-    //! (`padding`, `focusWidth`, `progressWidth`, `progressHeight`), and draws the text with the same font at `value`
+    //! (`padding`, `radius`, `focusWidth`, `progressWidth`, `progressHeight`), and draws the text with the same font at `value`
     //! times its size (IFont::scaled(), so it stays sharp). The components keep the numbers you gave them. See
     //! uiScaleFor(): a game sets `value` from the size of its window when it changes.
     struct UiScale

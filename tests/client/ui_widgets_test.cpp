@@ -993,3 +993,117 @@ Test(uioverflow, measure_says_lines)
     AssertEq(three.size.y, 36.0f, "of 12");
     AssertEq(kuge::TextRenderer::measure(font, "").lines, 0, "an empty text has none");
 }
+
+// -- Round corners: UiPanel::radius, UiTheme::radius --------------------------------------------------------------
+namespace
+{
+    // The fill and the border of the first panel in the frame: they are what the panel draws
+    struct PanelDraw
+    {
+        const Call* fill = nullptr;
+        const Call* edge = nullptr;
+    };
+
+    PanelDraw panelDraw(const std::vector<Call>& calls)
+    {
+        PanelDraw draw;
+
+        for (const Call& call : calls) {
+            if (call.kind == Call::Kind::Fill && !draw.fill) { draw.fill = &call; }
+            if (call.kind == Call::Kind::Stroke && !draw.edge) { draw.edge = &call; }
+        }
+        return draw;
+    }
+}
+
+Test(uiround, a_panel_with_a_radius)
+{
+    kw::Entity panel = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        panel = uiNode(w, {.offset = {10.0f, 20.0f}, .size = {80.0f, 40.0f}});
+        w.add<kuge::UiPanel>(panel, kuge::UiPanel{.borderWidth = 3.0f, .radius = 10.0f});
+    });
+    const auto draw = panelDraw(ui.tick());
+
+    Assert(draw.fill != nullptr && draw.fill->radius == 10.0f, "the fill is rounded");
+    Assert(draw.edge != nullptr && draw.edge->radius == 10.0f && draw.edge->width == 3.0f, "and so is the border, as thick as it was");
+    Assert(draw.fill->destination == kuge::Rect(10.0f, 20.0f, 80.0f, 40.0f), "in the rectangle of the node: the layout is the same");
+}
+
+Test(uiround, no_radius_is_square)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        const kw::Entity panel = uiNode(w, {.size = {80.0f, 40.0f}});
+
+        w.add<kuge::UiPanel>(panel, kuge::UiPanel{.radius = 0.0f});
+    });
+    const auto& calls = ui.tick();
+    const auto draw = panelDraw(calls);
+
+    Assert(draw.fill != nullptr && draw.fill->radius == 0.0f, "square");
+    AssertEq(calls.size(), 5, "the fill and the four rectangles of the border, as before");
+    Assert(draw.edge == nullptr, "no rounded border");
+}
+
+Test(uiround, the_theme_has_the_default)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        w.getResource<kuge::UiTheme>().radius = 6.0f;
+        const kw::Entity own = uiNode(w, {.size = {80.0f, 40.0f}});
+        const kw::Entity theirs = uiNode(w, {.offset = {0.0f, 100.0f}, .size = {80.0f, 40.0f}});
+
+        w.add<kuge::UiPanel>(own, kuge::UiPanel{.radius = 4.0f});
+        w.add<kuge::UiPanel>(theirs, kuge::UiPanel{});
+        w.add<kuge::UiButton>(uiNode(w, {.offset = {0.0f, 200.0f}, .size = {80.0f, 40.0f}}), kuge::UiButton{.text = "ok"});
+        w.add<kuge::UiTextField>(uiNode(w, {.offset = {0.0f, 300.0f}, .size = {80.0f, 40.0f}}), kuge::UiTextField{});
+    });
+    std::vector<float> radii;
+
+    for (const Call& call : ui.tick()) {
+        if (call.kind == Call::Kind::Fill && call.destination.w == 80.0f && call.destination.h == 40.0f) {
+            radii.push_back(call.radius);
+        }
+    }
+    Assert(radii == std::vector<float>({4.0f, 6.0f, 6.0f, 6.0f}), "a panel's own radius wins; a panel, a button and a field follow the theme");
+}
+
+Test(uiround, the_scale_makes_it_bigger)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        w.getResource<kuge::UiScale>().value = 2.0f;
+        w.getResource<kuge::UiTheme>().radius = 6.0f;
+        w.add<kuge::UiPanel>(uiNode(w, {.size = {80.0f, 40.0f}}), kuge::UiPanel{.radius = 10.0f});
+        w.add<kuge::UiButton>(uiNode(w, {.offset = {0.0f, 100.0f}, .size = {80.0f, 40.0f}}), kuge::UiButton{.text = "ok"});
+    });
+    std::vector<float> radii;
+
+    for (const Call& call : ui.tick()) {
+        if (call.kind == Call::Kind::Fill && call.destination.w == 160.0f) {
+            radii.push_back(call.radius);
+        }
+    }
+    Assert(radii == std::vector<float>({20.0f, 12.0f}), "both are multiplied by the scale of the interface");
+}
+
+Test(uiround, a_click_in_a_cut_corner)
+{
+    kw::Entity button = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        w.getResource<kuge::UiTheme>().radius = 15.0f;
+        button = uiNode(w, {.size = {80.0f, 40.0f}});
+        w.add<kuge::UiButton>(button, kuge::UiButton{.text = "ok"});
+    });
+
+    ui.tick();
+    ui.mouseTo({1.0f, 1.0f});   // in the corner of the rectangle that the radius cuts
+    ui.mouseDown({1.0f, 1.0f});
+    AssertEq(ui.count(Kind::Activated, button), 0, "the corner is outside the button");
+    ui.mouseUp({1.0f, 1.0f});
+    ui.mouseTo({40.0f, 20.0f});
+    ui.mouseDown({40.0f, 20.0f});
+    AssertEq(ui.count(Kind::Activated, button), 1, "the middle is not");
+    ui.mouseUp({40.0f, 20.0f});
+    ui.mouseTo({40.0f, 1.0f});
+    ui.mouseDown({40.0f, 1.0f});
+    AssertEq(ui.count(Kind::Activated, button), 1, "and neither is the straight edge");
+}

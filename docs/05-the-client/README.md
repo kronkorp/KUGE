@@ -231,6 +231,11 @@ avatar). There is no mask texture: a shape other than a rounded rectangle is mad
 rectangle (inside the border of its `UiPanel`) without a scroll: a text too long for its card, a name in a list. A cut part is not drawn
 and cannot be pressed. Off by default: a child can come out of its parent on purpose.
 
+**Round corners.** `UiPanel::radius` (pixels) rounds the fill and the border of a panel; `UiTheme::radius` is the default of the panels that have
+none (a negative `radius`, which is what a `UiPanel` has until you set it), and the radius of the buttons and the text fields, so a whole game is
+square or round by one number (0: square, as before). A click in a cut corner is outside. Half of the shorter side or more makes a pill, or a circle.
+The progress bars, the sliders and the check boxes stay square. `IRenderer2D::fillRoundedRect` and `strokeRoundedRect` are what draw them.
+
 **A text that is too long.** `UiLabel::overflow` says what a label does with a text longer than its node (a node with a width: with none it is
 as wide as the text): `None` (it comes out), `Clip` (cut at the edge), `Ellipsis` (cut at a letter that fits, then "..."), `Scroll` (it goes by in
 its node: a pause, the way, a pause, again; `scrollSpeed`, `scrollPause`), `Wrap` (wrapped at the width of the node). `UiLayoutResult::truncated`

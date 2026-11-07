@@ -93,6 +93,7 @@ namespace
 
         if (scale != 1.0f) {
             scaled.padding *= scale;
+            scaled.radius *= scale;
             scaled.focusWidth *= scale;
             scaled.progressWidth *= scale;
             scaled.progressHeight *= scale;
@@ -677,16 +678,57 @@ namespace
         return best;
     }
 
-    void border(IRenderer2D& renderer, const Rect& rect, Color color, float width)
+    // `radius` > 0: a rounded edge, inside the rectangle
+    void border(IRenderer2D& renderer, const Rect& rect, Color color, float width, float radius = 0.0f)
     {
         if (width <= 0.0f) {
             return;
         }
         width = std::min(width, std::min(rect.w, rect.h) / 2.0f);
+        if (radius > 0.0f) {
+            renderer.strokeRoundedRect(rect, radius, width, color);
+            return;
+        }
         renderer.fillRect({rect.x, rect.y, rect.w, width}, color);
         renderer.fillRect({rect.x, rect.bottom() - width, rect.w, width}, color);
         renderer.fillRect({rect.x, rect.y + width, width, rect.h - 2.0f * width}, color);
         renderer.fillRect({rect.right() - width, rect.y + width, width, rect.h - 2.0f * width}, color);
+    }
+
+    void fill(IRenderer2D& renderer, const Rect& rect, Color color, float radius)
+    {
+        if (radius > 0.0f) {
+            renderer.fillRoundedRect(rect, radius, color);
+        } else {
+            renderer.fillRect(rect, color);
+        }
+    }
+
+    // The corners of what a node draws as a box, in pixels of the screen (`theme` is the scaled one)
+    float radiusOf(kw::World& world, kw::Entity entity, const UiTheme& theme, float scale)
+    {
+        if (world.has<UiButton>(entity) || world.has<UiTextField>(entity)) {
+            return theme.radius;
+        }
+        if (world.has<UiPanel>(entity)) {
+            const float radius = world.get<UiPanel>(entity).radius;
+
+            return radius < 0.0f ? theme.radius : radius * scale;
+        }
+        return 0.0f;
+    }
+
+    // Is the point in the rectangle, without its cut corners?
+    bool insideShape(const Rect& rect, float radius, Vec2 point)
+    {
+        if (!rect.contains(point)) {
+            return false;
+        }
+        const float r = std::clamp(radius, 0.0f, std::min(rect.w, rect.h) / 2.0f);
+        const float dx = point.x - std::clamp(point.x, rect.x + r, rect.right() - r);   // from the middle of the nearest corner, if in one
+        const float dy = point.y - std::clamp(point.y, rect.y + r, rect.bottom() - r);
+
+        return dx * dx + dy * dy <= r * r;
     }
 }
 
@@ -870,7 +912,7 @@ bool kuge::UiInteract::handle(kw::World& world)
     for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend() && !hovered && !blocked; ++it) {
         const auto clip = layout.clips.find(*it);   // (what a scroll cuts cannot be pointed at)
 
-        if (!layout.rects.at(*it).contains(mouse) || (clip != layout.clips.end() && !clip->second.contains(mouse))) {
+        if (!insideShape(layout.rects.at(*it), radiusOf(world, *it, theme, scale), mouse) || (clip != layout.clips.end() && !clip->second.contains(mouse))) {
             continue;
         }
         if (std::find(usable.begin(), usable.end(), *it) != usable.end()) {
@@ -1088,8 +1130,10 @@ bool kuge::UiRender::handle(kw::World& world)
         if (world.has<UiPanel>(entity)) {
             const UiPanel& panel = world.get<UiPanel>(entity);
 
-            renderer.fillRect(rect, panel.fill);
-            border(renderer, rect, panel.border, panel.borderWidth * scale);
+            const float radius = radiusOf(world, entity, theme, scale);
+
+            fill(renderer, rect, panel.fill, radius);
+            border(renderer, rect, panel.border, panel.borderWidth * scale, radius);
         }
         if (world.has<UiProgress>(entity)) {
             const UiProgress& bar = world.get<UiProgress>(entity);
@@ -1105,18 +1149,18 @@ bool kuge::UiRender::handle(kw::World& world)
         }
         if (world.has<UiButton>(entity)) {
             const UiButton& button = world.get<UiButton>(entity);
-            Color fill = theme.buttonFill;
+            Color fillColor = theme.buttonFill;
 
             if (!button.enabled) {
-                fill = theme.buttonDisabled;
+                fillColor = theme.buttonDisabled;
             } else if (button.pressed) {
-                fill = theme.buttonPressed;
+                fillColor = theme.buttonPressed;
             } else if (button.hovered || button.focused) {
-                fill = theme.buttonHover;
+                fillColor = theme.buttonHover;
             }
-            renderer.fillRect(rect, fill);
+            fill(renderer, rect, fillColor, theme.radius);
             if (button.focused) {
-                border(renderer, rect, theme.focusRing, theme.focusWidth);
+                border(renderer, rect, theme.focusRing, theme.focusWidth, theme.radius);
             }
             if (theme.font) {
                 const Vec2 size = theme.font->measure(button.text, 0);
@@ -1187,8 +1231,8 @@ bool kuge::UiRender::handle(kw::World& world)
             const UiTextField& field = world.get<UiTextField>(entity);
             const IFont* font = fieldFont(field, theme, scale);
 
-            renderer.fillRect(rect, field.enabled ? theme.fieldFill : theme.buttonDisabled);
-            border(renderer, rect, field.focused ? theme.focusRing : theme.fieldBorder, field.focused ? theme.focusWidth : 2.0f * scale);
+            fill(renderer, rect, field.enabled ? theme.fieldFill : theme.buttonDisabled, theme.radius);
+            border(renderer, rect, field.focused ? theme.focusRing : theme.fieldBorder, field.focused ? theme.focusWidth : 2.0f * scale, theme.radius);
             if (font) {
                 const float room = rect.w - 2.0f * theme.padding - CARET_WIDTH * scale;
                 const float lineHeight = static_cast<float>(font->lineHeight());
