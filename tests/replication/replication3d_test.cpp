@@ -157,3 +157,109 @@ Test(prediction3d, too_far_is_a_snap)
     AssertEq(sim.prediction->stats().snaps, 1u, "put there at once");
     Assert(distance(sim.clientPosition(), sim.serverPosition()) < 1e-3f, "and it agrees");
 }
+
+// -- A level that breaks -----------------------------------------------------------------------------------
+
+namespace
+{
+    struct Wall { float x = 3.0f; };
+
+    // The player, and the piece 0 of the level: a wall at x = 3 that stops it
+    kw::Entity buildWalled(kw::World& world)
+    {
+        const kw::Entity wall = world.create();
+
+        world.add<Wall>(wall, Wall{});
+        world.add<kuge::LevelPiece>(wall, kuge::LevelPiece{0});
+        return buildPlayer3(world);
+    }
+
+    void stepWalled(kw::World& world, double dt)
+    {
+        for (kw::Entity e : world.view<kuge::Transform3D, Wish>()) {
+            float x = world.get<kuge::Transform3D>(e).translation.x;
+            const float next = x + world.get<Wish>(e).x;
+            bool blocked = false;
+
+            for (kw::Entity wall : world.view<Wall>()) {
+                blocked |= x < world.get<Wall>(wall).x && next >= world.get<Wall>(wall).x;
+            }
+            (void)dt;
+            if (!blocked) {
+                world.get<kuge::Transform3D>(e).translation.x = next;
+            }
+        }
+    }
+
+    sim3::Game3 walledGame(void) { return sim3::Game3{&buildWalled, &steer3, &stepWalled, false, true}; }
+
+    // The entity that holds what is broken, on the room
+    kw::Entity levelOf(Sim3& sim)
+    {
+        const kw::Entity level = sim.serverWorld.create();
+
+        sim.serverWorld.add<kuge::LevelBreaks>(level, kuge::LevelBreaks{});
+        sim.server->track(level, LEVEL, 0);
+        return level;
+    }
+
+    // The room breaks the piece: it is gone from its world and told to the clients
+    void breakIt(Sim3& sim, kw::Entity level, std::uint32_t piece)
+    {
+        sim.serverWorld.get<kuge::LevelBreaks>(level).add(piece);
+        kuge::applyBreaks(sim.serverWorld, sim.serverWorld.get<kuge::LevelBreaks>(level));
+    }
+}
+
+Test(breaks, a_wall_stops_the_player)
+{
+    Sim3 sim(kuge::net::LoopbackNetwork::Conditions{.latency = 0.03, .seed = 3}, walledGame());
+
+    levelOf(sim);
+    sim.run(30);
+    sim.run(60, Steer3{1, 0});
+    Assert(sim.serverPosition().x < 3.0f && sim.clientPosition().x < 3.0f, "the wall holds: %f, %f", sim.serverPosition().x, sim.clientPosition().x);
+}
+
+Test(breaks, a_hole_is_walked_through)
+{
+    Sim3 sim(kuge::net::LoopbackNetwork::Conditions{.latency = 0.03, .seed = 3}, walledGame());
+    const kw::Entity level = levelOf(sim);
+
+    sim.run(30);
+    breakIt(sim, level, 0);
+    sim.run(30);   // (the client hears of it)
+    Assert(sim.clientWorld.get<kuge::LevelBreaks>(*sim.client->entity(sim.serverWorld.get<Replicated>(level).id)).has(0), "the client is told");
+    Assert(kuge::applyBreaks(sim.prediction->privateWorld(), kuge::LevelBreaks{{0}}) == 0, "and its prediction has no wall any more");
+    const auto before = sim.prediction->stats();
+
+    sim.run(60, Steer3{1, 0});
+    Assert(sim.clientPosition().x > 5.0f, "the player goes through: %f", sim.clientPosition().x);
+    sim.run(30);
+    Assert(distance(sim.clientPosition(), sim.serverPosition()) < 1e-3f, "and the client and the room agree");
+    Assert(sim.prediction->stats().corrections == before.corrections, "without a single correction");
+}
+
+Test(breaks, a_wall_that_breaks_under_it)
+{
+    Sim3 sim(kuge::net::LoopbackNetwork::Conditions{.latency = 0.05, .seed = 4}, walledGame());
+    const kw::Entity level = levelOf(sim);
+
+    sim.run(30);
+    sim.run(40, Steer3{1, 0});     // against the wall
+    Assert(sim.serverPosition().x < 3.0f, "stopped");
+    breakIt(sim, level, 0);
+    sim.run(90, Steer3{1, 0});
+    Assert(sim.serverPosition().x > 4.0f, "the room's player goes on: %f", sim.serverPosition().x);
+    sim.run(30);
+    Assert(distance(sim.clientPosition(), sim.serverPosition()) < 1e-2f, "the prediction followed: %f from the room", distance(sim.clientPosition(), sim.serverPosition()));
+    Assert(sim.prediction->stats().snaps == 0, "nothing was a snap");
+}
+
+Test(breaks, pieces_are_in_order)
+{
+    kuge::LevelBreaks one;
+
+    Assert(one.add(7) && one.add(2) && !one.add(7), "a piece is added once");
+    Assert(one.broken == (std::vector<std::uint32_t>{2, 7}) && one.has(2) && !one.has(3), "in order");
+}

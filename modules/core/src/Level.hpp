@@ -37,6 +37,23 @@ namespace kuge
         std::uint64_t                            hash = 0;     //!< Of the colliders and the markers: the same file gives the same on the server and on a client
     };
 
+    //! On the entity that spawnColliders() makes for a collider of a level: its number in `LevelData::colliders`, the same on every side
+    struct LevelPiece
+    {
+        std::uint32_t id = 0;
+    };
+
+    //! The pieces of a level that are gone (a wall that a blast opened). One entity of the game has it, and it is replicated
+    //! (registerLevelBreaks); each side removes the pieces it names with applyBreaks(), the room, the clients and the predictions alike.
+    struct LevelBreaks
+    {
+        std::vector<std::uint32_t> broken;   //!< Sorted, without repeats
+
+        bool has(std::uint32_t piece) const noexcept;
+        //! @return  false if it was already gone
+        bool add(std::uint32_t piece);
+    };
+
     ////////////////////////////////////////////////////////////////////////////
     /**
      * @brief  A level made in an editor (Blender, a glTF): its meshes are what is seen, its named nodes say what plays
@@ -59,5 +76,11 @@ namespace kuge
     //! Makes an entity (a Transform3D and a Collider3D) for each collider of the level, with this layer and mask
     //! @return  The entities, in the order of `level.colliders`
     std::vector<kw::Entity> spawnColliders(kw::World& world, const LevelData& level, std::uint32_t layer = 1, std::uint32_t mask = 0xFFFFFFFFu);
+
+    //! Removes the entities that have a LevelPiece that `breaks` names (their colliders go with them, and what stood on them is woken up:
+    //! see Physics3D). It does nothing for a piece that is gone already, so it can be called at every tick.
+    //! The game's own parts of a piece (its model) are components of the same entity, or are removed by the game.
+    //! @return  How many were removed
+    std::size_t applyBreaks(kw::World& world, const LevelBreaks& breaks);
 
 }

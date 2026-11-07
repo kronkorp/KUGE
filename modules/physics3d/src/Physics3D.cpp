@@ -548,9 +548,14 @@ struct kuge::Physics3D::Impl final : public JPH::ContactListener
     {
         JPH::BodyInterface& bodies = system.GetBodyInterface();
 
+        // What stood on it, or leaned on it, is woken: a body that sleeps over a hole would stay in the air
+        JPH::AABox around = bodies.GetShape(record.id)->GetWorldSpaceBounds(bodies.GetCenterOfMassTransform(record.id), JPH::Vec3::sReplicate(1.0f));
+
+        around.ExpandBy(JPH::Vec3::sReplicate(0.1f));
         entityOf.erase(record.id.GetIndexAndSequenceNumber());
         bodies.RemoveBody(record.id);
         bodies.DestroyBody(record.id);
+        bodies.ActivateBodiesInAABox(around, JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter());
     }
 
     void step(kw::World& world, float dt, std::vector<TriggerEvent3D>& events)

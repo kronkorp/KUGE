@@ -49,6 +49,10 @@ namespace kuge::replication
         std::function<void(kw::World&, kw::Entity, const Input&)>   apply;
         //! One tick of the simulation of that world (the physics, for example)
         std::function<void(kw::World&, double dt)>                  step;
+        //! Optional: brings the private world in line with what the client has been told about the rest of the level (a wall that was
+        //! broken: `mirrorBreaks`). Called with the private world and the shown one, at each tick and before the inputs are simulated again
+        //! at a reconciliation, so a hole is in the prediction as soon as the client knows of it. It must do nothing the second time.
+        std::function<void(kw::World&, kw::World&)>                 sync;
         double        dt             = 1.0 / 60.0;
         std::size_t   redundancy     = 4;        //!< Inputs in each packet: the newest and the ones before, in case they were lost
         std::size_t   maxPending     = 128;      //!< Inputs kept while the server does not answer
@@ -112,9 +116,18 @@ namespace kuge::replication
                         m_predicted.push_back(i);
                     }
                 }
+                // The word about the entity is acted on when the whole snapshot is in the World (the level may come after the player in it)
                 replication.onOwned([this, alive = m_alive](kw::Entity entity, const EntityRecord& record, std::uint32_t, std::uint32_t inputAck) {
                     if (*alive) {
-                        reconcile(entity, record, inputAck);
+                        m_word = Word{entity, record, inputAck};
+                    }
+                });
+                replication.onApplied([this, alive = m_alive] {
+                    if (*alive && m_word) {
+                        const Word word = std::move(*m_word);
+
+                        m_word.reset();
+                        reconcile(word.entity, word.record, word.inputAck);
                     }
                 });
                 replication.onOwnedGone([this, alive = m_alive](kw::Entity entity) {
@@ -140,6 +153,7 @@ namespace kuge::replication
                     return;
                 }
                 ++m_stats.ticks;
+                synchronize();
                 m_pending.push_back(Pending{++m_sequence, input});
                 while (m_pending.size() > m_config.maxPending) {
                     m_pending.pop_front();
@@ -171,6 +185,20 @@ namespace kuge::replication
             };
 
             kw::World& priv(void) noexcept { return *m_privateWorld; }
+
+            void synchronize(void)
+            {
+                if (m_config.sync) {
+                    m_config.sync(priv(), m_world);
+                }
+            }
+
+            struct Word
+            {
+                kw::Entity   entity;
+                EntityRecord record;
+                std::uint32_t inputAck;
+            };
 
             // The World gives the id of an entity that was removed to the next one it makes, and this
             // prediction writes to `m_visible` at each tick: it must be the entity it was told about
@@ -258,6 +286,7 @@ namespace kuge::replication
                     m_player = m_config.build(priv());
                     m_sequence = inputAck;   // (the server counts from where this client's inputs are)
                 }
+                synchronize();
                 const Offset before = priv().template has<Transform>(m_player) ? Space::position(priv().template get<Transform>(m_player)) : Offset{};
 
                 for (const std::size_t index : m_predicted) {
@@ -312,6 +341,7 @@ namespace kuge::replication
             std::uint32_t                  m_sequence = 0;
             Offset                         m_offset{};
             bool                           m_ready = false;
+            std::optional<Word>            m_word;    //!< The last word about the entity, waiting for the end of the snapshot
             PredictionStats                m_stats;
             std::shared_ptr<bool>          m_alive = std::make_shared<bool>(true);
     };
