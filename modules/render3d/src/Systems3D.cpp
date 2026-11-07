@@ -304,7 +304,8 @@ bool kuge::ModelRender::handle(kw::World& world)
     rasterizer.endFrame();
     environment.lights.resize(sceneLights);
 
-    const k3::Image image = rasterizer.readPixels();
+    // The picture at the size the scene was drawn at: with a render scale below 1 it is the small one, which the 2D renderer enlarges below
+    const k3::Image image = rasterizer.readSceneFrame();
 
     if (image.empty()) {
         return true;
@@ -318,6 +319,7 @@ bool kuge::ModelRender::handle(kw::World& world)
 
     draw.texture = m_frame->id();
     draw.destination = Rect{0.0f, 0.0f, screen.x, screen.y};
+    draw.filter = world.getResource<SceneUpscale>().filter;
     renderer.drawTexture(draw);
     return true;
 }

@@ -30,7 +30,7 @@ cube the difference is zero):
 
 Either way the scene is drawn off screen and the image is then given to the 2D renderer, which shows it on the whole
 screen. Two things follow: sprites, text and the interface are drawn **over** the 3D with the tools you already know, and
-screenshots have the 3D in them. On the GPU the image is read back (a few milliseconds), which is what keeps all of
+screenshots have the 3D in them. On the GPU the image is read back (a few milliseconds at 1280x720, less with `renderScale`), which is what keeps all of
 that working.
 
 ```cpp
@@ -40,7 +40,13 @@ engine.addModule<kuge::Render3DModule>(client);     // after the client: it is d
 
 `Render3DConfig::rendering` is `Auto` (the GPU if there is a context, else the CPU, and the log says which),
 `Software` or `OpenGL` (`Render3DError` if there is no context). The module without a client (`Render3DModule()`) is
-the CPU. `renderScale` draws at a fraction of the screen and enlarges it, `antiAliasing` is kronk3d's (FXAA or SSAA).
+the CPU. `antiAliasing` is kronk3d's (FXAA or SSAA).
+
+**`renderScale`** draws the scene at a fraction of the screen (0.33: a ninth of the pixels) and the picture that is **read back and copied is the small
+one**: the 2D renderer enlarges it over the whole screen when it draws it (`Render3DConfig::upscale`: `Nearest` keeps blocks, `Linear` is smooth). The
+sprites, the text and the interface are drawn after it at the pixels of the screen, so **they stay sharp** while the 3D is cheap: this is the way to
+fullscreen on a 4K screen. (`WindowConfig::baseResolution` is the other one: it makes everything, the 2D too, be drawn small; see the client chapter.)
+Needs kronk3d's `IRasterizer::readSceneFrame()`.
 
 What it costs, on one machine (16 threads, an RTX 4070 laptop GPU) for the whole of Arena, server in the same process
 (the loop does not go above about 250 frames a second): 

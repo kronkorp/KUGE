@@ -1,6 +1,7 @@
 #pragma once
 
 #include "backend/IOpenGL.hpp"
+#include "backend/IRenderer2D.hpp"
 #include <functional>
 #include <kronk3d/render/Environment.hpp>
 #include <kronk3d/scene/Light.hpp>
@@ -86,6 +87,12 @@ namespace kuge
     struct GlContext
     {
         IOpenGL* gl = nullptr;
+    };
+
+    //! How ModelRender enlarges the picture of the scene when it is drawn smaller than the screen (Render3DConfig::upscale), a resource of the World
+    struct SceneUpscale
+    {
+        Filter filter = Filter::Nearest;
     };
 
     //! How many times a glTF model was reloaded in place (a resource of the World): an Animator3D made
