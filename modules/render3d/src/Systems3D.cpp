@@ -174,6 +174,7 @@ bool kuge::UpdateCamera::handle(kw::World& world)
 
     camera.yaw = rig.yaw + rig.punchYaw;       // (the view; the rig keeps the aim)
     camera.pitch = rig.pitch + rig.punchPitch;
+    camera.roll = rig.roll;
     const k3::Math::Vector3f point = at + rig.offset;
 
     if (rig.mode == CameraRig::Mode::Orbit) {
