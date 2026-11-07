@@ -68,6 +68,12 @@ namespace
         return label.font ? scaledFont(label.font, scale) : theme.font.get();
     }
 
+    // The width a label wraps at, in pixels of the screen: its node's if it is Overflow::Wrap, else wrapWidth
+    int wrapOf(const UiLabel& label, const UiNode& node, float scale)
+    {
+        return static_cast<int>((label.overflow == Overflow::Wrap && node.size.x > 0.0f ? node.size.x : static_cast<float>(label.wrapWidth)) * scale);
+    }
+
     const IFont* fieldFont(const UiTextField& field, const UiTheme& theme, float scale)
     {
         return field.font ? scaledFont(field.font, scale) : theme.font.get();
@@ -227,7 +233,7 @@ namespace
                 if (m_world.has<UiLabel>(entity)) {
                     const UiLabel& label = m_world.get<UiLabel>(entity);
 
-                    return measureText(fontOf(label, m_theme, m_scale), label.text, static_cast<int>(static_cast<float>(label.wrapWidth) * m_scale));
+                    return measureText(fontOf(label, m_theme, m_scale), label.text, wrapOf(label, m_world.get<UiNode>(entity), m_scale));
                 }
                 return {};
             }
@@ -257,8 +263,20 @@ namespace
             void place(kw::Entity entity, const Rect& rect, int layer, int depth, const std::optional<Rect>& clip)
             {
                 m_result.rects[entity] = rect;
-                if (clip) {
-                    m_result.clips[entity] = *clip;
+                std::optional<Rect> seen = clip;   // where it is drawn: cut by what is above it, and by itself if it is a label that overflows
+
+                if (m_world.has<UiLabel>(entity)) {
+                    const UiLabel& label = m_world.get<UiLabel>(entity);
+                    const IFont* font = fontOf(label, m_theme, m_scale);
+
+                    if ((label.overflow == Overflow::Clip || label.overflow == Overflow::Ellipsis || label.overflow == Overflow::Scroll)
+                        && font && font->measure(label.text).x > rect.w + 0.5f) {
+                        m_result.truncated.insert(entity);
+                        seen = clip ? intersection(*clip, rect) : rect;
+                    }
+                }
+                if (seen) {
+                    m_result.clips[entity] = *seen;
                 }
                 if (!clip || rect.intersects(*clip)) {
                     m_order.push_back({entity, layer, depth});
@@ -373,6 +391,49 @@ namespace
             ++at;
         } while (at < text.size() && !startsCharacter(text[at]));
         return at;
+    }
+
+    // The longest start of `text` that fits in `room` pixels with "..." after it (all of it if it fits). It stops at the start of a
+    // character, not in the middle of one.
+    std::string ellipsized(const IFont& font, const std::string& text, float room)
+    {
+        if (font.measure(text).x <= room) {
+            return text;
+        }
+        std::size_t lo = 0;
+        std::size_t hi = text.size();
+
+        while (lo < hi) {
+            std::size_t mid = lo + (hi - lo + 1) / 2;
+
+            while (mid > lo && !startsCharacter(text[mid])) {
+                --mid;
+            }
+            if (mid == lo) {
+                break;
+            }
+            if (font.measure(text.substr(0, mid) + "...").x <= room) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        return text.substr(0, lo) + "...";
+    }
+
+    // How far a text that is `over` pixels too long has gone by after `seconds`: it waits, goes, waits, and begins again
+    float scrolled(const UiLabel& label, float over, float scale, double seconds)
+    {
+        const float speed = label.scrollSpeed * scale;
+        const double pause = std::max(label.scrollPause, 0.0f);
+
+        if (!(speed > 0.0f) || !(over > 0.0f)) {
+            return 0.0f;
+        }
+        const double run = static_cast<double>(over / speed);
+        const double at = std::fmod(seconds, 2.0 * pause + run);
+
+        return at < pause ? 0.0f : static_cast<float>(std::min(at - pause, run) * static_cast<double>(speed));
     }
 
     std::size_t charactersIn(const std::string& text)
@@ -673,6 +734,7 @@ bool kuge::UiLayout::handle(kw::World& world)
     result.rects.clear();
     result.clips.clear();
     result.drawOrder.clear();
+    result.truncated.clear();
     m_nodes.clear();
     auto view = world.view<UiNode>();
     for (kw::Entity entity : view) {
@@ -1157,18 +1219,25 @@ bool kuge::UiRender::handle(kw::World& world)
         if (world.has<UiLabel>(entity)) {
             const UiLabel& label = world.get<UiLabel>(entity);
             const IFont* font = fontOf(label, theme, scale);
-            const int wrap = static_cast<int>(static_cast<float>(label.wrapWidth) * scale);
+            const int wrap = wrapOf(label, world.get<UiNode>(entity), scale);
 
             if (font && !label.text.empty()) {
-                const Vec2 size = font->measure(label.text, wrap);
+                const std::string shown = label.overflow == Overflow::Ellipsis ? ellipsized(*font, label.text, rect.w) : label.text;
+                const Vec2 size = font->measure(shown, wrap);
                 float x = rect.x;
 
-                if (label.align == TextAlign::Center) {
+                if (label.overflow != Overflow::None && size.x > rect.w) {
+                    if (label.overflow == Overflow::Scroll) {
+                        const Time& time = world.getResource<Time>();
+
+                        x -= scrolled(label, size.x - rect.w, scale, (static_cast<double>(time.tick) + time.alpha) * time.dt);
+                    }
+                } else if (label.align == TextAlign::Center) {
                     x += (rect.w - size.x) / 2.0f;
                 } else if (label.align == TextAlign::Right) {
                     x += rect.w - size.x;
                 }
-                text.draw(*font, label.text, {std::round(x), std::round(rect.y)}, label.color, wrap);
+                text.draw(*font, shown, {std::round(x), std::round(rect.y)}, label.color, wrap);
             }
         }
     }

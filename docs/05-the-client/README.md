@@ -229,6 +229,12 @@ left / right, or the mouse; `Changed` when it moves). A long list is a node with
 rectangle (inside the border of its `UiPanel`) without a scroll: a text too long for its card, a name in a list. A cut part is not drawn
 and cannot be pressed. Off by default: a child can come out of its parent on purpose.
 
+**A text that is too long.** `UiLabel::overflow` says what a label does with a text longer than its node (a node with a width: with none it is
+as wide as the text): `None` (it comes out), `Clip` (cut at the edge), `Ellipsis` (cut at a letter that fits, then "..."), `Scroll` (it goes by in
+its node: a pause, the way, a pause, again; `scrollSpeed`, `scrollPause`), `Wrap` (wrapped at the width of the node). `UiLayoutResult::truncated`
+lists the labels that were cut. `TextRenderer::measure(font, text, wrapWidth)` gives the size and the number of lines of a text without drawing
+it, so a game (or a test) can check that a text fits.
+
 **A panel over buttons.** A node of a higher `layer` is drawn over the buttons under it, but it only takes their clicks if it has
 `UiNode::blocksInput = true` (off by default, so that a label over a button does not eat the click): a click inside it presses
 nothing under it, the keys do not land on a button that it covers entirely, and `UiEvent::Kind::Blocked` (entity: the panel) says

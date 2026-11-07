@@ -1,6 +1,8 @@
 extern "C" {
     #include "kronklab/kronklab.h"
 }
+#include "backend/dummy/DummyFont.hpp"
+#include "ui/TextRenderer.hpp"
 #include "ui_fixture.hpp"
 #include <vector>
 
@@ -849,4 +851,118 @@ Test(uiclip, what_is_cut_is_not_pressed)
     ui.mouseTo({70.0f, 10.0f});
     ui.mouseDown({70.0f, 10.0f});
     AssertEq(ui.count(Kind::Activated, half), 1, "the part that is in can");
+}
+
+// -- UiLabel::overflow: a text that is longer than its node (a letter is 8 pixels wide, a line 12 high) ----------------
+namespace
+{
+    constexpr const char* LONG_TEXT = "abcdefghijklmnopqrst";   // 20 letters: 160 pixels
+
+    kw::Entity overflowLabel(kw::World& w, const char* text, kuge::Overflow overflow, float width = 100.0f)
+    {
+        const kw::Entity entity = uiNode(w, {.size = {width, 0.0f}});
+
+        w.add<kuge::UiLabel>(entity, kuge::UiLabel{.text = text, .overflow = overflow});
+        return entity;
+    }
+
+    // The draw of the text (the only texture in the frame)
+    const Call* textDraw(const std::vector<Call>& calls)
+    {
+        const auto found = std::find_if(calls.begin(), calls.end(), [](const Call& c) { return c.kind == Call::Kind::Texture; });
+
+        return found == calls.end() ? nullptr : &*found;
+    }
+}
+
+Test(uioverflow, none_comes_out)
+{
+    kw::Entity label = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { label = overflowLabel(w, LONG_TEXT, kuge::Overflow::None); });
+    const Call* draw = textDraw(ui.tick());
+
+    Assert(draw != nullptr && draw->destination.w == 160.0f, "all of the text is drawn");
+    Assert(!draw->clip.has_value(), "and not cut");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.size(), 0, "nothing is said to be cut");
+}
+
+Test(uioverflow, clip_cuts_at_the_node)
+{
+    kw::Entity label = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { label = overflowLabel(w, LONG_TEXT, kuge::Overflow::Clip); });
+    const Call* draw = textDraw(ui.tick());
+
+    Assert(draw != nullptr && draw->clip.has_value() && *draw->clip == ui.rectOf(label), "cut to the rectangle of the node");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.count(label), 1, "and it is said to be cut");
+}
+
+Test(uioverflow, a_text_that_fits_is_left_alone)
+{
+    kw::Entity label = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { label = overflowLabel(w, "short", kuge::Overflow::Ellipsis); });
+    const Call* draw = textDraw(ui.tick());
+
+    Assert(draw != nullptr && draw->destination.w == 40.0f, "the text as it is, with no dots");
+    Assert(!draw->clip.has_value(), "not cut");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.size(), 0, "and not said to be");
+}
+
+Test(uioverflow, ellipsis_ends_in_dots)
+{
+    kw::Entity label = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { label = overflowLabel(w, LONG_TEXT, kuge::Overflow::Ellipsis); });
+    const Call* draw = textDraw(ui.tick());
+
+    // 100 pixels: "..." is 24, so 9 letters, and 12 characters in all are 96
+    Assert(draw != nullptr && draw->destination.w == 96.0f, "nine letters and three dots, got %f", draw ? draw->destination.w : -1.0f);
+    Assert(draw->destination.w <= ui.rectOf(label).w, "it fits its node");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.count(label), 1, "and it is said to be cut");
+}
+
+Test(uioverflow, scroll_goes_and_returns)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) { overflowLabel(w, LONG_TEXT, kuge::Overflow::Scroll); });
+    // 60 pixels too long at 40 pixels a second: a pause of 1 s, 1.5 s on the way, a pause of 1 s, and again
+    const auto xAfter = [&](int frames) {
+        const Call* draw = nullptr;
+
+        for (int i = 0; i < frames; ++i) {
+            draw = textDraw(ui.tick());
+        }
+        Assert(draw != nullptr, "the text is drawn");
+        return draw->destination.x;
+    };
+
+    Assert(std::fabs(xAfter(30)) <= 1.0f, "it waits at the start");                   // 0.5 s
+    Assert(std::fabs(xAfter(75) + 30.0f) <= 3.0f, "then it goes: 30 pixels in");     // 1.75 s
+    Assert(std::fabs(xAfter(60) + 60.0f) <= 1.0f, "it waits at the end");            // 2.75 s
+    Assert(std::fabs(xAfter(45)) <= 3.0f, "and it begins again");                    // 3.5 s: the cycle is 3.5 s
+}
+
+Test(uioverflow, wrap_uses_the_node_width)
+{
+    kw::Entity wrapped = 0, fixed = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        wrapped = overflowLabel(w, "aaaaa bbbbb ccccc", kuge::Overflow::Wrap, 40.0f);
+        fixed = uiNode(w, {.offset = {0.0f, 200.0f}});
+        w.add<kuge::UiLabel>(fixed, kuge::UiLabel{.text = "aaaaa bbbbb ccccc", .wrapWidth = 40});
+    });
+
+    ui.tick();
+    AssertEq(ui.rectOf(wrapped).h, 36.0f, "three lines of 12");
+    AssertEq(ui.rectOf(wrapped).h, ui.rectOf(fixed).h, "as many as wrapWidth would make");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.size(), 0, "a wrapped text is not cut");
+}
+
+Test(uioverflow, measure_says_lines)
+{
+    kuge::DummyFont font;
+    const auto one = kuge::TextRenderer::measure(font, "aaaaa");
+    const auto three = kuge::TextRenderer::measure(font, "aaaaa bbbbb ccccc", 40);
+
+    AssertEq(one.lines, 1, "one line");
+    AssertEq(one.size.x, 40.0f, "five letters");
+    AssertEq(three.lines, 3, "wrapped in three");
+    AssertEq(three.size.y, 36.0f, "of 12");
+    AssertEq(kuge::TextRenderer::measure(font, "").lines, 0, "an empty text has none");
 }

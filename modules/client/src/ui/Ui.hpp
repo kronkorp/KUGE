@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -150,6 +151,15 @@ namespace kuge
         bool  vertical = false;          //!< Fills from the bottom instead of from the left
     };
 
+    //! What a UiLabel does with a text that is longer than its node (a node with a width: with none, it is as wide as the text)
+    enum class Overflow : std::uint8_t {
+        None,       //!< The text comes out of its node
+        Clip,       //!< It is cut at the edge of the node
+        Ellipsis,   //!< It is cut at a letter that fits, and "..." is added
+        Scroll,     //!< It goes by in its node: wait, go, wait, begin again (`scrollSpeed`, `scrollPause`), as the title of a song on a radio
+        Wrap,       //!< It is wrapped at the width of its node (`wrapWidth` is not used), so the node needs a width
+    };
+
     struct UiLabel
     {
         std::string                text;
@@ -157,6 +167,9 @@ namespace kuge
         Color                      color{240, 240, 245, 255};
         int                        wrapWidth = 0;    //!< 0: no limit
         TextAlign                  align = TextAlign::Left;
+        Overflow                   overflow = Overflow::None;
+        float                      scrollSpeed = 40.0f;   //!< Overflow::Scroll: pixels per second (zero or less: it does not move)
+        float                      scrollPause = 1.0f;    //!< Overflow::Scroll: seconds at each end
     };
 
     struct UiButton
@@ -320,6 +333,7 @@ namespace kuge
         std::map<kw::Entity, Rect> rects;     //!< Only the nodes that show
         std::map<kw::Entity, Rect> clips;     //!< Inside a UiScroll or a UiNode::clip: where it can be seen (drawOrder has only what is in it)
         std::vector<kw::Entity>    drawOrder; //!< Back to front
+        std::set<kw::Entity>       truncated; //!< The labels (Overflow::Clip, Ellipsis or Scroll) whose text is longer than their node
     };
 
     //! Adds the interface to a scene: its resources, and the systems that lay it

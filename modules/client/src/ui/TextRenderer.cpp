@@ -1,5 +1,6 @@
 #include "ui/TextRenderer.hpp"
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 void kuge::TextRenderer::draw(const IFont& font, std::string_view text, Vec2 position, Color color, int wrapWidth)
@@ -27,6 +28,16 @@ void kuge::TextRenderer::draw(const IFont& font, std::string_view text, Vec2 pos
         static_cast<float>(found->second.texture->height())};
     draw.tint = color;
     m_renderer.drawTexture(draw);
+}
+
+kuge::TextSize kuge::TextRenderer::measure(const IFont& font, std::string_view text, int wrapWidth)
+{
+    if (text.empty()) {
+        return {};
+    }
+    const Vec2 size = font.measure(text, wrapWidth);
+
+    return {size, std::max(1, static_cast<int>(std::lround(size.y / static_cast<float>(std::max(font.lineHeight(), 1)))))};
 }
 
 void kuge::TextRenderer::beginFrame(void)
