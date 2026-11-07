@@ -248,6 +248,8 @@ Test(engine, sigint_ends_run)
 }
 
 // Two engines in one process (a server and a client in the same program), each in its own thread
+#endif
+
 namespace
 {
     using Clock = std::chrono::steady_clock;
@@ -288,6 +290,7 @@ namespace
     }
 }
 
+#ifndef _WIN32   // (it reads the handlers with sigaction)
 // The one that ends first must not take the handlers of the other: whatever the order,
 // when both are over the process has the handlers it had before
 Test(engine, two_engines_restore_handlers)
