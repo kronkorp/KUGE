@@ -231,6 +231,14 @@ namespace kuge::server
         m_endpoint->send(member.connection, assigned);
     }
 
+    // How long a room of this type keeps the place of a player whose connection is lost
+    static double keepsPlaceFor(const ServerState& state, const std::string& roomType)
+    {
+        const auto kind = state.roomTypes.find(roomType);
+
+        return kind == state.roomTypes.end() ? 0.0 : kind->second.config.reconnectSeconds;
+    }
+
     void LobbyScene::request(net::ConnectionId from, Want want)
     {
         want.since = m_state->config.now();
@@ -248,6 +256,15 @@ namespace kuge::server
             const auto other = m_members.find(*who);
 
             if (other != m_members.end() && other->second.connection != from) {
+                const auto room = m_rooms.find(other->second.roomId);
+
+                // A player whose connection was lost, and whose room keeps the place, is put back in it: a client that was closed
+                // and opened again (the token proves the account, as the rejoin key does)
+                if (other->second.away && room != m_rooms.end() && !room->second.closing && room->second.ready
+                    && keepsPlaceFor(*m_state, room->second.type) > 0.0 && !m_byConnection.contains(from)) {
+                    putBack(from, other->second, room->second);
+                    return;
+                }
                 refuse(from, net::JoinError::AlreadyJoined);   // an account is in one room at a time (it comes back with RejoinRoom)
                 return;
             }
@@ -465,14 +482,6 @@ namespace kuge::server
         }
     }
 
-    // How long a room of this type keeps the place of a player whose connection is lost
-    static double keepsPlaceFor(const ServerState& state, const std::string& roomType)
-    {
-        const auto kind = state.roomTypes.find(roomType);
-
-        return kind == state.roomTypes.end() ? 0.0 : kind->second.config.reconnectSeconds;
-    }
-
     void LobbyScene::handleGone(net::ConnectionId from, net::DisconnectReason reason)
     {
         const auto found = m_byConnection.find(from);
@@ -518,10 +527,15 @@ namespace kuge::server
             refuse(from, net::JoinError::AlreadyJoined);
             return;
         }
-        Member& member = found->second;
+        putBack(from, found->second, room->second);
+    }
+
+    // The player's place is given to a new connection: the room is told to expect it again, the client is told where to go
+    void LobbyScene::putBack(net::ConnectionId from, Member& member, Room& room)
+    {
         const auto old = m_byConnection.find(member.connection);
 
-        if (old != m_byConnection.end() && old->second == rejoin.playerId) {
+        if (old != m_byConnection.end() && old->second == member.playerId) {
             m_byConnection.erase(old);
         }
         member.connection = from;
@@ -529,9 +543,9 @@ namespace kuge::server
         member.joined = false;   // until the room welcomes it again
         member.token = newToken();
         member.issuedAt = m_state->config.now();
-        m_byConnection[from] = rejoin.playerId;
-        room->second.handle.send(detail::ExpectPlayer{member.playerId, member.name, member.token, true});
-        assign(member, room->second);
+        m_byConnection[from] = member.playerId;
+        room.handle.send(detail::ExpectPlayer{member.playerId, member.name, member.token, true});
+        assign(member, room);
         refreshStats();
     }
 

@@ -87,7 +87,8 @@ namespace kuge::server
         //! empty if none) and the address it comes from (without the port), on the lobby's thread, so it must be quick (a check of a signature
         //! or a table; ask a backend ahead of time, not here). It answers the id of the player (not 0), which is Player::playerId in the room,
         //! or nothing: the player is refused with JoinError::Unauthenticated. The same id twice at once is refused as AlreadyJoined, so an
-        //! account is in one room at a time. Empty (the default): nobody is checked, and the lobby gives its own ids.
+        //! account is in one room at a time, unless its connection was lost and the room keeps its place (RoomTypeConfig::reconnectSeconds):
+        //! a new request of that account (a client that was closed and opened again) puts it back in that place. Empty (the default): nobody is checked, and the lobby gives its own ids.
         std::function<std::optional<std::uint32_t>(const std::string& token, const std::string& address)> authenticate;
 
         //! Who plays with whom. Called by the lobby for a JoinRoom (not for CreateRoom or JoinNamedRoom, which are the client's choice) with the
