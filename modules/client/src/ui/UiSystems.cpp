@@ -737,6 +737,32 @@ bool kuge::UiInteract::handle(kw::World& world)
         all.push_back(entity);
     }
     sortNodes(world, all);   // (the order of Tab: the order they were made)
+    // The nodes that take the clicks of what is under them, where they are drawn (their rectangle, cut by their clip)
+    std::map<kw::Entity, std::size_t> drawnAt;
+    std::vector<std::pair<std::size_t, Rect>> blockers;
+
+    for (std::size_t i = 0; i < layout.drawOrder.size(); ++i) {
+        const kw::Entity entity = layout.drawOrder[i];
+        const auto clip = layout.clips.find(entity);
+
+        drawnAt[entity] = i;
+        if (world.has<UiNode>(entity) && world.get<UiNode>(entity).blocksInput) {   // (the layout is of the last frame: it may be gone)
+            blockers.emplace_back(i, clip == layout.clips.end() ? layout.rects.at(entity) : intersection(layout.rects.at(entity), clip->second));
+        }
+    }
+    // A button that a blocking node covers entirely has no focus: the keys cannot land on what is covered. (One that
+    // is covered in part has, and the mouse presses it where it is not covered.)
+    const auto covered = [&](kw::Entity entity) {
+        const auto at = drawnAt.find(entity);
+
+        return at != drawnAt.end() && std::any_of(blockers.begin(), blockers.end(), [&](const auto& blocker) {
+            const Rect& rect = layout.rects.at(entity);
+
+            const Rect& over = blocker.second;
+
+            return blocker.first > at->second && over.x <= rect.x && over.y <= rect.y && over.right() >= rect.right() && over.bottom() >= rect.bottom();
+        });
+    };
     for (kw::Entity entity : all) {
         bool enabled = false;
 
@@ -762,7 +788,7 @@ bool kuge::UiInteract::handle(kw::World& world)
             field.hovered = field.focused = false;
             enabled = field.enabled;
         }
-        if (enabled && layout.rects.count(entity)) {
+        if (enabled && layout.rects.count(entity) && !covered(entity)) {
             usable.push_back(entity);
         }
     }
@@ -776,8 +802,26 @@ bool kuge::UiInteract::handle(kw::World& world)
         }
     };
 
+    // The button under the mouse: the one drawn last (on top) among those under it
+    std::optional<kw::Entity> hovered;
+    std::optional<kw::Entity> blocked;   // the node with blocksInput that the mouse is on, and that is drawn over what is under it
+    for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend() && !hovered && !blocked; ++it) {
+        const auto clip = layout.clips.find(*it);   // (what a scroll cuts cannot be pointed at)
+
+        if (!layout.rects.at(*it).contains(mouse) || (clip != layout.clips.end() && !clip->second.contains(mouse))) {
+            continue;
+        }
+        if (std::find(usable.begin(), usable.end(), *it) != usable.end()) {
+            hovered = *it;
+        } else if (world.has<UiNode>(*it) && world.get<UiNode>(*it).blocksInput) {
+            blocked = *it;   // (what is under it is not looked at)
+        }
+    }
     if (usable.empty()) {
         state.hasFocus = false;
+        if (blocked && pressed(input, actions.click)) {
+            events.push_back({UiEvent::Kind::Blocked, *blocked, true});
+        }
         if (cancelled) {
             events.push_back({UiEvent::Kind::Cancelled, 0, false});
         }
@@ -791,16 +835,6 @@ bool kuge::UiInteract::handle(kw::World& world)
     const bool sliding = state.hasFocus && world.has<UiSlider>(state.focus);
     const kw::Entity slid = state.focus;
     const bool dragging = std::any_of(all.begin(), all.end(), [&](kw::Entity e) { return world.has<UiSlider>(e) && world.get<UiSlider>(e).dragging; });
-    // The button under the mouse: the one drawn last (on top) among those under it
-    std::optional<kw::Entity> hovered;
-    for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend() && !hovered; ++it) {
-        const auto clip = layout.clips.find(*it);   // (what a scroll cuts cannot be pointed at)
-
-        if (std::find(usable.begin(), usable.end(), *it) != usable.end() && layout.rects.at(*it).contains(mouse)
-            && (clip == layout.clips.end() || clip->second.contains(mouse))) {
-            hovered = *it;
-        }
-    }
     const bool moved = mouse.x != state.lastMouse.x || mouse.y != state.lastMouse.y;
 
     state.lastMouse = mouse;
@@ -869,6 +903,9 @@ bool kuge::UiInteract::handle(kw::World& world)
         }
     };
 
+    if (pressed(input, actions.click) && blocked) {
+        events.push_back({UiEvent::Kind::Blocked, *blocked, true});
+    }
     if (pressed(input, actions.click) && hovered) {
         focusOn(*hovered);
         if (world.has<UiTextField>(*hovered)) {

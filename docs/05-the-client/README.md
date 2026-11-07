@@ -227,6 +227,11 @@ left / right, or the mouse; `Changed` when it moves). A long list is a node with
 (`IRenderer2D::setClip`). The wheel is also an input: `Binding::wheel(1)` is "Wheel.Up".
 `UiImage` puts a texture (an icon, a portrait) in the rectangle of a node.
 
+**A panel over buttons.** A node of a higher `layer` is drawn over the buttons under it, but it only takes their clicks if it has
+`UiNode::blocksInput = true` (off by default, so that a label over a button does not eat the click): a click inside it presses
+nothing under it, the keys do not land on a button that it covers entirely, and `UiEvent::Kind::Blocked` (entity: the panel) says
+that it took the click, so that a game can close the panel on a "click outside".
+
 **Order, and removing.** A `UiStack` lays its children out (and Tab and the drawing go) in the order the `UiNode`s were *made* (`UiNode::sequence`,
 a number that only goes up), not in the order of their entities: the world gives entity numbers back in the order they were freed, so a list
 rebuilt after removals would come out in any order. Nodes copied from one template share a sequence and fall back to the entity order. `world.remove(e)` removes

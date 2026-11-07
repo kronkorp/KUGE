@@ -81,6 +81,11 @@ namespace kuge
         Vec2       size{};                //!< 0: as big as what it holds (text, children)
         bool       visible   = true;      //!< With everything inside it
         int        layer     = 0;         //!< Higher is drawn over
+        //! A panel that covers buttons takes their clicks: a click inside it presses nothing that is drawn under it, the
+        //! keyboard focus does not go to a button whose center it covers, and the click is a UiEvent::Kind::Blocked of
+        //! the panel (so that a game can close it: "click outside"). Off by default, so that a label over a button does
+        //! not eat the click.
+        bool       blocksInput = false;
         //! When the node was made (a number that only goes up), not its entity: the world gives numbers back in the order they
         //! were freed, so a list rebuilt after removals has its entities in any order. A stack lays its children out, and Tab
         //! and the drawing go, in this order (then by entity, for nodes copied from one template).
@@ -283,6 +288,7 @@ namespace kuge
             Cancelled,   //!< "back" was asked (entity: what had the focus, if anything)
             Changed,     //!< What is in a text field changed, or a check box was flipped or a slider moved (at most once a tick: read it in the component)
             Submitted,   //!< Enter was pressed in a text field
+            Blocked,     //!< A click landed on a node with UiNode::blocksInput that nothing usable was on top of (entity: that node)
         };
 
         Kind       kind;
