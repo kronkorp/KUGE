@@ -105,6 +105,19 @@ Test(camera, the_punch_moves_the_view_only)
     Assert(near(camera(fx).pitch, 0.3f), "a frame later it is not added again");
 }
 
+Test(camera, the_view_can_lean)
+{
+    Fixture fx;
+    kuge::CameraRig rig;
+
+    rig.roll = 0.25f;
+    rig.look = false;
+    spawn(fx, 0.0f, 0.0f, 0.0f, rig);
+    fx.engine.step(0.0);
+    Assert(near(camera(fx).roll, 0.25f), "the camera leans: %f", camera(fx).roll);
+    Assert(near(camera(fx).yaw, 0.0f) && near(camera(fx).pitch, 0.0f), "and keeps its aim");
+}
+
 Test(camera, the_punch_goes_past_the_limit)
 {
     Fixture fx;
