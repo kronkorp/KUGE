@@ -94,6 +94,14 @@ namespace kuge
             //! too: the Animator3D that play it start again (see ModelRevision).
             AssetManager<k3::AnimatedModel>& animatedModels(void) noexcept { return m_animatedModels; }
 
+            //! A modular character: the first file is the body, the other `parts` (a hairstyle, the pieces of an outfit: glTF files that carry
+            //! their own copy of the skeleton) are put on its skeleton by the names of the joints (k3::attach), and the clips of the
+            //! `libraries` are taken (k3::adoptClips). Made once and kept by the files that make it, so all the characters that wear the
+            //! same pieces share one model (Animator3D::hide hides a part for one of them). Not reloaded when a file changes.
+            //! @throw ModelError for a file that cannot be loaded, or no file
+            std::shared_ptr<const k3::AnimatedModel> assemble(const std::vector<std::filesystem::path>& parts,
+                const std::vector<std::filesystem::path>& libraries = {});
+
             //! Reloads, in place, the models whose file changed since they were loaded, and logs
             //! the ones that could not be (they keep their old content). Done by itself each
             //! `watchAssets` seconds if the config asks.
@@ -113,6 +121,7 @@ namespace kuge
             std::unique_ptr<k3::IRasterizer> m_rasterizer;
             AssetManager<k3::Model>          m_models;
             AssetManager<k3::AnimatedModel>  m_animatedModels;
+            std::map<std::string, std::shared_ptr<const k3::AnimatedModel>> m_assemblies;   //!< By the files that make them
             ModelRevision                    m_revision;
             std::chrono::steady_clock::time_point m_lastWatch = std::chrono::steady_clock::now();
     };
