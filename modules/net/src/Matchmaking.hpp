@@ -309,6 +309,11 @@ namespace kuge::net
             //! Is there a room that this player was in and can come back to?
             bool canRejoin(void) const noexcept { return m_rejoin.has_value(); }
 
+            //! The room to come back to, to keep in a file while in a room: a client that is closed and opened again gives it back with
+            //! setRejoinTicket() and calls rejoin(). Without a ticket (or with an authenticate() on the server) a new request to join does it too.
+            std::optional<RejoinRoom> rejoinTicket(void) const { return m_rejoin; }
+            void setRejoinTicket(const RejoinRoom& ticket) { m_rejoin = ticket; }
+
             //! Leaves the room (or the wait for one). The lobby is kept.
             void leave(void);
 

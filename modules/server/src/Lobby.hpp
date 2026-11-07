@@ -82,6 +82,7 @@ namespace kuge::server
             void handleLeave(net::ConnectionId from);
             void handleGone(net::ConnectionId from, net::DisconnectReason reason);
             void handleRejoin(net::ConnectionId from, const net::RejoinRoom& rejoin);
+            void putBack(net::ConnectionId from, Member& member, Room& room);
             Room* findRoom(const std::string& type);
             static bool joinable(const Room& room, const std::string& type);
             static net::RoomInfo infoOf(const Room& room);
