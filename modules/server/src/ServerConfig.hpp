@@ -6,7 +6,10 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace kuge::server
 {
@@ -27,6 +30,31 @@ namespace kuge::server
     enum class Transport : std::uint8_t {
         Sockets,    //!< The real network: a lobby on a well known port, rooms on ports of a range (UDP)
         Loopback,   //!< In the process, by name: for tests, or a game that hosts its own server
+    };
+
+    //! A player who asks for any room of a kind (JoinRoom), as ServerConfig::roomPicker sees it
+    struct JoinRequest
+    {
+        std::string   roomType;
+        std::string   playerName;
+        std::string   options;           //!< JoinRoom::options, as the client sent them
+        std::uint32_t playerId = 0;      //!< What ServerConfig::authenticate answered (0 if the server does not check)
+        std::string   address;           //!< Where the player comes from, without the port
+        double        waited = 0.0;      //!< Seconds since the request came (it grows while the picker says wait)
+    };
+
+    //! What ServerConfig::roomPicker decides for a JoinRequest
+    struct RoomChoice
+    {
+        enum class Kind : std::uint8_t { Join, Make, Wait };
+
+        Kind          kind = Kind::Wait;
+        std::uint32_t roomId = 0;        //!< Join: one of the rooms the picker was given
+        std::string   options;           //!< Make: the options of the new room (a validRoomOptions() text), in its RoomInfo
+
+        static RoomChoice join(std::uint32_t roomId) { return {Kind::Join, roomId, {}}; }
+        static RoomChoice make(std::string options = "") { return {Kind::Make, 0, std::move(options)}; }
+        static RoomChoice wait(void) { return {}; }
     };
 
     struct ServerConfig
@@ -54,6 +82,21 @@ namespace kuge::server
         double                  linger         = 0.3;                  //!< Then it waits this long for its last messages to leave
 
         std::uint64_t           mods           = 0;                    //!< Mods::fingerprint() of the server: a client whose mods are not these is refused (JoinError::Mods). 0: no mods.
+
+        //! Who a player is. Called by the lobby for every request to join a room, with the token the client gave (MatchmakingClient::setToken(),
+        //! empty if none) and the address it comes from (without the port), on the lobby's thread, so it must be quick (a check of a signature
+        //! or a table; ask a backend ahead of time, not here). It answers the id of the player (not 0), which is Player::playerId in the room,
+        //! or nothing: the player is refused with JoinError::Unauthenticated. The same id twice at once is refused as AlreadyJoined, so an
+        //! account is in one room at a time. Empty (the default): nobody is checked, and the lobby gives its own ids.
+        std::function<std::optional<std::uint32_t>(const std::string& token, const std::string& address)> authenticate;
+
+        //! Who plays with whom. Called by the lobby for a JoinRoom (not for CreateRoom or JoinNamedRoom, which are the client's choice) with the
+        //! request and the rooms of that kind that have a place (public, open, not ending), on the lobby's thread, so it must be quick. It answers
+        //! a room to join, to make one (the lobby refuses if `maxRooms` are running), or to wait: the player stays in the queue and the picker
+        //! is asked again at each tick, with a larger `waited`, until it answers something else or the player calls leave(). An answer that is not
+        //! one of the rooms it was given is refused (UnknownRoom). Nothing (std::nullopt) means the usual rule: the fullest room that has a place,
+        //! or a new one. Empty (the default): always the usual rule.
+        std::function<std::optional<RoomChoice>(const JoinRequest&, const std::vector<net::RoomInfo>&)> roomPicker;
 
         double                  statsEvery     = 5.0;                  //!< A room logs its network numbers this often (INFO, category "server"; 0: never)
 
@@ -89,6 +132,7 @@ namespace kuge::server
         std::atomic<std::size_t>  roomsMade{0};
         std::atomic<std::size_t>  joins{0};
         std::atomic<std::size_t>  refused{0};
+        std::atomic<std::size_t>  authRefused{0};    //!< Requests that ServerConfig::authenticate turned down (also counted in `refused`)
     };
 
     // -- What lobby and rooms say to each other (scene messages: no network) ----------------------

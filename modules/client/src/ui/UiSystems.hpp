@@ -13,7 +13,8 @@ namespace kuge
             bool handle(kw::World& world) override;
 
         private:
-            std::vector<kw::Entity> m_nodes;   //!< Kept between frames
+            std::vector<kw::Entity> m_nodes;     //!< Kept between frames
+            std::vector<kw::Entity> m_orphans;   //!< Sorted: the ones already warned about
     };
 
     //! Fixed, Input: focus, the mouse, and the buttons that are pressed

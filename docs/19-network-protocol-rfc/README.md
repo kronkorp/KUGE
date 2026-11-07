@@ -147,9 +147,9 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 
 | Message | Sens | Champs, dans l'ordre | Rôle |
 | --- | --- | --- | --- |
-| `JoinRoom` | C→L | roomType (chaîne), playerName (chaîne), protocol (u16), mods (u64) | demande une salle d'un type, que le lobby choisit |
-| `CreateRoom` | C→L | roomType, roomName, playerName (chaînes), isPrivate (bool), options (chaîne), protocol (u16), mods (u64) | crée une salle nommée, avec des options que KUGE ne lit pas, et y place le client |
-| `JoinNamedRoom` | C→L | roomId (u32), roomName, playerName (chaînes), protocol (u16), mods (u64) | entre dans la salle dont l'id et le nom correspondent |
+| `JoinRoom` | C→L | roomType (chaîne), playerName (chaîne), protocol (u16), mods (u64), token (chaîne), options (chaîne) | demande une salle d'un type, que le lobby choisit (ou le jeu, voir `ServerConfig::roomPicker`) |
+| `CreateRoom` | C→L | roomType, roomName, playerName (chaînes), isPrivate (bool), options (chaîne), protocol (u16), mods (u64), token (chaîne) | crée une salle nommée, avec des options que KUGE ne lit pas, et y place le client |
+| `JoinNamedRoom` | C→L | roomId (u32), roomName, playerName (chaînes), protocol (u16), mods (u64), token (chaîne) | entre dans la salle dont l'id et le nom correspondent |
 | `ListRooms` | C→L | roomType (chaîne, vide pour tous) | demande les salles publiques |
 | `RoomList` | L→C | total (u32), rooms (vecteur de `RoomInfo`) | réponse : 64 salles au plus, `total` les compte toutes |
 | `RoomInfo` | dans `RoomList` | roomId (u32), roomType, name (chaînes), players (u32), maxPlayers (u32), options (chaîne), open (bool) | décrit une salle publique ; `open` est faux quand la salle est fermée aux nouveaux venus |
@@ -180,11 +180,11 @@ Les messages du lobby et de la salle voyagent sur le canal fiable ; ceux de la r
 
 | Énumération | Valeurs |
 | --- | --- |
-| `JoinError` | 0 UnknownRoomType, 1 Full, 2 AlreadyJoined, 3 RoomFailed, 4 Protocol, 5 InvalidName, 6 UnknownRoom, 7 InvalidOptions, 8 Started, 9 Mods |
+| `JoinError` | 0 UnknownRoomType, 1 Full, 2 AlreadyJoined, 3 RoomFailed, 4 Protocol, 5 InvalidName, 6 UnknownRoom, 7 InvalidOptions, 8 Started, 9 Mods, 10 Unauthenticated |
 | `HelloError` | 0 UnknownToken, 1 Closing |
 | `RoomEnd` | 0 GameOver, 1 Idle, 2 ServerStopping, 3 Kicked, 4 Error, 5 Victory |
 
-Un nom de salle est valide s'il fait de 1 à 32 octets d'UTF-8 correct (RFC 3629), sans caractère de contrôle (U+0000 à U+001F, U+007F à U+009F) et sans espace ni tabulation à ses extrémités. Le lobby refuse les autres avec `JoinError::InvalidName`. `mods` est l'empreinte (`Mods::fingerprint()`, 0 : aucun mod) des mods du joueur ; si elle n'est pas celle du serveur (`ServerConfig::mods`), le lobby répond `JoinError::Mods`. Les `options` d'une salle font au plus 128 octets d'UTF-8 correct, sans caractère de contrôle ; le lobby refuse les autres avec `JoinError::InvalidOptions`.
+Un nom de salle est valide s'il fait de 1 à 32 octets d'UTF-8 correct (RFC 3629), sans caractère de contrôle (U+0000 à U+001F, U+007F à U+009F) et sans espace ni tabulation à ses extrémités. Le lobby refuse les autres avec `JoinError::InvalidName`. `mods` est l'empreinte (`Mods::fingerprint()`, 0 : aucun mod) des mods du joueur ; si elle n'est pas celle du serveur (`ServerConfig::mods`), le lobby répond `JoinError::Mods`. `token` (au plus 512 octets, `MAX_AUTH_TOKEN`) est ce que le jeu a donné au joueur pour prouver qui il est : si le serveur a une `ServerConfig::authenticate`, le lobby l'appelle avec le `token` et l'adresse de la connexion, et un joueur qu'elle ne reconnaît pas est refusé avec `JoinError::Unauthenticated` (sinon le `token` est ignoré). Le `token` passe en clair, comme le reste (section 10). Les `options` d'un `JoinRoom` sont ce que le joueur dit de la partie qu'il veut : même règle que celles de `CreateRoom` (`JoinError::InvalidOptions`), et seule `ServerConfig::roomPicker` les lit. Les `options` d'une salle font au plus 128 octets d'UTF-8 correct, sans caractère de contrôle ; le lobby refuse les autres avec `JoinError::InvalidOptions`.
 
 ## 6. Cycle de vie d'une connexion
 
@@ -353,7 +353,7 @@ Une donnée invalide est jetée et comptée dans les statistiques de l'endpoint 
 | Version | Où | Valeur | Contrôle |
 | --- | --- | --- | --- |
 | `protocol` | `Connect` (u16) | 2 | égalité exacte, sinon `Reject` |
-| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom`, `RejoinRoom` (u16) | 4 | égalité exacte, sinon `JoinRefused(Protocol)` |
+| `MATCHMAKING_VERSION` | `JoinRoom`, `CreateRoom`, `JoinNamedRoom`, `RejoinRoom` (u16) | 6 | égalité exacte, sinon `JoinRefused(Protocol)` |
 | `schema` | `SnapshotPacket` (u32) | hash du registre | égalité, sinon instantané ignoré |
 
 Les messages n'ont pas de version propre : ajouter, retirer ou réordonner un champ d'un `KUGE_MESSAGE` casse la lecture, et le message est jeté comme malformé. Un tel changement dans le lobby ou la salle MUST s'accompagner d'une hausse de `protocol`. Le `schema` change quand les noms, les modes ou l'ordre des composants changent ; il ne change pas quand le format d'octets d'un composant change, et ce cas n'est pas détecté.
@@ -363,7 +363,7 @@ Les messages n'ont pas de version propre : ajouter, retirer ou réordonner un ch
 Le protocole ne chiffre rien et n'authentifie aucun joueur : il convient à un réseau de confiance (LAN, tests, parties entre amis), et une exposition sur Internet demande une protection ajoutée par-dessus.
 
 - **Confidentialité et intégrité.** Tout circule en clair, token et nom du joueur compris. Seules les sommes de contrôle d'UDP et de TCP protègent contre une corruption accidentelle.
-- **Usurpation sur UDP.** Une connexion ne se fait pas sur une adresse qui n'a pas répondu au `Challenge` : un `Connect` d'une adresse usurpée ne laisse aucune connexion, et n'occupe aucune des `maxConnections` places (au plus `maxHalfOpen` entrées en attente, les plus anciennes abandonnées). Ensuite, chaque paquet `Data` et `Goodbye` porte une étiquette de 32 bits sous une clé de 128 bits formée du sel du client et du cookie : un attaquant qui n'a pas lu la poignée de main doit deviner l'étiquette (une chance sur 2^32 par paquet), pas seulement l'adresse et le numéro de séquence. **Ce qui n'est pas couvert** : un attaquant qui lit le trafic (le sel et le cookie passent en clair) peut calculer des étiquettes, injecter, ou rejouer un paquet (il n'y a pas de protection contre le rejeu autre que la numérotation du canal fiable). Les `Reject` et `Challenge` n'ont pas d'étiquette. Le chiffrement et l'authentification des joueurs viennent plus tard, avec une dépendance.
+- **Usurpation sur UDP.** Une connexion ne se fait pas sur une adresse qui n'a pas répondu au `Challenge` : un `Connect` d'une adresse usurpée ne laisse aucune connexion, et n'occupe aucune des `maxConnections` places (au plus `maxHalfOpen` entrées en attente, les plus anciennes abandonnées). Ensuite, chaque paquet `Data` et `Goodbye` porte une étiquette de 32 bits sous une clé de 128 bits formée du sel du client et du cookie : un attaquant qui n'a pas lu la poignée de main doit deviner l'étiquette (une chance sur 2^32 par paquet), pas seulement l'adresse et le numéro de séquence. **Ce qui n'est pas couvert** : un attaquant qui lit le trafic (le sel et le cookie passent en clair) peut calculer des étiquettes, injecter, ou rejouer un paquet (il n'y a pas de protection contre le rejeu autre que la numérotation du canal fiable). Les `Reject` et `Challenge` n'ont pas d'étiquette. Le chiffrement vient plus tard, avec une dépendance. **L'authentification des joueurs** est celle du jeu : KUGE porte un `token` dans les demandes de salle et appelle `ServerConfig::authenticate` avant de placer le joueur, mais ne dit pas ce qu'est un compte, et le `token` est lisible sur le réseau (un `token` à usage unique, donné par le serveur du jeu, limite ce qu'un attaquant qui le lit peut faire).
 - **Token.** Il a 64 bits tirés de `std::random_device`, sert une fois, vaut 10 s et n'ouvre qu'une salle. Il circule en clair dans `RoomAssigned` et `Hello` : qui l'observe peut l'utiliser avant le client.
 - **Retour dans une salle.** `rejoinKey` a 64 bits tirés de `std::random_device`, ne change pas tant que le joueur est dans la salle, et circule en clair dans `RoomAssigned` comme le token. Elle est la seule preuve qu'une nouvelle connexion est le joueur qui a perdu la sienne : qui l'observe peut prendre sa place. Une salle ne garde la place d'un joueur que `reconnectSeconds` (0 par défaut : aucune).
 - **Salle privée.** Elle n'est protégée que par son id, séquentiel à partir de 1, et par son nom, choisi par le créateur. Il ne faut pas les prendre pour un secret fort.

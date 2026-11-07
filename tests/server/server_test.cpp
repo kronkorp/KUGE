@@ -474,6 +474,14 @@ Test(server, over_the_real_network)
     ben.join();
     Assert(ana.until([&] { ben.poll(); return ana.inRoom() && ben.inRoom(); }), "joined over tcp (lobby) and udp (room)");
     AssertEq(ana.roomId, ben.roomId, "in the same room");
+    {
+        std::lock_guard lock(roomLog().mutex);
+
+        Assert(roomLog().addresses.size() >= 2, "the room knows two players");
+        for (const std::string& address : roomLog().addresses) {
+            AssertStrEq(address.c_str(), "127.0.0.1", "their address, without the port");
+        }
+    }
     ana.matchmaking.room()->send(net::CLIENT_CONNECTION, Echo{"over the wire"});
     Assert(ana.until([&] { return ana.echoes.size() == 1; }), "the game talks");
     AssertStrEq(ana.echoes[0].c_str(), "Ana: over the wire", "");

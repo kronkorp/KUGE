@@ -3,6 +3,7 @@
 #include "Stage.hpp"
 #include "Time.hpp"
 #include "backend/IRenderer2D.hpp"
+#include "Logger.hpp"
 #include "backend/IWindow.hpp"
 #include "input/ActionState.hpp"
 #include "input/InputMap.hpp"
@@ -10,10 +11,12 @@
 #include "ui/TextRenderer.hpp"
 #include "ui/Ui.hpp"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <functional>
 #include <iterator>
 #include <optional>
+#include <set>
 #include <string>
 
 namespace
@@ -29,6 +32,17 @@ namespace
         const float top = std::max(a.y, b.y);
 
         return {left, top, std::max(std::min(a.right(), b.right()) - left, 0.0f), std::max(std::min(a.bottom(), b.bottom()) - top, 0.0f)};
+    }
+
+    // The order of the nodes: their creation, not their entity (see UiNode::sequence)
+    void sortNodes(kw::World& world, std::vector<kw::Entity>& nodes)
+    {
+        std::sort(nodes.begin(), nodes.end(), [&world](kw::Entity a, kw::Entity b) {
+            const std::uint64_t sa = world.get<UiNode>(a).sequence;
+            const std::uint64_t sb = world.get<UiNode>(b).sequence;
+
+            return sa != sb ? sa < sb : a < b;
+        });
     }
 
     Rect rectAt(Vec2 position, Vec2 size) { return {position.x, position.y, size.x, size.y}; }
@@ -90,21 +104,26 @@ namespace
 
             void build(const std::vector<kw::Entity>& nodes)
             {
-                std::map<kw::Entity, bool> exists;
+                std::set<kw::Entity> exists(nodes.begin(), nodes.end());
 
-                for (kw::Entity entity : nodes) {
-                    exists[entity] = true;
-                }
-                for (kw::Entity entity : nodes) {
+                for (std::size_t rank = 0; rank < nodes.size(); ++rank) {
+                    const kw::Entity entity = nodes[rank];
                     const UiNode& node = m_world.get<UiNode>(entity);
 
+                    m_rank[entity] = rank;
                     if (node.hasParent && node.parent != entity && exists.count(node.parent)) {
                         m_children[node.parent].push_back(entity);
                     } else {
+                        if (node.hasParent) {
+                            m_orphans.push_back(entity);
+                        }
                         m_roots.push_back(entity);
                     }
                 }
             }
+
+            //! The nodes that have a parent which is gone (or is themselves): they are drawn as roots
+            const std::vector<kw::Entity>& orphans(void) const { return m_orphans; }
 
             void run(const Rect& screen)
             {
@@ -118,10 +137,10 @@ namespace
 
                     place(root, rectAt(anchoredPosition(node.anchor, screen, size) + node.offset * m_scale, size), node.layer, 0, std::nullopt);
                 }
-                std::stable_sort(m_order.begin(), m_order.end(), [](const Drawn& a, const Drawn& b) {
+                std::stable_sort(m_order.begin(), m_order.end(), [this](const Drawn& a, const Drawn& b) {
                     if (a.layer != b.layer) { return a.layer < b.layer; }
                     if (a.depth != b.depth) { return a.depth < b.depth; }
-                    return a.entity < b.entity;
+                    return m_rank.at(a.entity) < m_rank.at(b.entity);
                 });
                 for (const Drawn& drawn : m_order) {
                     m_result.drawOrder.push_back(drawn.entity);
@@ -319,6 +338,8 @@ namespace
             UiLayoutResult&                                   m_result;
             std::map<kw::Entity, std::vector<kw::Entity>>     m_children;
             std::vector<kw::Entity>                           m_roots;
+            std::vector<kw::Entity>                           m_orphans;
+            std::map<kw::Entity, std::size_t>                 m_rank;   //!< Where each node is in the order of creation
             std::map<kw::Entity, Vec2>                        m_sizes;
             std::vector<Drawn>                                m_order;
             float                                             m_scale;
@@ -617,6 +638,33 @@ Vec2 kuge::anchoredPosition(Anchor anchor, const Rect& area, Vec2 size)
     return {area.x + (area.w - size.x) * across, area.y + (area.h - size.y) * down};
 }
 
+std::uint64_t kuge::nextUiSequence(void) noexcept
+{
+    static std::atomic<std::uint64_t> last{0};
+
+    return ++last;
+}
+
+void kuge::removeUiTree(kw::World& world, kw::Entity entity)
+{
+    std::vector<kw::Entity> doomed{entity};
+    auto nodes = world.view<UiNode>();
+
+    // A node is under one that goes if its parent is in the list: the list grows as we read it
+    for (std::size_t i = 0; i < doomed.size(); ++i) {
+        for (kw::Entity other : nodes) {
+            const UiNode& node = world.get<UiNode>(other);
+
+            if (node.hasParent && node.parent == doomed[i] && std::find(doomed.begin(), doomed.end(), other) == doomed.end()) {
+                doomed.push_back(other);
+            }
+        }
+    }
+    for (kw::Entity gone : doomed) {
+        world.remove(gone);
+    }
+}
+
 bool kuge::UiLayout::handle(kw::World& world)
 {
     auto& result = world.getResource<UiLayoutResult>();
@@ -630,13 +678,21 @@ bool kuge::UiLayout::handle(kw::World& world)
     for (kw::Entity entity : view) {
         m_nodes.push_back(entity);
     }
-    std::sort(m_nodes.begin(), m_nodes.end());
+    sortNodes(world, m_nodes);
 
     const float scale = scaleOf(world);
     const UiTheme theme = scaledTheme(world.getResource<UiTheme>(), scale);
     Layouter layouter(world, theme, result, scale);
 
     layouter.build(m_nodes);
+    // Told once, when it happens: the parent was removed with world.remove() and its children were left behind
+    for (kw::Entity entity : layouter.orphans()) {
+        if (!std::binary_search(m_orphans.begin(), m_orphans.end(), entity)) {
+            Logger::logger().category("client").warn("ui: node {} has a parent that is gone, so it is drawn as a root (removeUiTree() removes a node with what hangs from it)", entity);
+        }
+    }
+    m_orphans = layouter.orphans();
+    std::sort(m_orphans.begin(), m_orphans.end());
     // In the viewport of the camera (a split screen has an interface in each part), not the window
     layouter.run(world.getResource<Camera2D>().viewport.value_or(Rect{0.0f, 0.0f, screen.x, screen.y}));
     return true;
@@ -680,7 +736,7 @@ bool kuge::UiInteract::handle(kw::World& world)
     for (kw::Entity entity : sliders) {
         all.push_back(entity);
     }
-    std::sort(all.begin(), all.end());   // (the order of the entities: the order of Tab)
+    sortNodes(world, all);   // (the order of Tab: the order they were made)
     for (kw::Entity entity : all) {
         bool enabled = false;
 

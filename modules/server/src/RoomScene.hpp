@@ -62,6 +62,10 @@ namespace kuge::server
                 std::string        name;
                 std::uint32_t      networkId;    //!< In this room: 1, 2, 3... (never used again)
                 net::ConnectionId  connection;   //!< 0 while the player is away
+                //! The address the connection comes from, without the port ("203.0.113.7", "2001:db8::1"): the handshake proved it,
+                //! so it is not forged. Kept while the player is away; a player that comes back from another address has the new one.
+                //! Players behind one address share it, and it does not tell who a player is.
+                std::string        address;
                 //! The group this player is in (a team, a squad): a number the game sets with setTeam(), 0 for none. KUGE only uses
                 //! it to pick who a message goes to (broadcastTeam()); what a team is, and what it may do, is the game's.
                 std::uint32_t      team = 0;

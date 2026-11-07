@@ -188,7 +188,7 @@ set(BUILD_TESTS OFF)
 add_subdirectory(vendor/kronknet EXCLUDE_FROM_ALL)
 unset(BUILD_TESTS)
 set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kronknet-static)
-# kronk3d (v0.1.0) too, and it needs nothing from vcpkg. Its example and tests are off when it is
+# kronk3d (v0.1.1) too, and it needs nothing from vcpkg. Its example and tests are off when it is
 # not the top-level project. Built only when a target links kronk3d::static (or kronk3d::shared).
 add_subdirectory(vendor/kronk3d EXCLUDE_FROM_ALL)
 kuge_vendor(kronkworld DEPENDS kronkflow)

@@ -110,6 +110,9 @@ namespace kuge
         float volume = 1.0f;
         bool  loop   = true;
         float fadeIn = 0.0f;   //!< Seconds
+        //! Called from Audio::update() (the thread of the game) when the music ends by itself: never for a looping one,
+        //! nor after stopMusic() or another playMusic(). It may start the next music.
+        std::function<void()> onFinished;
     };
 
     //! Who hears, for a sound that comes from somewhere in the world
@@ -189,7 +192,17 @@ namespace kuge
             void stopMusic(float fadeOut = 0.0f);
             bool musicPlaying(void) const { return m_backend.musicPlaying(); }
 
-            //! Forgets the voices that ended, and moves the ducking on by the seconds that passed. The client
+            //! A paused music is still musicPlaying(); it keeps its place until resumeMusic()
+            void   pauseMusic(void) { m_backend.pauseMusic(); }
+            void   resumeMusic(void) { m_backend.resumeMusic(); }
+            bool   musicPaused(void) const { return m_backend.musicPaused(); }
+
+            //! In seconds, for a progress bar. The length is 0 when the format does not tell.
+            double musicPosition(void) const { return m_backend.musicPosition(); }
+            double musicLength(void) const { return m_backend.musicLength(); }
+            void   seekMusic(double seconds) { m_backend.seekMusic(seconds); }
+
+            //! Forgets the voices that ended, tells MusicOptions::onFinished, and moves the ducking on by the seconds that passed. The client
             //! calls it once per loop.
             void update(double seconds = 0.0);
 
@@ -229,6 +242,7 @@ namespace kuge
             float                 m_duckSeconds = 0.0f;
             float                 m_duck = 1.0f;        //!< Where the music is now, between 1 and m_duckTo
             std::vector<Playing>  m_voices;
+            std::function<void()> m_onMusicFinished;
     };
 
 }
