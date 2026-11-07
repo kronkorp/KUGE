@@ -64,7 +64,17 @@ void kuge::DummyRenderer::strokeRect(const Rect& destination, Color color)
 
 void kuge::DummyRenderer::drawTexture(const TextureDraw& draw)
 {
-    m_current.push_back({Call::Kind::Texture, draw.destination, draw.tint, draw, m_clip});
+    m_current.push_back({Call::Kind::Texture, draw.destination, draw.tint, draw, m_clip, draw.radius});
+}
+
+void kuge::DummyRenderer::fillRoundedRect(const Rect& destination, float radius, Color color)
+{
+    m_current.push_back({Call::Kind::Fill, destination, color, {}, m_clip, radius});
+}
+
+void kuge::DummyRenderer::strokeRoundedRect(const Rect& destination, float radius, float width, Color color)
+{
+    m_current.push_back({Call::Kind::Stroke, destination, color, {}, m_clip, radius, width});
 }
 
 const kuge::DummyRenderer::TextureInfo* kuge::DummyRenderer::texture(TextureId id) const

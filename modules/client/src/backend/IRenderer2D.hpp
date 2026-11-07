@@ -35,6 +35,7 @@ namespace kuge
         Color     tint{};                    //!< Multiplies the colors of the texture
         bool      flipX = false;
         bool      flipY = false;
+        float     radius = 0.0f;             //!< Pixels: the corners of the destination are cut round (half the shorter side: a circle). 0: square.
     };
 
     ////////////////////////////////////////////////////////////////////////////
@@ -76,6 +77,12 @@ namespace kuge
             virtual void fillRect(const Rect& destination, Color color) = 0;
             virtual void strokeRect(const Rect& destination, Color color) = 0;
             virtual void drawTexture(const TextureDraw& draw) = 0;
+
+            //! A rectangle whose corners are round, `radius` pixels (at most half of the shorter side). 0 or less: square.
+            virtual void fillRoundedRect(const Rect& destination, float radius, Color color) = 0;
+
+            //! The edge of a rounded rectangle, `width` pixels thick and inside `destination`
+            virtual void strokeRoundedRect(const Rect& destination, float radius, float width, Color color) = 0;
 
             //! What was drawn since begin(). Read it before present(). Empty
             //! if the backend cannot.

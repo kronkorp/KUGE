@@ -502,3 +502,81 @@ Test(sdl, a_whole_engine)
     SDL_PushEvent(&quit);
     AssertEq(engine.step(1.0 / 60.0), false, "closing the window ends the engine");
 }
+
+Test(sdl, rounded_fill)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(200, 100));
+    auto& renderer = *backend.renderer;
+    const kuge::Color clear{0, 0, 0, 255};
+
+    renderer.begin(clear);
+    renderer.fillRoundedRect({10.0f, 10.0f, 40.0f, 40.0f}, 10.0f, kuge::colors::Red);
+    renderer.fillRoundedRect({100.0f, 10.0f, 40.0f, 40.0f}, 0.0f, kuge::colors::Red);   // no radius: a square
+    const auto image = renderer.readPixels();
+
+    Assert(close(pixel(image, 30, 30), kuge::colors::Red), "the middle");
+    Assert(close(pixel(image, 30, 11), kuge::colors::Red) && close(pixel(image, 11, 30), kuge::colors::Red), "the straight edges are full");
+    Assert(close(pixel(image, 11, 11), clear), "the corner is cut");
+    Assert(close(pixel(image, 48, 48), clear), "all four of them");
+    Assert(close(pixel(image, 101, 11), kuge::colors::Red), "a radius of 0 is a square");
+}
+
+Test(sdl, a_circle_is_half_the_side)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(200, 100));
+    auto& renderer = *backend.renderer;
+    const kuge::Color clear{0, 0, 0, 255};
+
+    renderer.begin(clear);
+    renderer.fillRoundedRect({10.0f, 10.0f, 40.0f, 40.0f}, 500.0f, kuge::colors::Red);   // more than half: a circle all the same
+    const auto image = renderer.readPixels();
+
+    Assert(close(pixel(image, 30, 30), kuge::colors::Red), "the middle");
+    Assert(close(pixel(image, 30, 11), kuge::colors::Red), "the top of it");
+    Assert(close(pixel(image, 14, 14), clear), "the corner of the square is out of the circle");
+}
+
+Test(sdl, rounded_outline)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(200, 100));
+    auto& renderer = *backend.renderer;
+    const kuge::Color clear{0, 0, 0, 255};
+
+    renderer.begin(clear);
+    renderer.strokeRoundedRect({10.0f, 10.0f, 40.0f, 40.0f}, 10.0f, 4.0f, kuge::colors::White);
+    const auto image = renderer.readPixels();
+
+    Assert(close(pixel(image, 30, 11), kuge::colors::White) && close(pixel(image, 11, 30), kuge::colors::White), "the edge, inside the rectangle");
+    Assert(close(pixel(image, 30, 30), clear), "the inside is untouched");
+    Assert(close(pixel(image, 30, 16), clear), "and the edge is 4 pixels thick, not more");
+    Assert(close(pixel(image, 11, 11), clear), "the corner is cut");
+}
+
+Test(sdl, a_picture_with_round_corners)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(200, 100));
+    auto& renderer = *backend.renderer;
+    const kuge::TextureId id = renderer.createTexture(2, 2, QUADS);
+    const kuge::Color clear{0, 0, 0, 255};
+    kuge::TextureDraw draw;
+
+    renderer.begin(clear);
+    draw.texture = id;
+    draw.destination = {10.0f, 10.0f, 40.0f, 40.0f};
+    draw.radius = 20.0f;                                           // a circle
+    renderer.drawTexture(draw);
+    draw.destination = {100.0f, 10.0f, 40.0f, 40.0f};
+    draw.rotation = 90.0f;                                         // turned, still a circle
+    renderer.drawTexture(draw);
+    const auto image = renderer.readPixels();
+
+    Assert(close(pixel(image, 20, 20), {230, 50, 50, 255}), "the top left of the picture is red");
+    Assert(close(pixel(image, 40, 40), {255, 255, 255, 255}), "the bottom right is white");
+    Assert(close(pixel(image, 11, 11), clear), "the corner is cut");
+    Assert(close(pixel(image, 130, 20), {230, 50, 50, 255}), "turned a quarter: red went to the top right");
+    Assert(close(pixel(image, 101, 11), clear), "and the corner is still cut");
+}
