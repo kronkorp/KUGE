@@ -33,6 +33,7 @@ namespace sim3
 
     constexpr EntityType PLAYER = 1;
     constexpr EntityType PROP = 2;
+    constexpr EntityType LEVEL = 3;
 
     //! What the game is: how to make its world and the player, how an input steers the player, one tick of its physics
     struct Game3
@@ -41,9 +42,10 @@ namespace sim3
         std::function<void(kw::World&, kw::Entity, const Steer3&)> apply;
         std::function<void(kw::World&, double)>                    step;
         bool                                                       replicateBody = false;   //!< Body3D goes to the client too
+        bool                                                       replicateBreaks = false; //!< LevelBreaks goes to the client, and the prediction mirrors it
     };
 
-    inline ReplicationRegistry makeRegistry3(bool body)
+    inline ReplicationRegistry makeRegistry3(bool body, bool breaks = false)
     {
         ReplicationRegistry registry;
 
@@ -51,6 +53,9 @@ namespace sim3
         registerAnimationState3D(registry);
         if (body) {
             registerBody3D(registry, Replicate::OnChange, true);
+        }
+        if (breaks) {
+            registerLevelBreaks(registry);
         }
         return registry;
     }
@@ -82,7 +87,7 @@ namespace sim3
         std::vector<Vec3>                            shown;   //!< Where the client drew the player after each tick
 
         explicit Sim3(kuge::net::LoopbackNetwork::Conditions conditions, Game3 gameToPlay, PredictionConfig<Steer3> tune = {})
-            : network(conditions, [this] { return now; }), game(std::move(gameToPlay)), registry(makeRegistry3(game.replicateBody))
+            : network(conditions, [this] { return now; }), game(std::move(gameToPlay)), registry(makeRegistry3(game.replicateBody, game.replicateBreaks))
         {
             kuge::net::EndpointConfig config;
 
@@ -112,6 +117,9 @@ namespace sim3
             pc.build = game.build;
             pc.apply = game.apply;
             pc.step = game.step;
+            if (game.replicateBreaks) {
+                pc.sync = &mirrorBreaks;
+            }
             prediction = std::make_unique<Prediction<Steer3, kuge::Transform3D>>(pc, clientWorld, registry, *client, *clientEndpoint);
         }
 

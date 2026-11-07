@@ -253,6 +253,9 @@ namespace kuge::replication
             }
         }
         m_current = next;
+        for (const auto& hook : m_applied) {
+            hook();
+        }
     }
 
     // -- Interpolation ----------------------------------------------------------------------------------

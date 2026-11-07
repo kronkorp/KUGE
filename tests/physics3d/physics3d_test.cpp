@@ -4,6 +4,7 @@ extern "C" {
 
 // NOTE: kronklab test names are limited to 31 characters.
 
+#include "Level.hpp"
 #include "physics3d_fixture.hpp"
 
 Test(physics3d, a_crate_lands)
@@ -285,4 +286,25 @@ Test(physics3d, a_mesh_does_not_fall)
 
     sim.ticks(60);
     Assert(near(sim.where(roof).y, 0.0f, 0.001f), "a mesh with a dynamic body is made static: y = %f", sim.where(roof).y);
+}
+
+Test(physics3d, what_stood_on_a_piece_falls)
+{
+    kw::Entity box = 0;
+    Sim sim([&box](Level& level) {
+        const kw::Entity piece = floor(level.world());
+
+        level.world().add<kuge::LevelPiece>(piece, kuge::LevelPiece{0});
+        box = crate(level.world(), {0.0f, 0.5f, 0.0f});
+    });
+
+    sim.ticks(300);   // (long enough for it to sleep on the floor)
+    Assert(near(sim.where(box).y, 0.5f), "it rests: y = %f", sim.where(box).y);
+    kuge::LevelBreaks breaks;
+
+    breaks.add(0);
+    AssertEq(kuge::applyBreaks(sim.world(), breaks), 1u, "the piece breaks");
+    sim.ticks(60);
+    Assert(sim.where(box).y < -3.0f, "and the crate that slept on it falls: y = %f", sim.where(box).y);
+    AssertEq(sim.physics().bodyCount(), 1u, "only the crate is left");
 }

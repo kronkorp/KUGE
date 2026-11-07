@@ -121,6 +121,10 @@ namespace kuge::replication
             //! kept that entity must let go of it: the World gives its id to the next entity it makes.
             void onOwnedGone(OwnedGoneHook hook) { m_ownedGone = std::move(hook); }
 
+            //! Called when a snapshot has been applied to the World, all its entities (what onOwned() hears of comes in the middle of it).
+            //! Does not replace: every call adds a hook.
+            void onApplied(std::function<void(void)> hook) { m_applied.push_back(std::move(hook)); }
+
             std::optional<kw::Entity> entity(NetworkId id) const;
             std::size_t               entityCount(void) const noexcept { return m_entities.size(); }
 
@@ -186,6 +190,7 @@ namespace kuge::replication
             std::set<EntityType>                    m_predictedTypes;
             OwnedHook                               m_owned;
             OwnedGoneHook                           m_ownedGone;
+            std::vector<std::function<void(void)>>  m_applied;
             Tap                                     m_tap;
 
             std::map<std::uint32_t, WorldState>     m_states;        //!< Applied snapshots, by tick

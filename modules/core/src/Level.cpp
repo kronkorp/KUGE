@@ -139,9 +139,41 @@ namespace kuge
 
             world.add<Transform3D>(entity, made.transform);
             world.add<Collider3D>(entity, made.collider.onLayer(layer, mask));
+            world.add<LevelPiece>(entity, LevelPiece{static_cast<std::uint32_t>(entities.size())});
             entities.push_back(entity);
         }
         return entities;
+    }
+
+    bool LevelBreaks::has(std::uint32_t piece) const noexcept { return std::binary_search(broken.begin(), broken.end(), piece); }
+
+    bool LevelBreaks::add(std::uint32_t piece)
+    {
+        const auto at = std::lower_bound(broken.begin(), broken.end(), piece);
+
+        if (at != broken.end() && *at == piece) {
+            return false;
+        }
+        broken.insert(at, piece);
+        return true;
+    }
+
+    std::size_t applyBreaks(kw::World& world, const LevelBreaks& breaks)
+    {
+        std::vector<kw::Entity> gone;
+
+        if (breaks.broken.empty()) {
+            return 0;
+        }
+        for (const kw::Entity entity : world.view<LevelPiece>()) {
+            if (breaks.has(world.get<LevelPiece>(entity).id)) {
+                gone.push_back(entity);
+            }
+        }
+        for (const kw::Entity entity : gone) {
+            world.remove(entity);
+        }
+        return gone.size();
     }
 
 }
