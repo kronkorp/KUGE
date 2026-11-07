@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 #include <kronk3d/math/Vector.hpp>
@@ -13,6 +14,13 @@ namespace kuge
     {
         return a.x == b.x && a.y == b.y && a.z == b.z;
     }
+
+    //! Triangles to collide with (the walls, the roofs and the slopes of a level), in the space of the entity that has them
+    struct CollisionMesh
+    {
+        std::vector<k3::Math::Vector3f> vertices;
+        std::vector<std::uint32_t>      indices;    //!< Three for each triangle
+    };
 
     ////////////////////////////////////////////////////////////////////////////
     /**
@@ -28,12 +36,15 @@ namespace kuge
     ////////////////////////////////////////////////////////////////////////////
     struct Collider3D
     {
-        enum class Shape : std::uint8_t { Box, Sphere, Capsule };
+        enum class Shape : std::uint8_t { Box, Sphere, Capsule, Mesh };
 
         Shape              shape = Shape::Box;
         //! Box: width, height and depth. Sphere: size.x is the radius. Capsule: size.x is the radius and
         //! size.y the whole height (standing along y).
         k3::Math::Vector3f size{1.0f, 1.0f, 1.0f};
+        //! Mesh: the triangles (shared: a level's colliders are made once). It is for what does not move: with a dynamic Body3D the
+        //! body is made static, as a triangle mesh has no volume to push or to fall with. `size` is not used.
+        std::shared_ptr<const CollisionMesh> mesh;
         k3::Math::Vector3f offset{};             //!< From the position of the entity
         std::uint32_t      layer = 1;            //!< What this is, as a set of bits
         std::uint32_t      mask = 0xFFFFFFFFu;   //!< What this reacts to: the layers it meets
@@ -41,14 +52,22 @@ namespace kuge
         float              friction = 0.5f;
         float              restitution = 0.0f;   //!< 0: does not bounce. 1: bounces back as fast as it came.
 
-        static constexpr Collider3D box(float width, float height, float depth)
+        static Collider3D triangles(std::shared_ptr<const CollisionMesh> mesh)
+        {
+            Collider3D collider;
+            collider.shape = Shape::Mesh;
+            collider.mesh = std::move(mesh);
+            return collider;
+        }
+
+        static Collider3D box(float width, float height, float depth)
         {
             Collider3D collider;
             collider.size = {width, height, depth};
             return collider;
         }
 
-        static constexpr Collider3D sphere(float radius)
+        static Collider3D sphere(float radius)
         {
             Collider3D collider;
             collider.shape = Shape::Sphere;
@@ -57,7 +76,7 @@ namespace kuge
         }
 
         //! Standing along y; `height` is the whole of it, so at least twice the radius
-        static constexpr Collider3D capsule(float radius, float height)
+        static Collider3D capsule(float radius, float height)
         {
             Collider3D collider;
             collider.shape = Shape::Capsule;
@@ -65,9 +84,9 @@ namespace kuge
             return collider;
         }
 
-        constexpr Collider3D asTrigger(void) const { Collider3D c = *this; c.trigger = true; return c; }
+        Collider3D asTrigger(void) const { Collider3D c = *this; c.trigger = true; return c; }
 
-        constexpr Collider3D onLayer(std::uint32_t bits, std::uint32_t meets = 0xFFFFFFFFu) const
+        Collider3D onLayer(std::uint32_t bits, std::uint32_t meets = 0xFFFFFFFFu) const
         {
             Collider3D c = *this;
             c.layer = bits;
@@ -75,15 +94,15 @@ namespace kuge
             return c;
         }
 
-        constexpr bool operator==(const Collider3D& o) const noexcept
+        bool operator==(const Collider3D& o) const noexcept
         {
             return shape == o.shape && sameVector(size, o.size) && sameVector(offset, o.offset) && layer == o.layer
-                && mask == o.mask && trigger == o.trigger && friction == o.friction && restitution == o.restitution;
+                && mask == o.mask && mesh == o.mesh && trigger == o.trigger && friction == o.friction && restitution == o.restitution;
         }
     };
 
     //! Two things meet only if each one is on a layer that the other reacts to
-    constexpr bool compatible(const Collider3D& a, const Collider3D& b)
+    inline bool compatible(const Collider3D& a, const Collider3D& b)
     {
         return (a.layer & b.mask) != 0 && (b.layer & a.mask) != 0;
     }
@@ -136,7 +155,7 @@ namespace kuge
     ////////////////////////////////////////////////////////////////////////////
     struct Hitbox
     {
-        enum class Shape : std::uint8_t { Box, Sphere, Capsule };
+        enum class Shape : std::uint8_t { Box, Sphere, Capsule, Mesh };
 
         std::string        name;                          //!< "head", "body"...: for the game's rules and its logs
         Shape              shape = Shape::Capsule;
