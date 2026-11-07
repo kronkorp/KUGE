@@ -4,7 +4,7 @@ KUGE makes 3D games out of the same parts as 2D ones, with three more modules an
 
 | Piece | What it is |
 |---|---|
-| [kronk3d](https://github.com/kronkorp/kronk3d) (`vendor/kronk3d`, v0.1.1) | The renderer: meshes, materials, lights, shadows, sky, fog, glTF and OBJ loading, skeletal animation. KUGE uses it as it is |
+| [kronk3d](https://github.com/kronkorp/kronk3d) (`vendor/kronk3d`, v0.1.2) | The renderer: meshes, materials, lights, shadows, sky, fog, glTF and OBJ loading, skeletal animation. KUGE uses it as it is |
 | `kuge-render3d` | A 3D scene in a client: `Render3DModule`, `Model3D`, `Light3D`, `Animator3D`, `CameraRig` |
 | `kuge-animation` | Poses, layered blends, state machines read from a file, with no window: the room samples them too |
 | `kuge-physics3d` | Rigid bodies with [Jolt](https://github.com/jrouwe/JoltPhysics): `Physics3D`, `Collider3D`, `Body3D` |
@@ -46,7 +46,7 @@ the CPU. `antiAliasing` is kronk3d's (FXAA or SSAA).
 one**: the 2D renderer enlarges it over the whole screen when it draws it (`Render3DConfig::upscale`: `Nearest` keeps blocks, `Linear` is smooth). The
 sprites, the text and the interface are drawn after it at the pixels of the screen, so **they stay sharp** while the 3D is cheap: this is the way to
 fullscreen on a 4K screen. (`WindowConfig::baseResolution` is the other one: it makes everything, the 2D too, be drawn small; see the client chapter.)
-Needs kronk3d's `IRasterizer::readSceneFrame()`.
+Needs kronk3d 0.1.2 (`IRasterizer::readSceneFrame()`).
 
 What it costs, on one machine (16 threads, an RTX 4070 laptop GPU) for the whole of Arena, server in the same process
 (the loop does not go above about 250 frames a second): 
