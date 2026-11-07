@@ -172,6 +172,13 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      - name: DEBUG kronklab registry on Windows (temporary)
+        continue-on-error: true
+        shell: cmd
+        run: |
+          for /f "delims=" %%f in ('dir /b /s build\\tests\\*physics*.exe 2^>nul') do (echo %%f & dumpbin /headers "%%f" | findstr /i "\.kl name size" )
+          for /f "delims=" %%o in ('dir /b /s build\\tests\\CMakeFiles\\kuge_physics_tests.dir\\*.obj 2^>nul') do (echo %%o & dumpbin /headers "%%o" | findstr /i "\.kl" & dumpbin /symbols "%%o" | findstr /i "_meta" )
+
       # The unit tests (kronklab starts a process for each test here), the boundaries and the games,
       # played for real (R-Type over the network, with the sh of Git for Windows)
       - name: Test
