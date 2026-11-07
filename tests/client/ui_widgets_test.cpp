@@ -773,3 +773,80 @@ Test(uiscale, a_scroll_in_ui_units)
     ui.wheel(-100.0f);
     AssertEq(ui.get<kuge::UiScroll>(list.scroll).offset, 200.0f, "the end is 300 - 100 as at scale 1");
 }
+
+// -- UiNode::clip: the children are cut to the rectangle of the node ---------------------------------------------------
+namespace
+{
+    // A node of 100 x 100 at the top left, with or without `clip`, and a child of 100 x 30 at (x, 0) that is a panel with no border
+    kw::Entity cardWithChild(kw::World& w, bool clip, float x, bool button = false)
+    {
+        const kw::Entity card = uiNode(w, {.size = {100.0f, 100.0f}, .clip = clip});
+        const kw::Entity child = uiChild(w, card, {.offset = {x, 0.0f}, .size = {100.0f, 30.0f}});
+
+        if (button) {
+            w.add<kuge::UiButton>(child, kuge::UiButton{.text = "x"});
+        } else {
+            w.add<kuge::UiPanel>(child, kuge::UiPanel{.borderWidth = 0.0f});
+        }
+        return child;
+    }
+}
+
+Test(uiclip, a_child_half_out_is_cut)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) { cardWithChild(w, true, 50.0f); });
+    const auto& calls = ui.tick();
+
+    AssertEq(calls.size(), 1, "the child is drawn, got %zu calls", calls.size());
+    Assert(calls[0].clip.has_value() && *calls[0].clip == kuge::Rect(0.0f, 0.0f, 100.0f, 100.0f), "cut to the node");
+}
+
+Test(uiclip, a_child_wholly_out_is_not_drawn)
+{
+    kw::Entity child = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { child = cardWithChild(w, true, 150.0f); });
+
+    AssertEq(ui.tick().size(), 0, "nothing is drawn");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().rects.count(child), 1, "it is placed all the same");
+}
+
+Test(uiclip, no_clip_draws_all_of_it)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) { cardWithChild(w, false, 50.0f); });
+    const auto& calls = ui.tick();
+
+    AssertEq(calls.size(), 1, "the child is drawn");
+    Assert(!calls[0].clip.has_value(), "not cut: a child can come out of its parent on purpose");
+}
+
+Test(uiclip, inside_the_border)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        const kw::Entity child = cardWithChild(w, true, 0.0f);
+
+        w.add<kuge::UiPanel>(w.get<kuge::UiNode>(child).parent, kuge::UiPanel{.borderWidth = 4.0f});
+    });
+    const auto& calls = ui.tick();
+    const auto cut = std::find_if(calls.begin(), calls.end(), [](const Call& c) { return c.clip.has_value(); });
+
+    Assert(cut != calls.end() && *cut->clip == kuge::Rect(4.0f, 4.0f, 92.0f, 92.0f), "cut inside the border of its panel, as a scroll is");
+}
+
+Test(uiclip, what_is_cut_is_not_pressed)
+{
+    kw::Entity out = 0, half = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        out = cardWithChild(w, true, 150.0f, true);
+        half = cardWithChild(w, true, 50.0f, true);
+    });
+
+    ui.tick();
+    ui.mouseTo({160.0f, 10.0f});   // on the button that is out of its node (and on the cut part of the other one)
+    ui.mouseDown({160.0f, 10.0f});
+    AssertEq(ui.count(Kind::Activated, out), 0, "a button that is out of the node cannot be pressed");
+    AssertEq(ui.count(Kind::Activated, half), 0, "nor the part of a button that is cut");
+    ui.mouseUp({160.0f, 10.0f});
+    ui.mouseTo({70.0f, 10.0f});
+    ui.mouseDown({70.0f, 10.0f});
+    AssertEq(ui.count(Kind::Activated, half), 1, "the part that is in can");
+}

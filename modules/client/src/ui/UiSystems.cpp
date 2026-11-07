@@ -252,7 +252,7 @@ namespace
                 return size;
             }
 
-            // `clip`: the part of the screen where it can be seen, if a UiScroll is above it. What is outside is still
+            // `clip`: the part of the screen where it can be seen, if a UiScroll (or a UiNode::clip) is above it. What is outside is still
             // placed (the focus can go to it, and bring it into view) but not drawn.
             void place(kw::Entity entity, const Rect& rect, int layer, int depth, const std::optional<Rect>& clip)
             {
@@ -265,8 +265,8 @@ namespace
                 }
                 std::optional<Rect> inner = clip;
 
-                if (m_world.has<UiScroll>(entity)) {
-                    // What scrolls stays inside the border of the panel of the node, not over it
+                if (m_world.has<UiScroll>(entity) || m_world.get<UiNode>(entity).clip) {
+                    // What scrolls (or is clipped) stays inside the border of the panel of the node, not over it
                     const float edge = m_world.has<UiPanel>(entity) ? std::min(m_world.get<UiPanel>(entity).borderWidth * m_scale, std::min(rect.w, rect.h) / 2.0f) : 0.0f;
                     const Rect view{rect.x + edge, rect.y + edge, rect.w - 2.0f * edge, rect.h - 2.0f * edge};
 

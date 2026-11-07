@@ -86,6 +86,10 @@ namespace kuge
         //! the panel (so that a game can close it: "click outside"). Off by default, so that a label over a button does
         //! not eat the click.
         bool       blocksInput = false;
+        //! Its children are drawn (and hovered) only inside its rectangle, as in a UiScroll (inside the border of its
+        //! UiPanel, if it has one): a text too long for its card, a name in a list, a tooltip in a window. Off by
+        //! default: a child can come out of its parent on purpose (a badge on a corner).
+        bool       clip = false;
         //! When the node was made (a number that only goes up), not its entity: the world gives numbers back in the order they
         //! were freed, so a list rebuilt after removals has its entities in any order. A stack lays its children out, and Tab
         //! and the drawing go, in this order (then by entity, for nodes copied from one template).
@@ -314,7 +318,7 @@ namespace kuge
     struct UiLayoutResult
     {
         std::map<kw::Entity, Rect> rects;     //!< Only the nodes that show
-        std::map<kw::Entity, Rect> clips;     //!< Inside a UiScroll: where it can be seen (drawOrder has only what is in it)
+        std::map<kw::Entity, Rect> clips;     //!< Inside a UiScroll or a UiNode::clip: where it can be seen (drawOrder has only what is in it)
         std::vector<kw::Entity>    drawOrder; //!< Back to front
     };
 
