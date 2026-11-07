@@ -1107,3 +1107,117 @@ Test(uiround, a_click_in_a_cut_corner)
     ui.mouseDown({40.0f, 1.0f});
     AssertEq(ui.count(Kind::Activated, button), 1, "and neither is the straight edge");
 }
+
+// -- UiImage::smooth: a picture drawn smaller than it is ------------------------------------------------------------------
+namespace
+{
+    struct Drawn
+    {
+        kuge::TextureId original = 0;
+        kw::Entity      node = 0;
+    };
+
+    // A 60 x 60 picture (with its pixels, or not) in a node of `size`, with `smooth` as given
+    std::unique_ptr<Fixture> smallImage(FontFile& font, Drawn& drawn, bool keep, float size, bool smooth = true, kuge::Rect source = {})
+    {
+        return std::make_unique<Fixture>([&](TestScene& scene) {
+            withUi(scene, font, [&](kw::World& w) {
+                const std::vector<std::uint8_t> pixels(60 * 60 * 4, 200);
+                const auto texture = kuge::Texture::fromPixels(*w.getResource<kuge::Ref<kuge::IRenderer2D>>(), 60, 60, pixels, keep);
+
+                drawn.original = texture->id();
+                drawn.node = uiNode(w, {.size = {size, size}});
+                w.add<kuge::UiImage>(drawn.node, kuge::UiImage{.texture = texture, .source = source, .smooth = smooth});
+            });
+        });
+    }
+}
+
+Test(uismooth, a_third_of_its_size)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 20.0f);
+    const auto calls = textureCalls(fx->frame());
+
+    AssertEq(calls.size(), 1, "one picture");
+    Assert(calls[0].texture.texture != drawn.original, "drawn from another picture than the texture");
+    const auto* copy = fx->dummy.renderer->texture(calls[0].texture.texture);
+
+    Assert(copy != nullptr && copy->width == 20 && copy->height == 20, "the size it has on the screen");
+    Assert(calls[0].texture.source.w == 0.0f && calls[0].destination == kuge::Rect(0.0f, 0.0f, 20.0f, 20.0f), "all of it, in the node");
+    Assert(calls[0].texture.filter == kuge::Filter::Linear, "mixed linearly");
+}
+
+Test(uismooth, the_copy_is_kept)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 20.0f);
+    const auto first = textureCalls(fx->frame())[0].texture.texture;
+    const std::size_t count = fx->dummy.renderer->textureCount();
+
+    AssertEq(textureCalls(fx->frame())[0].texture.texture, first, "the same copy the next frame");
+    AssertEq(fx->dummy.renderer->textureCount(), count, "and no new texture");
+    fx->scene->world().get<kuge::UiNode>(drawn.node).size = {30.0f, 30.0f};
+    const auto second = textureCalls(fx->frame())[0];
+
+    Assert(second.texture.texture != first, "another copy when the size changes");
+    AssertEq(fx->dummy.renderer->texture(second.texture.texture)->width, 30, "for the new size");
+}
+
+Test(uismooth, the_copy_goes_with_the_node)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 20.0f);
+
+    fx->frame();
+    AssertEq(fx->scene->world().getResource<kuge::UiImageCache>().entries.size(), 1, "kept while it is drawn");
+    fx->scene->world().get<kuge::UiNode>(drawn.node).visible = false;
+    fx->frame();
+    AssertEq(fx->scene->world().getResource<kuge::UiImageCache>().entries.size(), 0, "dropped when it is not");
+}
+
+Test(uismooth, without_the_pixels_the_texture)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, false, 20.0f);
+    const auto calls = textureCalls(fx->frame());
+
+    Assert(calls[0].texture.texture == drawn.original, "no copy to make it from: the texture itself");
+    Assert(calls[0].texture.filter == kuge::Filter::Linear, "with the linear filter");
+}
+
+Test(uismooth, not_much_smaller_or_bigger)
+{
+    FontFile font;
+    Drawn near, big;
+    auto closer = smallImage(font, near, true, 45.0f);    // 60 / 45: less than a half more
+    auto bigger = smallImage(font, big, true, 120.0f);
+
+    Assert(textureCalls(closer->frame())[0].texture.texture == near.original, "drawn as it is when it is shrunk by less than a half");
+    Assert(textureCalls(bigger->frame())[0].texture.texture == big.original, "and when it is enlarged");
+}
+
+Test(uismooth, off_is_pixels)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 20.0f, false);
+    const auto calls = textureCalls(fx->frame());
+
+    Assert(calls[0].texture.texture == drawn.original && calls[0].texture.filter == kuge::Filter::Nearest, "blocks, from the texture");
+}
+
+Test(uismooth, only_the_part_shown)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 10.0f, true, {0.0f, 0.0f, 30.0f, 30.0f});
+    const auto calls = textureCalls(fx->frame());
+    const auto* copy = fx->dummy.renderer->texture(calls[0].texture.texture);
+
+    Assert(copy != nullptr && copy->width == 10 && copy->height == 10, "the copy is of the part, at the size shown");
+}

@@ -136,6 +136,7 @@ void kuge::Render3DModule::inject(kw::World& world)
     world.addResource<Ref<AssetManager<k3::AnimatedModel>>>(m_animatedModels);
     world.addResource<Ref<const ModelRevision>>(m_revision);
     world.addResource<GlContext>(GlContext{m_gl});
+    world.addResource<SceneUpscale>(SceneUpscale{m_config.upscale});
     world.addResource<Particles3D>();
     world.addResource<k3::Camera>();
     world.addResource<k3::Environment>();

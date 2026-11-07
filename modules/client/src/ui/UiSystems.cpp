@@ -8,6 +8,8 @@
 #include "input/ActionState.hpp"
 #include "input/InputMap.hpp"
 #include "render/Components.hpp"
+#include "render/ImageScale.hpp"
+#include "render/Texture.hpp"
 #include "ui/TextRenderer.hpp"
 #include "ui/Ui.hpp"
 #include <algorithm>
@@ -678,6 +680,42 @@ namespace
         return best;
     }
 
+    // The copy of a picture for the size it is drawn at, if it is drawn much smaller than it is and the texture kept its pixels
+    // (made again when the texture, the part shown or the size changes). null: draw the texture itself.
+    std::shared_ptr<Texture> smallerCopy(UiImageCache& cache, IRenderer2D& renderer, kw::Entity entity, const UiImage& image, const Rect& rect)
+    {
+        const Image* pixels = image.texture->pixels();
+        const Rect part = image.source.w > 0.0f && image.source.h > 0.0f ? image.source : Rect{0.0f, 0.0f, static_cast<float>(image.texture->width()), static_cast<float>(image.texture->height())};
+        const int width = std::max(static_cast<int>(std::lround(rect.w)), 1);
+        const int height = std::max(static_cast<int>(std::lround(rect.h)), 1);
+
+        // Not much smaller (by less than a half): the linear filter is enough. Nor when it is bigger.
+        if (!pixels || (part.w < 1.5f * static_cast<float>(width) && part.h < 1.5f * static_cast<float>(height))) {
+            cache.entries.erase(entity);
+            return nullptr;
+        }
+        const int toWidth = std::min(width, static_cast<int>(std::lround(part.w)));    // (one side that is bigger than the picture stays its own)
+        const int toHeight = std::min(height, static_cast<int>(std::lround(part.h)));
+        UiImageCache::Entry& entry = cache.entries[entity];
+
+        if (!entry.texture || entry.from != image.texture->id() || entry.revision != image.texture->revision() || entry.source != part
+            || entry.width != toWidth || entry.height != toHeight) {
+            const Image small = shrink(*pixels, part, toWidth, toHeight);
+
+            entry.texture = nullptr;
+            if (small.empty()) {
+                return nullptr;
+            }
+            try {
+                entry.texture = Texture::fromPixels(renderer, small.width, small.height, small.rgba);
+            } catch (const std::exception&) {
+                return nullptr;   // (the renderer cannot keep it: the picture is drawn as it is)
+            }
+            entry = {entry.texture, image.texture->id(), image.texture->revision(), part, toWidth, toHeight};
+        }
+        return entry.texture;
+    }
+
     // `radius` > 0: a rounded edge, inside the rectangle
     void border(IRenderer2D& renderer, const Rect& rect, Color color, float width, float radius = 0.0f)
     {
@@ -1116,6 +1154,8 @@ bool kuge::UiRender::handle(kw::World& world)
     const auto& layout = world.getResource<UiLayoutResult>();
 
     std::optional<Rect> clip;   // what the renderer is cutting to now
+    auto& images = world.getResource<UiImageCache>();
+    std::set<kw::Entity> seen;  // the images that were drawn: the other copies go
 
     for (kw::Entity entity : layout.drawOrder) {
         const Rect rect = layout.rects.at(entity);
@@ -1173,8 +1213,17 @@ bool kuge::UiRender::handle(kw::World& world)
             const UiImage& image = world.get<UiImage>(entity);
 
             if (image.texture) {
-                renderer.drawTexture({.texture = image.texture->id(), .source = image.source, .destination = rect, .rotation = image.rotation,
-                    .pivot = image.pivot, .tint = image.tint, .radius = image.radius * scale});
+                TextureDraw draw{.texture = image.texture->id(), .source = image.source, .destination = rect, .rotation = image.rotation,
+                    .pivot = image.pivot, .tint = image.tint, .filter = image.smooth ? Filter::Linear : Filter::Nearest, .radius = image.radius * scale};
+
+                if (image.smooth) {
+                    if (const auto copy = smallerCopy(images, renderer, entity, image, rect)) {
+                        draw.texture = copy->id();
+                        draw.source = {};
+                    }
+                    seen.insert(entity);
+                }
+                renderer.drawTexture(draw);
             }
         }
         if (world.has<UiSlider>(entity)) {
@@ -1286,6 +1335,9 @@ bool kuge::UiRender::handle(kw::World& world)
             }
         }
     }
+    for (auto it = images.entries.begin(); it != images.entries.end();) {
+        it = seen.count(it->first) ? std::next(it) : images.entries.erase(it);
+    }
     if (clip) {
         renderer.setClip(std::nullopt);   // (the games that draw after the UI are not cut)
     }
@@ -1308,6 +1360,7 @@ void kuge::installUi(SceneSetup scene, UiActions actions)
     world.addResource<UiScale>();
     world.addResource<UiState>();
     world.addResource<UiLayoutResult>();
+    world.addResource<UiImageCache>();
     world.addResource<UiEvents>();
     world.addResource<UiActions>(actions);
     scene.addSystem(kw::Schedule::Fixed, stage::Input, std::make_unique<UiInteract>());

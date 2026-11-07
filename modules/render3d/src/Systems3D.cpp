@@ -172,8 +172,8 @@ bool kuge::UpdateCamera::handle(kw::World& world)
     const k3::Math::Vector3f at = shown(world, chosen, static_cast<float>(world.getResource<Time>().alpha)).translation;
     k3::Camera& camera = world.getResource<k3::Camera>();
 
-    camera.yaw = rig.yaw;
-    camera.pitch = rig.pitch;
+    camera.yaw = rig.yaw + rig.punchYaw;       // (the view; the rig keeps the aim)
+    camera.pitch = rig.pitch + rig.punchPitch;
     const k3::Math::Vector3f point = at + rig.offset;
 
     if (rig.mode == CameraRig::Mode::Orbit) {
@@ -304,7 +304,8 @@ bool kuge::ModelRender::handle(kw::World& world)
     rasterizer.endFrame();
     environment.lights.resize(sceneLights);
 
-    const k3::Image image = rasterizer.readPixels();
+    // The picture at the size the scene was drawn at: with a render scale below 1 it is the small one, which the 2D renderer enlarges below
+    const k3::Image image = rasterizer.readSceneFrame();
 
     if (image.empty()) {
         return true;
@@ -318,6 +319,7 @@ bool kuge::ModelRender::handle(kw::World& world)
 
     draw.texture = m_frame->id();
     draw.destination = Rect{0.0f, 0.0f, screen.x, screen.y};
+    draw.filter = world.getResource<SceneUpscale>().filter;
     renderer.drawTexture(draw);
     return true;
 }

@@ -18,6 +18,12 @@ namespace kuge
         //! Also make an OpenGL 3.3 context for the game to draw 3D with (Backend::opengl). If the machine has none
         //! the backend is given without, and says so in the log.
         bool        openGL     = false;
+        //! A base resolution, in fullscreen only: the width in pixels that the game is laid out and drawn at (the height follows the
+        //! ratio of the screen), enlarged by the platform to the whole screen. `IWindow::size()` and `IRenderer2D::outputSize()` say
+        //! this size, the mouse is in it, and it is lifted in a window. 0: none, the game draws at the pixels of the screen. Everything
+        //! is drawn at the base size, the 2D too, so text and edges are as sharp as the base size is: a game that wants its interface
+        //! sharp on a big screen draws the 3D small instead (Render3DConfig::renderScale) and keeps this at 0.
+        int         baseResolution = 0;
     };
 
     //! The window of the game. A backend gives one (see IRenderer2D).
@@ -26,7 +32,7 @@ namespace kuge
         public:
             virtual ~IWindow(void) = default;
 
-            //! The size of what can be drawn, in pixels
+            //! The size of what can be drawn, in pixels (the base resolution, when there is one and the window is fullscreen)
             virtual Vec2 size(void) const = 0;
 
             virtual void setTitle(const std::string& title) = 0;
@@ -39,6 +45,9 @@ namespace kuge
             //! the window its size back, at the center of the screen.
             virtual void setFullscreen(bool on) = 0;
             virtual bool fullscreen(void) const = 0;
+
+            //! WindowConfig::baseResolution, changed. A ResizeEvent tells the new size.
+            virtual void setBaseResolution(int width) = 0;
 
             virtual void setVsync(bool on) = 0;
 

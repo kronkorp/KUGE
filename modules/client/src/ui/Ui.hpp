@@ -132,6 +132,27 @@ namespace kuge
         float                    rotation = 0.0f;            //!< Degrees, clockwise (as Transform2D), around `pivot`. The node keeps its rectangle.
         Vec2                     pivot{0.5f, 0.5f};          //!< In the node, from (0, 0) to (1, 1): the middle
         float                    radius = 0.0f;              //!< Pixels: the corners are cut round. Half of the shorter side or more: a circle (an avatar, a disc)
+        //! Smooth (on): the picture is mixed linearly, and one that is drawn much smaller than it is (by more than a half) is drawn from a copy made
+        //! for the size it has on the screen (`size * UiScale`) by an area filter, made again when that size changes, so its edges do not
+        //! sparkle. The copy needs the pixels of the texture: ClientConfig::keepPixels, or Texture::fromPixels(.., true); without them the
+        //! linear filter alone is used. Off: the pixels stay blocks (pixel art).
+        bool                     smooth = true;
+    };
+
+    //! The copies that UiImage::smooth made (a resource), by node: one is dropped when its node is not drawn
+    struct UiImageCache
+    {
+        struct Entry
+        {
+            std::shared_ptr<Texture> texture;      //!< The copy
+            TextureId                from = NO_TEXTURE;   //!< What it was made from, with the three below
+            std::uint64_t            revision = 0;
+            Rect                     source{};
+            int                      width = 0;
+            int                      height = 0;
+        };
+
+        std::map<kw::Entity, Entry> entries;
     };
 
     struct UiPanel

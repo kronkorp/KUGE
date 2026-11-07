@@ -187,6 +187,7 @@ if(TARGET kuge-client)
         client/debug_test.cpp
         client/console_test.cpp
         client/hot_reload_test.cpp
+        client/image_scale_test.cpp
         client/image_test.cpp
         client/input_map_test.cpp
         client/keys_test.cpp

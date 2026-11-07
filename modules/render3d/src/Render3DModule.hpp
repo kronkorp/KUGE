@@ -39,7 +39,11 @@ namespace kuge
     {
         Rendering        rendering = Rendering::Auto;
         k3::AntiAliasing antiAliasing = k3::AntiAliasing::None;
-        float            renderScale = 1.0f;   //!< The scene is drawn at this fraction of the screen, then enlarged
+        //! The scene is drawn at this fraction of the screen (below 1: 0.33 is a ninth of the pixels), and the 2D renderer enlarges it when
+        //! it draws it: the picture that is read back and copied is the small one. The sprites, the text and the interface are drawn after it, at the pixels
+        //! of the screen, so they stay sharp.
+        float            renderScale = 1.0f;
+        Filter           upscale = Filter::Nearest;   //!< How the small picture is enlarged: pixels that stay blocks, or smooth (Linear)
         unsigned         threads = 0;          //!< Worker threads of the rasterizer (0: one per hardware thread)
         //! Hot reload: every this many seconds, the models whose file changed are reloaded in place
         //! (0: never; see reloadAssets()). For development.

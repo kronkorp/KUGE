@@ -44,6 +44,19 @@ namespace
 
     int segmentsFor(float radius) { return std::clamp(static_cast<int>(radius / 2.0f) + 3, 3, 16); }
 
+    // The size of what the renderer draws: the logical size if there is one (see applyBase()), else its output
+    Vec2 renderSize(SDL_Renderer* renderer)
+    {
+        int width = 0;
+        int height = 0;
+
+        SDL_RenderGetLogicalSize(renderer, &width, &height);
+        if (width <= 0 || height <= 0) {
+            SDL_GetRendererOutputSize(renderer, &width, &height);
+        }
+        return {static_cast<float>(width), static_cast<float>(height)};
+    }
+
     // Stops a part of SDL when the last one that needs it goes
     struct Subsystem
     {
@@ -101,6 +114,8 @@ namespace
                     fail("cannot create the renderer");
                 }
                 SDL_SetRenderDrawBlendMode(renderer.get(), SDL_BLENDMODE_BLEND);
+                baseWidth = std::max(config.baseResolution, 0);
+                applyBase();
                 SDL_StartTextInput();   // the OS sends what is typed (TextEvent): some platforms only do once asked
             }
 
@@ -114,6 +129,24 @@ namespace
             SdlContext(const SdlContext&)            = delete;
             SdlContext& operator=(const SdlContext&) = delete;
 
+            // Fullscreen with a base resolution: SDL draws in `baseWidth` pixels wide (the height from the ratio of the screen) and enlarges
+            // it, and brings the mouse back to the same pixels. In a window, or with none, the logical size is lifted.
+            void applyBase(void)
+            {
+                SDL_RenderSetLogicalSize(renderer.get(), 0, 0);   // (so that the real size can be read)
+                if (baseWidth <= 0 || !(SDL_GetWindowFlags(window.get()) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP))) {
+                    return;
+                }
+                int width = 0;
+                int height = 0;
+
+                SDL_GetRendererOutputSize(renderer.get(), &width, &height);
+                if (width > 0 && height > 0) {
+                    SDL_RenderSetLogicalSize(renderer.get(), baseWidth, std::max(1, static_cast<int>(std::lround(static_cast<double>(baseWidth) * height / width))));
+                }
+            }
+
+            int                                                baseWidth = 0;
             std::unique_ptr<Subsystem>                         m_video;
             std::unique_ptr<Subsystem>                         m_controllers;
             std::unique_ptr<SDL_Window, WindowDeleter>         window;
@@ -195,11 +228,7 @@ namespace
 
             Vec2 size(void) const override
             {
-                int width = 0;
-                int height = 0;
-
-                SDL_GetRendererOutputSize(m_context->renderer.get(), &width, &height);
-                return {static_cast<float>(width), static_cast<float>(height)};
+                return renderSize(m_context->renderer.get());
             }
 
             void setTitle(const std::string& title) override
@@ -221,6 +250,21 @@ namespace
                 if (!on) {
                     SDL_SetWindowPosition(m_context->window.get(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
                 }
+                m_context->applyBase();
+            }
+
+            void setBaseResolution(int width) override
+            {
+                m_context->baseWidth = std::max(width, 0);
+                m_context->applyBase();
+                SDL_Event event{};   // told as a resize, like any other change of the size
+                const Vec2 now = size();
+
+                event.type = SDL_WINDOWEVENT;
+                event.window.event = SDL_WINDOWEVENT_SIZE_CHANGED;
+                event.window.data1 = static_cast<Sint32>(now.x);
+                event.window.data2 = static_cast<Sint32>(now.y);
+                SDL_PushEvent(&event);
             }
 
             bool fullscreen(void) const override
@@ -335,7 +379,16 @@ namespace
                         if (event.window.event == SDL_WINDOWEVENT_CLOSE) {
                             out.push_back(QuitEvent{});
                         } else if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                            out.push_back(ResizeEvent{event.window.data1, event.window.data2});
+                            m_context->applyBase();   // (the screen has another size: the height of the base resolution follows)
+                            int logicalWidth = 0;
+                            int logicalHeight = 0;
+
+                            SDL_RenderGetLogicalSize(m_context->renderer.get(), &logicalWidth, &logicalHeight);
+                            if (logicalWidth > 0 && logicalHeight > 0) {
+                                out.push_back(ResizeEvent{logicalWidth, logicalHeight});   // (what the game draws in, not the pixels of the screen)
+                            } else {
+                                out.push_back(ResizeEvent{event.window.data1, event.window.data2});
+                            }
                         } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST && m_relative) {
                             SDL_SetRelativeMouseMode(SDL_FALSE);    // (the cursor is given back to whoever has the focus now)
                         } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED && m_relative) {
@@ -442,14 +495,7 @@ namespace
                 }
             }
 
-            Vec2 outputSize(void) const override
-            {
-                int width = 0;
-                int height = 0;
-
-                SDL_GetRendererOutputSize(renderer(), &width, &height);
-                return {static_cast<float>(width), static_cast<float>(height)};
-            }
+            Vec2 outputSize(void) const override { return renderSize(renderer()); }
 
             void begin(Color clear) override
             {
@@ -634,6 +680,7 @@ namespace
                 }
                 SDL_Texture* texture = found->second;
 
+                SDL_SetTextureScaleMode(texture, draw.filter == Filter::Linear ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
                 if (draw.radius > 0.0f) {
                     drawRoundedTexture(texture, draw);
                     return;

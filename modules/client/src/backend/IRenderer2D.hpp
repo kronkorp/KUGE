@@ -24,6 +24,12 @@ namespace kuge
         bool empty(void) const noexcept { return rgba.empty(); }
     };
 
+    //! How a picture is read when it is drawn at another size than its own
+    enum class Filter : std::uint8_t {
+        Nearest,   //!< A pixel stays a block: sharp, for pixel art, and ragged when the picture is shrunk
+        Linear,    //!< The pixels around are mixed: smooth (and still ragged when a picture is shrunk by more than half)
+    };
+
     //! One picture to draw
     struct TextureDraw
     {
@@ -35,6 +41,7 @@ namespace kuge
         Color     tint{};                    //!< Multiplies the colors of the texture
         bool      flipX = false;
         bool      flipY = false;
+        Filter    filter = Filter::Nearest;
         float     radius = 0.0f;             //!< Pixels: the corners of the destination are cut round (half the shorter side: a circle). 0: square.
     };
 

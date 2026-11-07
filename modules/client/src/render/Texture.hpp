@@ -35,12 +35,20 @@ namespace kuge
             int       height(void) const noexcept { return m_height; }
             Vec2      size(void) const noexcept { return {static_cast<float>(m_width), static_cast<float>(m_height)}; }
 
+            //! The pixels, if the texture was asked to keep them (`keepPixels`): what makes a smaller copy of it possible
+            //! (see shrink()). null otherwise: a texture lives on the GPU, and a copy of every picture is memory that most games do not need.
+            const Image*  pixels(void) const noexcept { return m_pixels.get(); }
+
+            //! A number that goes up each time the picture changes (update(), replace()): what a copy made from it checks
+            std::uint64_t revision(void) const noexcept { return m_revision; }
+
             //! @param rgba  width * height pixels of 4 bytes
+            //! @param keepPixels  Keeps a copy of them: see pixels()
             static std::shared_ptr<Texture> fromPixels(
-                IRenderer2D& renderer, int width, int height, std::span<const std::uint8_t> rgba);
+                IRenderer2D& renderer, int width, int height, std::span<const std::uint8_t> rgba, bool keepPixels = false);
 
             //! @throw ImageError
-            static std::shared_ptr<Texture> fromFile(IRenderer2D& renderer, const std::filesystem::path& path);
+            static std::shared_ptr<Texture> fromFile(IRenderer2D& renderer, const std::filesystem::path& path, bool keepPixels = false);
 
             //! Puts other pixels in this texture, which keeps its size and its id (cheaper than replace()
             //! for a picture that changes every frame). @throw std::runtime_error if rgba is not width * height pixels
@@ -59,6 +67,8 @@ namespace kuge
             TextureId    m_id;
             int          m_width;
             int          m_height;
+            std::shared_ptr<const Image> m_pixels;   //!< Only if asked to
+            std::uint64_t m_revision = 0;
     };
 
 }

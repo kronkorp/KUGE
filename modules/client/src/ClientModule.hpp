@@ -27,6 +27,9 @@ namespace kuge
         //! Hot reload: every this many seconds, textures, sounds and musics whose file
         //! changed are reloaded in place (0: never; see reloadAssets()). For development.
         double watchAssets = 0.0;
+        //! The textures of files keep a copy of their pixels (Texture::pixels()), so that the UI can draw a picture that is much smaller than it
+        //! is from a copy made for that size (see UiImage::smooth). Off: a copy of every picture is memory; a picture is then drawn smaller by the GPU's linear filter.
+        bool keepPixels = false;
     };
 
     ////////////////////////////////////////////////////////////////////////////
