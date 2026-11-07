@@ -634,6 +634,7 @@ namespace
                 }
                 SDL_Texture* texture = found->second;
 
+                SDL_SetTextureScaleMode(texture, draw.filter == Filter::Linear ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
                 if (draw.radius > 0.0f) {
                     drawRoundedTexture(texture, draw);
                     return;

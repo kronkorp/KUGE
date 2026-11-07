@@ -580,3 +580,26 @@ Test(sdl, a_picture_with_round_corners)
     Assert(close(pixel(image, 130, 20), {230, 50, 50, 255}), "turned a quarter: red went to the top right");
     Assert(close(pixel(image, 101, 11), clear), "and the corner is still cut");
 }
+
+Test(sdl, filter_per_draw)
+{
+    useNoScreen();
+    auto backend = kuge::makeSdlBackend(windowOf(200, 100));
+    auto& renderer = *backend.renderer;
+    const kuge::TextureId id = renderer.createTexture(2, 2, QUADS);
+    kuge::TextureDraw draw;
+
+    renderer.begin(kuge::colors::Black);
+    draw.texture = id;
+    draw.destination = {0.0f, 0.0f, 40.0f, 40.0f};
+    draw.filter = kuge::Filter::Linear;
+    renderer.drawTexture(draw);
+    draw.destination = {60.0f, 0.0f, 40.0f, 40.0f};
+    draw.filter = kuge::Filter::Nearest;                          // (the one before did not leave its filter on the texture)
+    renderer.drawTexture(draw);
+    const auto image = renderer.readPixels();
+
+    Assert(!close(pixel(image, 20, 5), {230, 50, 50, 255}, 10) && !close(pixel(image, 20, 5), {60, 200, 80, 255}, 10), "linear: the edge between red and green is a mix");
+    Assert(close(pixel(image, 80, 5), {230, 50, 50, 255}) || close(pixel(image, 80, 5), {60, 200, 80, 255}), "nearest: one or the other, never a mix");
+    Assert(close(pixel(image, 62, 5), {230, 50, 50, 255}) && close(pixel(image, 98, 5), {60, 200, 80, 255}), "and the quarters are as sharp as before");
+}

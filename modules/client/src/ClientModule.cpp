@@ -29,7 +29,7 @@ kuge::ClientModule::ClientModule(Backend backend, ClientConfig config)
     : m_backend(checked(std::move(backend))),
       m_config(config),
       m_textures([this](const std::filesystem::path& path) {
-          return Texture::fromFile(*m_backend.renderer, path);
+          return Texture::fromFile(*m_backend.renderer, path, m_config.keepPixels);
       }, [](Texture& texture, const std::filesystem::path& path) {
           texture.reloadFromFile(path);
       }),
@@ -64,7 +64,7 @@ void kuge::ClientModule::onAttach(Engine& engine)
         [this](std::any&& data, const std::filesystem::path&) {
             const Image image = std::any_cast<Image>(std::move(data));
 
-            return Texture::fromPixels(*m_backend.renderer, image.width, image.height, image.rgba);
+            return Texture::fromPixels(*m_backend.renderer, image.width, image.height, image.rgba, m_config.keepPixels);
         });
 }
 
