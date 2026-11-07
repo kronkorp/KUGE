@@ -603,3 +603,39 @@ Test(sdl, filter_per_draw)
     Assert(close(pixel(image, 80, 5), {230, 50, 50, 255}) || close(pixel(image, 80, 5), {60, 200, 80, 255}), "nearest: one or the other, never a mix");
     Assert(close(pixel(image, 62, 5), {230, 50, 50, 255}) && close(pixel(image, 98, 5), {60, 200, 80, 255}), "and the quarters are as sharp as before");
 }
+
+Test(sdl, mouse_in_the_base_size)
+{
+    useNoScreen();
+    kuge::WindowConfig config = windowOf(320, 200);
+
+    config.baseResolution = 400;
+    auto backend = kuge::makeSdlBackend(config);
+
+    backend.window->setFullscreen(true);
+    std::vector<kuge::Event> events;
+
+    backend.input->poll(events);
+    const kuge::Image screen = backend.renderer->readPixels();   // (the pixels of the screen)
+    Uint32 windowId = 0;
+
+    for (Uint32 id = 1; id < 100 && !windowId; ++id) {
+        windowId = SDL_GetWindowFromID(id) ? id : 0;
+    }
+    SDL_Event sdl{};
+
+    sdl.type = SDL_MOUSEBUTTONDOWN;
+    sdl.button.windowID = windowId;
+    sdl.button.button = SDL_BUTTON_LEFT;
+    sdl.button.x = screen.width / 2;   // the middle of the screen
+    sdl.button.y = screen.height / 2;
+    push(sdl);
+    events.clear();
+    backend.input->poll(events);
+    const kuge::Vec2 base = backend.window->size();
+    const auto* click = events.empty() ? nullptr : as<kuge::MouseButtonEvent>(events[0]);
+
+    Assert(click != nullptr, "a click");
+    Assert(std::fabs(click->position.x - base.x / 2.0f) <= 1.0f && std::fabs(click->position.y - base.y / 2.0f) <= 1.0f,
+        "the middle of the screen is the middle of the base size: (%f, %f) of (%f, %f)", click->position.x, click->position.y, base.x, base.y);
+}

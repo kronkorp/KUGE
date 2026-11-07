@@ -160,6 +160,13 @@ video mode; leaving it gives the size back), `fullscreen()`, `setVsync(on)`, `se
 `ResizeEvent` at the next frame, and the camera follows it (see above): a game with a "Display" screen needs nothing else.
 The dummy backend does the same, so a test can follow it.
 
+**A base resolution.** On a 3840 x 2400 screen a game that draws at the pixels of the screen draws 9 million of them. `WindowConfig::baseResolution = 1280`
+(or `window.setBaseResolution(1280)` later) makes the game draw in 1280 pixels wide, and the platform enlarges it: in **fullscreen only** (in a window
+it is lifted), `window.size()`, `renderer.outputSize()` and the `ResizeEvent` say the base size (the height follows the ratio of the screen), and the
+mouse is in that size too, so a click at the middle of the screen is at (640, 360). `readPixels()` still gives the pixels of the screen, with their size.
+**Everything is drawn at the base size, the 2D too**: text and edges are as sharp as 1280 pixels are, then enlarged. For a sharp interface on a big
+screen, leave this at 0 and draw only the 3D small (`Render3DConfig::renderScale`, see the 3D chapter), with `UiScale` for the interface.
+
 ## Assets
 
 `client.textures().load(path)` reads a file once and shares the object while someone holds it (the same for
