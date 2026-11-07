@@ -56,11 +56,6 @@ if(TARGET kuge_arena3d_server AND TARGET kuge_arena3d_client AND TARGET kuge_are
     endif()
 endif()
 
-# The unit tests run on kronklab, which runs each test in a fork(): Windows does not have it
-if(WIN32)
-    return()
-endif()
-
 add_executable(kuge_tests
     core/asset_async_test.cpp
     core/asset_manager_test.cpp

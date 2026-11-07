@@ -172,8 +172,8 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      # The unit tests need kronklab, which runs on POSIX only: what runs here is the boundaries
-      # and the games, played for real (R-Type over the network, with the sh of Git for Windows)
+      # The unit tests (kronklab starts a process for each test here), the boundaries and the games,
+      # played for real (R-Type over the network, with the sh of Git for Windows)
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure --timeout 300
 
