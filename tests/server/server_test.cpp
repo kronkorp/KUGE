@@ -3,11 +3,13 @@ extern "C" {
 }
 #include "server_fixture.hpp"
 #include <algorithm>
+#include <set>
+#include <unistd.h>
+#ifndef _WIN32   // (the test that takes a port by hand)
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <set>
 #include <sys/socket.h>
-#include <unistd.h>
+#endif
 
 // NOTE: kronklab test names are limited to 31 characters.
 // A real server (its lobby on the main thread of a thread of the test, its rooms on their own), and clients over a loopback.
@@ -491,6 +493,7 @@ Test(server, over_the_real_network)
     Assert(ana.until([&] { return ana.joined == 2 && ana.inRoom(); }), "and can play again");
 }
 
+#ifndef _WIN32
 Test(server, a_room_that_cannot_open)
 {
     // The port of the first room is taken by someone else: that room fails, and the next one takes another port
@@ -516,6 +519,8 @@ Test(server, a_room_that_cannot_open)
     Assert(waitUntil([&] { return run.server->stats().rooms == 1; }), "one room runs");
     close(squatter);
 }
+
+#endif
 
 Test(server, rooms_take_ports_turn)
 {
