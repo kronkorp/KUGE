@@ -1129,7 +1129,8 @@ bool kuge::UiRender::handle(kw::World& world)
             const UiImage& image = world.get<UiImage>(entity);
 
             if (image.texture) {
-                renderer.drawTexture({.texture = image.texture->id(), .source = image.source, .destination = rect, .tint = image.tint});
+                renderer.drawTexture({.texture = image.texture->id(), .source = image.source, .destination = rect, .rotation = image.rotation,
+                    .pivot = image.pivot, .tint = image.tint, .radius = image.radius * scale});
             }
         }
         if (world.has<UiSlider>(entity)) {

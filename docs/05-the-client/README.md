@@ -225,7 +225,9 @@ and options are **entities in screen pixels** made of `UiNode` (a rectangle plac
 left / right, or the mouse; `Changed` when it moves). A long list is a node with a size, a `UiStack` and a
 `UiScroll`: the mouse wheel scrolls it, the keyboard focus brings its child into view, and what is outside is cut
 (`IRenderer2D::setClip`). The wheel is also an input: `Binding::wheel(1)` is "Wheel.Up".
-`UiImage` puts a texture (an icon, a portrait) in the rectangle of a node. `UiNode::clip = true` cuts the children of a node to its
+`UiImage` puts a texture (an icon, a portrait) in the rectangle of a node; `rotation` (degrees, clockwise) and `pivot` turn it
+without changing the layout (a disc that turns while the music plays), and `radius` cuts its corners round (half the shorter side: a circle, for an
+avatar). There is no mask texture: a shape other than a rounded rectangle is made with the picture itself. `UiNode::clip = true` cuts the children of a node to its
 rectangle (inside the border of its `UiPanel`) without a scroll: a text too long for its card, a name in a list. A cut part is not drawn
 and cannot be pressed. Off by default: a child can come out of its parent on purpose.
 

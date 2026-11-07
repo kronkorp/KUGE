@@ -543,6 +543,33 @@ Test(uiimage, drawn_in_its_node)
     AssertEq(calls[0].texture.source.w, 0.0f, "all of the texture");
 }
 
+Test(uiimage, turned_and_round)
+{
+    kw::Entity plain = 0, turned = 0;
+    FontFile font;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            const auto texture = picture(w, 16, 8);
+
+            plain = uiNode(w, {.offset = {10.0f, 20.0f}, .size = {40.0f, 40.0f}});
+            turned = uiNode(w, {.offset = {100.0f, 20.0f}, .size = {40.0f, 40.0f}});
+            w.add<kuge::UiImage>(plain, kuge::UiImage{.texture = texture});
+            w.add<kuge::UiImage>(turned, kuge::UiImage{.texture = texture, .rotation = 30.0f, .pivot = {0.0f, 1.0f}, .radius = 20.0f});
+        });
+    });
+    const auto calls = textureCalls(fx.frame());
+    const auto& layout = fx.scene->world().getResource<kuge::UiLayoutResult>();
+
+    AssertEq(calls.size(), 2, "two pictures");
+    AssertEq(calls[0].texture.rotation, 0.0f, "not turned by default");
+    AssertEq(calls[0].texture.radius, 0.0f, "and square");
+    AssertEq(calls[1].texture.rotation, 30.0f, "the angle, in degrees, is in the draw");
+    Assert(calls[1].texture.pivot == kuge::Vec2(0.0f, 1.0f), "around its pivot");
+    AssertEq(calls[1].texture.radius, 20.0f, "and the radius");
+    Assert(calls[1].destination == kuge::Rect(100.0f, 20.0f, 40.0f, 40.0f), "the destination is the node, not the turned picture");
+    Assert(layout.rects.at(turned) == kuge::Rect(100.0f, 20.0f, 40.0f, 40.0f), "and a rotation does not change the layout");
+}
+
 Test(uiimage, takes_the_size_it_has)
 {
     FontFile font;

@@ -129,6 +129,9 @@ namespace kuge
         std::shared_ptr<Texture> texture;                    //!< Nothing is drawn without one
         Rect                     source{};                   //!< The part of the texture, in its pixels. Width 0: all of it.
         Color                    tint{255, 255, 255, 255};   //!< Multiplies the colors of the picture
+        float                    rotation = 0.0f;            //!< Degrees, clockwise (as Transform2D), around `pivot`. The node keeps its rectangle.
+        Vec2                     pivot{0.5f, 0.5f};          //!< In the node, from (0, 0) to (1, 1): the middle
+        float                    radius = 0.0f;              //!< Pixels: the corners are cut round. Half of the shorter side or more: a circle (an avatar, a disc)
     };
 
     struct UiPanel
