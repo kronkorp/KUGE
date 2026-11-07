@@ -267,10 +267,6 @@ endif()
 
 if(BUILD_TESTS)
     enable_testing()
-    # kronklab runs each test in a fork(), which Windows does not have: there, only the tests
-    # that need no kronklab are built (see tests/CMakeLists.txt)
-    if(NOT WIN32)
-        FetchContent_MakeAvailable(kronklab)
-    endif()
+    FetchContent_MakeAvailable(kronklab)
     add_subdirectory(tests)
 endif()
