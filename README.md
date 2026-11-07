@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/kuge-logo-blanc.svg" alt="KUGE" width="320">
+</p>
+
 # KUGE
 
 KUGE is a C++20 game engine made of independent building blocks: a game links the ones
