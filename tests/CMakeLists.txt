@@ -3,6 +3,10 @@ if(WIN32)
     include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/compat)
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/FIunistd.h>)
 endif()
+# kronklab finds the tests between two markers of a section: the padding of an incremental link (Debug) would be read as tests
+if(MSVC)
+    add_link_options(/INCREMENTAL:NO)
+endif()
 
 # What needs no test framework runs on every platform: the boundaries, and the games played for real.
 add_subdirectory(boundaries)

@@ -72,7 +72,7 @@ include(FetchContent)
 FetchContent_Declare(
     kronklab
     GIT_REPOSITORY https://github.com/kronkorp/kronklab.git
-    GIT_TAG        7a3e78b64ce1a8d400b1c3a85c569ec6698586f1
+    GIT_TAG        ec3d02155f60ebb6299b7577359c3f10b4c1bd9f
 )
 
 # kronkflow depends on kronkpool, which KUGE also uses directly: both must be
@@ -251,16 +251,6 @@ endif()
 
 if(BUILD_TESTS)
     enable_testing()
-    if(MSVC)
-        # kronklab asks for /O2, which the /RTC1 of a Debug build refuses (error D8016): its C flags go without it, the others keep it
-        set(KUGE_C_FLAGS_DEBUG_KEPT "${CMAKE_C_FLAGS_DEBUG}")
-        string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
-    endif()
     FetchContent_MakeAvailable(kronklab)
-    if(MSVC)
-        set(CMAKE_C_FLAGS_DEBUG "${KUGE_C_FLAGS_DEBUG_KEPT}")
-        # kronklab names its static and its shared library alike: with MSVC the import library of the one is the file of the other (Ninja refuses it)
-        set_target_properties(kronklab-static PROPERTIES OUTPUT_NAME kronklab_static)
-    endif()
     add_subdirectory(tests)
 endif()
