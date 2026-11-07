@@ -77,6 +77,8 @@ namespace kuge
                 Color       color;
                 TextureDraw texture;   //!< Kind::Texture only
                 std::optional<Rect> clip;   //!< The clip that was set when it was drawn
+                float       radius = 0.0f;   //!< A rounded rectangle (Fill or Stroke), or a rounded picture (Texture: TextureDraw::radius)
+                float       width  = 0.0f;   //!< Stroke of a rounded rectangle: how thick
             };
 
             struct TextureInfo {
@@ -97,6 +99,8 @@ namespace kuge
             void fillRect(const Rect& destination, Color color) override;
             void strokeRect(const Rect& destination, Color color) override;
             void drawTexture(const TextureDraw& draw) override;
+            void fillRoundedRect(const Rect& destination, float radius, Color color) override;
+            void strokeRoundedRect(const Rect& destination, float radius, float width, Color color) override;
             Image readPixels(void) override { return {}; }
 
             //! What was drawn since begin()

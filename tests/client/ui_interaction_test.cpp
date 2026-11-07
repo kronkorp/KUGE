@@ -2,6 +2,7 @@ extern "C" {
     #include "kronklab/kronklab.h"
 }
 #include "ui_fixture.hpp"
+#include <algorithm>
 #include <vector>
 
 // NOTE: kronklab test names are limited to 31 characters.
@@ -341,4 +342,108 @@ Test(uiinput, no_action_no_reaction)
     for (const auto& event : fx.scene->world().getResource<kuge::UiEvents>().list) {
         Assert(event.kind != Kind::Activated, "but no key does anything: the interface was given no action");
     }
+}
+
+// -- A node drawn over a button takes its clicks (UiNode::blocksInput) -----------------------------------------------
+namespace
+{
+    // Two buttons of 80 x 40, at (100, 100) and (100, 200), and a panel of a higher layer at (140, 90) that covers the
+    // right half of the first one and, at (90, 190), the second one
+    struct Covered
+    {
+        FontFile                 font;
+        kw::Entity               first = 0, second = 0, panel = 0;
+        std::unique_ptr<Fixture> fx;
+
+        Covered(bool blocks, kuge::Vec2 panelAt, kuge::Vec2 panelSize, bool firstEnabled = true)
+        {
+            fx = std::make_unique<Fixture>([&](TestScene& scene) {
+                withUi(scene, font, [&](kw::World& w) {
+                    first = uiNode(w, {.offset = {100.0f, 100.0f}, .size = {80.0f, 40.0f}});
+                    second = uiNode(w, {.offset = {100.0f, 200.0f}, .size = {80.0f, 40.0f}});
+                    panel = uiNode(w, {.offset = panelAt, .size = panelSize, .layer = 1, .blocksInput = blocks});
+                    w.add<kuge::UiButton>(first, kuge::UiButton{.text = "first", .enabled = firstEnabled});
+                    w.add<kuge::UiButton>(second, kuge::UiButton{.text = "second"});
+                    w.add<kuge::UiPanel>(panel, kuge::UiPanel{});
+                });
+            });
+            bindUiKeys(fx->client->input());
+            fx->frame(1.0 / 60.0);
+        }
+
+        const std::vector<kuge::UiEvent>& events(void) { return fx->scene->world().getResource<kuge::UiEvents>().list; }
+        const kuge::UiState& state(void) { return fx->scene->world().getResource<kuge::UiState>(); }
+
+        void click(float x, float y)
+        {
+            fx->dummy.input->push(kuge::MouseMoveEvent{{x, y}, {}});
+            fx->dummy.input->push(kuge::MouseButtonEvent{kuge::MouseButton::Left, true, {x, y}});
+            fx->frame(1.0 / 60.0);
+        }
+
+        std::size_t count(Kind kind, kw::Entity entity)
+        {
+            return static_cast<std::size_t>(std::count_if(events().begin(), events().end(),
+                [&](const auto& e) { return e.kind == kind && e.entity == entity; }));
+        }
+    };
+}
+
+Test(uicover, a_click_on_the_covered_half)
+{
+    Covered c(true, {140.0f, 90.0f}, {100.0f, 60.0f});
+
+    c.click(160.0f, 120.0f);   // under the panel
+    AssertEq(c.count(Kind::Activated, c.first), 0, "the button under the panel is not pressed");
+    AssertEq(c.count(Kind::Blocked, c.panel), 1, "the panel says it took the click");
+}
+
+Test(uicover, a_click_on_the_other_half)
+{
+    Covered c(true, {140.0f, 90.0f}, {100.0f, 60.0f});
+
+    c.click(110.0f, 120.0f);   // not under it
+    AssertEq(c.count(Kind::Activated, c.first), 1, "the button is pressed");
+    AssertEq(c.count(Kind::Blocked, c.panel), 0, "and the panel took nothing");
+}
+
+Test(uicover, off_by_default)
+{
+    Covered c(false, {140.0f, 90.0f}, {100.0f, 60.0f});
+
+    c.click(160.0f, 120.0f);
+    AssertEq(c.count(Kind::Activated, c.first), 1, "a node that does not block lets the click through");
+    AssertEq(c.count(Kind::Blocked, c.panel), 0, "and says nothing");
+}
+
+Test(uicover, a_button_over_the_panel)
+{
+    Covered c(true, {90.0f, 90.0f}, {100.0f, 60.0f});
+
+    c.fx->scene->world().get<kuge::UiNode>(c.first).layer = 2;   // the button is drawn over the panel
+    c.fx->frame(1.0 / 60.0);
+    c.click(110.0f, 120.0f);
+    AssertEq(c.count(Kind::Activated, c.first), 1, "what is drawn over the panel is pressed as usual");
+}
+
+Test(uicover, the_focus_skips_what_is_covered)
+{
+    Covered blocking(true, {90.0f, 190.0f}, {100.0f, 60.0f});
+    Covered open(false, {90.0f, 190.0f}, {100.0f, 60.0f});
+
+    for (Covered* c : {&blocking, &open}) {
+        c->fx->dummy.input->push(kuge::KeyEvent{kuge::Key::Down, true});
+        c->fx->frame(1.0 / 60.0);
+    }
+    Assert(blocking.state().hasFocus && blocking.state().focus == blocking.first, "Down does not land on a covered button");
+    Assert(open.state().hasFocus && open.state().focus == open.second, "without the block, it does");
+}
+
+Test(uicover, a_panel_over_every_button)
+{
+    Covered c(true, {90.0f, 90.0f}, {200.0f, 200.0f});
+
+    c.click(120.0f, 120.0f);
+    AssertEq(c.count(Kind::Blocked, c.panel), 1, "a click outside still reaches the game, though no button can take the focus");
+    Assert(!c.state().hasFocus, "no button has the focus");
 }

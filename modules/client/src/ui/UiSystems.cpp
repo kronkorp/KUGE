@@ -68,6 +68,12 @@ namespace
         return label.font ? scaledFont(label.font, scale) : theme.font.get();
     }
 
+    // The width a label wraps at, in pixels of the screen: its node's if it is Overflow::Wrap, else wrapWidth
+    int wrapOf(const UiLabel& label, const UiNode& node, float scale)
+    {
+        return static_cast<int>((label.overflow == Overflow::Wrap && node.size.x > 0.0f ? node.size.x : static_cast<float>(label.wrapWidth)) * scale);
+    }
+
     const IFont* fieldFont(const UiTextField& field, const UiTheme& theme, float scale)
     {
         return field.font ? scaledFont(field.font, scale) : theme.font.get();
@@ -87,6 +93,7 @@ namespace
 
         if (scale != 1.0f) {
             scaled.padding *= scale;
+            scaled.radius *= scale;
             scaled.focusWidth *= scale;
             scaled.progressWidth *= scale;
             scaled.progressHeight *= scale;
@@ -227,7 +234,7 @@ namespace
                 if (m_world.has<UiLabel>(entity)) {
                     const UiLabel& label = m_world.get<UiLabel>(entity);
 
-                    return measureText(fontOf(label, m_theme, m_scale), label.text, static_cast<int>(static_cast<float>(label.wrapWidth) * m_scale));
+                    return measureText(fontOf(label, m_theme, m_scale), label.text, wrapOf(label, m_world.get<UiNode>(entity), m_scale));
                 }
                 return {};
             }
@@ -252,21 +259,33 @@ namespace
                 return size;
             }
 
-            // `clip`: the part of the screen where it can be seen, if a UiScroll is above it. What is outside is still
+            // `clip`: the part of the screen where it can be seen, if a UiScroll (or a UiNode::clip) is above it. What is outside is still
             // placed (the focus can go to it, and bring it into view) but not drawn.
             void place(kw::Entity entity, const Rect& rect, int layer, int depth, const std::optional<Rect>& clip)
             {
                 m_result.rects[entity] = rect;
-                if (clip) {
-                    m_result.clips[entity] = *clip;
+                std::optional<Rect> seen = clip;   // where it is drawn: cut by what is above it, and by itself if it is a label that overflows
+
+                if (m_world.has<UiLabel>(entity)) {
+                    const UiLabel& label = m_world.get<UiLabel>(entity);
+                    const IFont* font = fontOf(label, m_theme, m_scale);
+
+                    if ((label.overflow == Overflow::Clip || label.overflow == Overflow::Ellipsis || label.overflow == Overflow::Scroll)
+                        && font && font->measure(label.text).x > rect.w + 0.5f) {
+                        m_result.truncated.insert(entity);
+                        seen = clip ? intersection(*clip, rect) : rect;
+                    }
+                }
+                if (seen) {
+                    m_result.clips[entity] = *seen;
                 }
                 if (!clip || rect.intersects(*clip)) {
                     m_order.push_back({entity, layer, depth});
                 }
                 std::optional<Rect> inner = clip;
 
-                if (m_world.has<UiScroll>(entity)) {
-                    // What scrolls stays inside the border of the panel of the node, not over it
+                if (m_world.has<UiScroll>(entity) || m_world.get<UiNode>(entity).clip) {
+                    // What scrolls (or is clipped) stays inside the border of the panel of the node, not over it
                     const float edge = m_world.has<UiPanel>(entity) ? std::min(m_world.get<UiPanel>(entity).borderWidth * m_scale, std::min(rect.w, rect.h) / 2.0f) : 0.0f;
                     const Rect view{rect.x + edge, rect.y + edge, rect.w - 2.0f * edge, rect.h - 2.0f * edge};
 
@@ -373,6 +392,49 @@ namespace
             ++at;
         } while (at < text.size() && !startsCharacter(text[at]));
         return at;
+    }
+
+    // The longest start of `text` that fits in `room` pixels with "..." after it (all of it if it fits). It stops at the start of a
+    // character, not in the middle of one.
+    std::string ellipsized(const IFont& font, const std::string& text, float room)
+    {
+        if (font.measure(text).x <= room) {
+            return text;
+        }
+        std::size_t lo = 0;
+        std::size_t hi = text.size();
+
+        while (lo < hi) {
+            std::size_t mid = lo + (hi - lo + 1) / 2;
+
+            while (mid > lo && !startsCharacter(text[mid])) {
+                --mid;
+            }
+            if (mid == lo) {
+                break;
+            }
+            if (font.measure(text.substr(0, mid) + "...").x <= room) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        return text.substr(0, lo) + "...";
+    }
+
+    // How far a text that is `over` pixels too long has gone by after `seconds`: it waits, goes, waits, and begins again
+    float scrolled(const UiLabel& label, float over, float scale, double seconds)
+    {
+        const float speed = label.scrollSpeed * scale;
+        const double pause = std::max(label.scrollPause, 0.0f);
+
+        if (!(speed > 0.0f) || !(over > 0.0f)) {
+            return 0.0f;
+        }
+        const double run = static_cast<double>(over / speed);
+        const double at = std::fmod(seconds, 2.0 * pause + run);
+
+        return at < pause ? 0.0f : static_cast<float>(std::min(at - pause, run) * static_cast<double>(speed));
     }
 
     std::size_t charactersIn(const std::string& text)
@@ -616,16 +678,57 @@ namespace
         return best;
     }
 
-    void border(IRenderer2D& renderer, const Rect& rect, Color color, float width)
+    // `radius` > 0: a rounded edge, inside the rectangle
+    void border(IRenderer2D& renderer, const Rect& rect, Color color, float width, float radius = 0.0f)
     {
         if (width <= 0.0f) {
             return;
         }
         width = std::min(width, std::min(rect.w, rect.h) / 2.0f);
+        if (radius > 0.0f) {
+            renderer.strokeRoundedRect(rect, radius, width, color);
+            return;
+        }
         renderer.fillRect({rect.x, rect.y, rect.w, width}, color);
         renderer.fillRect({rect.x, rect.bottom() - width, rect.w, width}, color);
         renderer.fillRect({rect.x, rect.y + width, width, rect.h - 2.0f * width}, color);
         renderer.fillRect({rect.right() - width, rect.y + width, width, rect.h - 2.0f * width}, color);
+    }
+
+    void fill(IRenderer2D& renderer, const Rect& rect, Color color, float radius)
+    {
+        if (radius > 0.0f) {
+            renderer.fillRoundedRect(rect, radius, color);
+        } else {
+            renderer.fillRect(rect, color);
+        }
+    }
+
+    // The corners of what a node draws as a box, in pixels of the screen (`theme` is the scaled one)
+    float radiusOf(kw::World& world, kw::Entity entity, const UiTheme& theme, float scale)
+    {
+        if (world.has<UiButton>(entity) || world.has<UiTextField>(entity)) {
+            return theme.radius;
+        }
+        if (world.has<UiPanel>(entity)) {
+            const float radius = world.get<UiPanel>(entity).radius;
+
+            return radius < 0.0f ? theme.radius : radius * scale;
+        }
+        return 0.0f;
+    }
+
+    // Is the point in the rectangle, without its cut corners?
+    bool insideShape(const Rect& rect, float radius, Vec2 point)
+    {
+        if (!rect.contains(point)) {
+            return false;
+        }
+        const float r = std::clamp(radius, 0.0f, std::min(rect.w, rect.h) / 2.0f);
+        const float dx = point.x - std::clamp(point.x, rect.x + r, rect.right() - r);   // from the middle of the nearest corner, if in one
+        const float dy = point.y - std::clamp(point.y, rect.y + r, rect.bottom() - r);
+
+        return dx * dx + dy * dy <= r * r;
     }
 }
 
@@ -673,6 +776,7 @@ bool kuge::UiLayout::handle(kw::World& world)
     result.rects.clear();
     result.clips.clear();
     result.drawOrder.clear();
+    result.truncated.clear();
     m_nodes.clear();
     auto view = world.view<UiNode>();
     for (kw::Entity entity : view) {
@@ -737,6 +841,32 @@ bool kuge::UiInteract::handle(kw::World& world)
         all.push_back(entity);
     }
     sortNodes(world, all);   // (the order of Tab: the order they were made)
+    // The nodes that take the clicks of what is under them, where they are drawn (their rectangle, cut by their clip)
+    std::map<kw::Entity, std::size_t> drawnAt;
+    std::vector<std::pair<std::size_t, Rect>> blockers;
+
+    for (std::size_t i = 0; i < layout.drawOrder.size(); ++i) {
+        const kw::Entity entity = layout.drawOrder[i];
+        const auto clip = layout.clips.find(entity);
+
+        drawnAt[entity] = i;
+        if (world.has<UiNode>(entity) && world.get<UiNode>(entity).blocksInput) {   // (the layout is of the last frame: it may be gone)
+            blockers.emplace_back(i, clip == layout.clips.end() ? layout.rects.at(entity) : intersection(layout.rects.at(entity), clip->second));
+        }
+    }
+    // A button that a blocking node covers entirely has no focus: the keys cannot land on what is covered. (One that
+    // is covered in part has, and the mouse presses it where it is not covered.)
+    const auto covered = [&](kw::Entity entity) {
+        const auto at = drawnAt.find(entity);
+
+        return at != drawnAt.end() && std::any_of(blockers.begin(), blockers.end(), [&](const auto& blocker) {
+            const Rect& rect = layout.rects.at(entity);
+
+            const Rect& over = blocker.second;
+
+            return blocker.first > at->second && over.x <= rect.x && over.y <= rect.y && over.right() >= rect.right() && over.bottom() >= rect.bottom();
+        });
+    };
     for (kw::Entity entity : all) {
         bool enabled = false;
 
@@ -762,7 +892,7 @@ bool kuge::UiInteract::handle(kw::World& world)
             field.hovered = field.focused = false;
             enabled = field.enabled;
         }
-        if (enabled && layout.rects.count(entity)) {
+        if (enabled && layout.rects.count(entity) && !covered(entity)) {
             usable.push_back(entity);
         }
     }
@@ -776,8 +906,26 @@ bool kuge::UiInteract::handle(kw::World& world)
         }
     };
 
+    // The button under the mouse: the one drawn last (on top) among those under it
+    std::optional<kw::Entity> hovered;
+    std::optional<kw::Entity> blocked;   // the node with blocksInput that the mouse is on, and that is drawn over what is under it
+    for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend() && !hovered && !blocked; ++it) {
+        const auto clip = layout.clips.find(*it);   // (what a scroll cuts cannot be pointed at)
+
+        if (!insideShape(layout.rects.at(*it), radiusOf(world, *it, theme, scale), mouse) || (clip != layout.clips.end() && !clip->second.contains(mouse))) {
+            continue;
+        }
+        if (std::find(usable.begin(), usable.end(), *it) != usable.end()) {
+            hovered = *it;
+        } else if (world.has<UiNode>(*it) && world.get<UiNode>(*it).blocksInput) {
+            blocked = *it;   // (what is under it is not looked at)
+        }
+    }
     if (usable.empty()) {
         state.hasFocus = false;
+        if (blocked && pressed(input, actions.click)) {
+            events.push_back({UiEvent::Kind::Blocked, *blocked, true});
+        }
         if (cancelled) {
             events.push_back({UiEvent::Kind::Cancelled, 0, false});
         }
@@ -791,16 +939,6 @@ bool kuge::UiInteract::handle(kw::World& world)
     const bool sliding = state.hasFocus && world.has<UiSlider>(state.focus);
     const kw::Entity slid = state.focus;
     const bool dragging = std::any_of(all.begin(), all.end(), [&](kw::Entity e) { return world.has<UiSlider>(e) && world.get<UiSlider>(e).dragging; });
-    // The button under the mouse: the one drawn last (on top) among those under it
-    std::optional<kw::Entity> hovered;
-    for (auto it = layout.drawOrder.rbegin(); it != layout.drawOrder.rend() && !hovered; ++it) {
-        const auto clip = layout.clips.find(*it);   // (what a scroll cuts cannot be pointed at)
-
-        if (std::find(usable.begin(), usable.end(), *it) != usable.end() && layout.rects.at(*it).contains(mouse)
-            && (clip == layout.clips.end() || clip->second.contains(mouse))) {
-            hovered = *it;
-        }
-    }
     const bool moved = mouse.x != state.lastMouse.x || mouse.y != state.lastMouse.y;
 
     state.lastMouse = mouse;
@@ -869,6 +1007,9 @@ bool kuge::UiInteract::handle(kw::World& world)
         }
     };
 
+    if (pressed(input, actions.click) && blocked) {
+        events.push_back({UiEvent::Kind::Blocked, *blocked, true});
+    }
     if (pressed(input, actions.click) && hovered) {
         focusOn(*hovered);
         if (world.has<UiTextField>(*hovered)) {
@@ -989,8 +1130,10 @@ bool kuge::UiRender::handle(kw::World& world)
         if (world.has<UiPanel>(entity)) {
             const UiPanel& panel = world.get<UiPanel>(entity);
 
-            renderer.fillRect(rect, panel.fill);
-            border(renderer, rect, panel.border, panel.borderWidth * scale);
+            const float radius = radiusOf(world, entity, theme, scale);
+
+            fill(renderer, rect, panel.fill, radius);
+            border(renderer, rect, panel.border, panel.borderWidth * scale, radius);
         }
         if (world.has<UiProgress>(entity)) {
             const UiProgress& bar = world.get<UiProgress>(entity);
@@ -1006,18 +1149,18 @@ bool kuge::UiRender::handle(kw::World& world)
         }
         if (world.has<UiButton>(entity)) {
             const UiButton& button = world.get<UiButton>(entity);
-            Color fill = theme.buttonFill;
+            Color fillColor = theme.buttonFill;
 
             if (!button.enabled) {
-                fill = theme.buttonDisabled;
+                fillColor = theme.buttonDisabled;
             } else if (button.pressed) {
-                fill = theme.buttonPressed;
+                fillColor = theme.buttonPressed;
             } else if (button.hovered || button.focused) {
-                fill = theme.buttonHover;
+                fillColor = theme.buttonHover;
             }
-            renderer.fillRect(rect, fill);
+            fill(renderer, rect, fillColor, theme.radius);
             if (button.focused) {
-                border(renderer, rect, theme.focusRing, theme.focusWidth);
+                border(renderer, rect, theme.focusRing, theme.focusWidth, theme.radius);
             }
             if (theme.font) {
                 const Vec2 size = theme.font->measure(button.text, 0);
@@ -1030,7 +1173,8 @@ bool kuge::UiRender::handle(kw::World& world)
             const UiImage& image = world.get<UiImage>(entity);
 
             if (image.texture) {
-                renderer.drawTexture({.texture = image.texture->id(), .source = image.source, .destination = rect, .tint = image.tint});
+                renderer.drawTexture({.texture = image.texture->id(), .source = image.source, .destination = rect, .rotation = image.rotation,
+                    .pivot = image.pivot, .tint = image.tint, .radius = image.radius * scale});
             }
         }
         if (world.has<UiSlider>(entity)) {
@@ -1087,8 +1231,8 @@ bool kuge::UiRender::handle(kw::World& world)
             const UiTextField& field = world.get<UiTextField>(entity);
             const IFont* font = fieldFont(field, theme, scale);
 
-            renderer.fillRect(rect, field.enabled ? theme.fieldFill : theme.buttonDisabled);
-            border(renderer, rect, field.focused ? theme.focusRing : theme.fieldBorder, field.focused ? theme.focusWidth : 2.0f * scale);
+            fill(renderer, rect, field.enabled ? theme.fieldFill : theme.buttonDisabled, theme.radius);
+            border(renderer, rect, field.focused ? theme.focusRing : theme.fieldBorder, field.focused ? theme.focusWidth : 2.0f * scale, theme.radius);
             if (font) {
                 const float room = rect.w - 2.0f * theme.padding - CARET_WIDTH * scale;
                 const float lineHeight = static_cast<float>(font->lineHeight());
@@ -1120,18 +1264,25 @@ bool kuge::UiRender::handle(kw::World& world)
         if (world.has<UiLabel>(entity)) {
             const UiLabel& label = world.get<UiLabel>(entity);
             const IFont* font = fontOf(label, theme, scale);
-            const int wrap = static_cast<int>(static_cast<float>(label.wrapWidth) * scale);
+            const int wrap = wrapOf(label, world.get<UiNode>(entity), scale);
 
             if (font && !label.text.empty()) {
-                const Vec2 size = font->measure(label.text, wrap);
+                const std::string shown = label.overflow == Overflow::Ellipsis ? ellipsized(*font, label.text, rect.w) : label.text;
+                const Vec2 size = font->measure(shown, wrap);
                 float x = rect.x;
 
-                if (label.align == TextAlign::Center) {
+                if (label.overflow != Overflow::None && size.x > rect.w) {
+                    if (label.overflow == Overflow::Scroll) {
+                        const Time& time = world.getResource<Time>();
+
+                        x -= scrolled(label, size.x - rect.w, scale, (static_cast<double>(time.tick) + time.alpha) * time.dt);
+                    }
+                } else if (label.align == TextAlign::Center) {
                     x += (rect.w - size.x) / 2.0f;
                 } else if (label.align == TextAlign::Right) {
                     x += rect.w - size.x;
                 }
-                text.draw(*font, label.text, {std::round(x), std::round(rect.y)}, label.color, wrap);
+                text.draw(*font, shown, {std::round(x), std::round(rect.y)}, label.color, wrap);
             }
         }
     }

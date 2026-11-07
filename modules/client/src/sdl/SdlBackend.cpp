@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 namespace
 {
@@ -17,6 +18,31 @@ namespace
     {
         throw BackendError(std::format("{}: {}", what, SDL_GetError()));
     }
+
+    // The outline of a rounded rectangle, clockwise from the left of the top edge: `segments` + 1 points on each corner
+    // (the same number whatever the radius, so that two outlines of one shape can be joined point to point)
+    std::vector<SDL_FPoint> roundedOutline(const Rect& rect, float radius, int segments)
+    {
+        constexpr float PI = 3.14159265358979f;
+        const float r = std::clamp(radius, 0.0f, std::max(std::min(rect.w, rect.h) / 2.0f, 0.0f));
+        const struct { float x, y, from; } corners[] = {
+            {rect.x + r, rect.y + r, 180.0f}, {rect.right() - r, rect.y + r, 270.0f},
+            {rect.right() - r, rect.bottom() - r, 0.0f}, {rect.x + r, rect.bottom() - r, 90.0f},
+        };
+        std::vector<SDL_FPoint> points;
+
+        points.reserve(4 * static_cast<std::size_t>(segments + 1));
+        for (const auto& corner : corners) {
+            for (int i = 0; i <= segments; ++i) {
+                const float angle = (corner.from + 90.0f * static_cast<float>(i) / static_cast<float>(segments)) * PI / 180.0f;
+
+                points.push_back({corner.x + r * std::cos(angle), corner.y + r * std::sin(angle)});
+            }
+        }
+        return points;
+    }
+
+    int segmentsFor(float radius) { return std::clamp(static_cast<int>(radius / 2.0f) + 3, 3, 16); }
 
     // Stops a part of SDL when the last one that needs it goes
     struct Subsystem
@@ -510,6 +536,95 @@ namespace
                 SDL_RenderDrawRectF(renderer(), &rect);
             }
 
+            void fillRoundedRect(const Rect& destination, float radius, Color color) override
+            {
+                if (radius <= 0.0f) {
+                    fillRect(destination, color);
+                    return;
+                }
+                const auto outline = roundedOutline(destination, radius, segmentsFor(radius));
+                std::vector<SDL_Vertex> vertices;
+                std::vector<int> indices;
+                const SDL_Color tint{color.r, color.g, color.b, color.a};
+
+                vertices.push_back({{destination.x + destination.w / 2.0f, destination.y + destination.h / 2.0f}, tint, {}});
+                for (const SDL_FPoint& point : outline) {
+                    vertices.push_back({point, tint, {}});
+                }
+                for (std::size_t i = 0; i < outline.size(); ++i) {   // a fan from the middle
+                    indices.insert(indices.end(), {0, static_cast<int>(i) + 1, static_cast<int>((i + 1) % outline.size()) + 1});
+                }
+                SDL_RenderGeometry(renderer(), nullptr, vertices.data(), static_cast<int>(vertices.size()), indices.data(), static_cast<int>(indices.size()));
+            }
+
+            void strokeRoundedRect(const Rect& destination, float radius, float width, Color color) override
+            {
+                if (width <= 0.0f) {
+                    return;
+                }
+                width = std::min(width, std::min(destination.w, destination.h) / 2.0f);
+                const int segments = segmentsFor(radius);
+                const Rect inner{destination.x + width, destination.y + width, destination.w - 2.0f * width, destination.h - 2.0f * width};
+                const auto outside = roundedOutline(destination, radius, segments);
+                const auto inside = roundedOutline(inner, std::max(radius - width, 0.0f), segments);
+                std::vector<SDL_Vertex> vertices;
+                std::vector<int> indices;
+                const SDL_Color tint{color.r, color.g, color.b, color.a};
+
+                for (std::size_t i = 0; i < outside.size(); ++i) {   // a strip between the two outlines
+                    vertices.push_back({outside[i], tint, {}});
+                    vertices.push_back({inside[i], tint, {}});
+                }
+                const int count = static_cast<int>(outside.size());
+
+                for (int i = 0; i < count; ++i) {
+                    const int next = (i + 1) % count;
+
+                    indices.insert(indices.end(), {2 * i, 2 * i + 1, 2 * next, 2 * i + 1, 2 * next + 1, 2 * next});
+                }
+                SDL_RenderGeometry(renderer(), nullptr, vertices.data(), static_cast<int>(vertices.size()), indices.data(), static_cast<int>(indices.size()));
+            }
+
+            // A picture with round corners, and turned: triangles with the coordinates of the picture, since SDL cannot cut it
+            void drawRoundedTexture(SDL_Texture* texture, const TextureDraw& draw)
+            {
+                int textureWidth = 0;
+                int textureHeight = 0;
+
+                SDL_QueryTexture(texture, nullptr, nullptr, &textureWidth, &textureHeight);
+                const Rect& to = draw.destination;
+                const Rect from = draw.source.w > 0.0f ? draw.source : Rect{0.0f, 0.0f, static_cast<float>(textureWidth), static_cast<float>(textureHeight)};
+                const auto outline = roundedOutline(to, draw.radius, segmentsFor(draw.radius));
+                const SDL_Color tint{draw.tint.r, draw.tint.g, draw.tint.b, draw.tint.a};
+                const float angle = draw.rotation * 3.14159265358979f / 180.0f;
+                const float pivotX = to.x + draw.pivot.x * to.w;
+                const float pivotY = to.y + draw.pivot.y * to.h;
+                const auto place = [&](SDL_FPoint point) {
+                    float u = to.w > 0.0f ? (point.x - to.x) / to.w : 0.0f;
+                    float v = to.h > 0.0f ? (point.y - to.y) / to.h : 0.0f;
+                    const float dx = point.x - pivotX;
+                    const float dy = point.y - pivotY;
+
+                    u = draw.flipX ? 1.0f - u : u;
+                    v = draw.flipY ? 1.0f - v : v;
+                    return SDL_Vertex{{pivotX + dx * std::cos(angle) - dy * std::sin(angle), pivotY + dx * std::sin(angle) + dy * std::cos(angle)}, tint,
+                        {(from.x + u * from.w) / static_cast<float>(textureWidth), (from.y + v * from.h) / static_cast<float>(textureHeight)}};
+                };
+                std::vector<SDL_Vertex> vertices;
+                std::vector<int> indices;
+
+                vertices.push_back(place({to.x + to.w / 2.0f, to.y + to.h / 2.0f}));
+                for (const SDL_FPoint& point : outline) {
+                    vertices.push_back(place(point));
+                }
+                for (std::size_t i = 0; i < outline.size(); ++i) {
+                    indices.insert(indices.end(), {0, static_cast<int>(i) + 1, static_cast<int>((i + 1) % outline.size()) + 1});
+                }
+                SDL_SetTextureColorMod(texture, 255, 255, 255);   // (the tint is in the vertices; a draw before this one left its own)
+                SDL_SetTextureAlphaMod(texture, 255);
+                SDL_RenderGeometry(renderer(), texture, vertices.data(), static_cast<int>(vertices.size()), indices.data(), static_cast<int>(indices.size()));
+            }
+
             void drawTexture(const TextureDraw& draw) override
             {
                 const auto found = m_textures.find(draw.texture);
@@ -518,6 +633,11 @@ namespace
                     return;
                 }
                 SDL_Texture* texture = found->second;
+
+                if (draw.radius > 0.0f) {
+                    drawRoundedTexture(texture, draw);
+                    return;
+                }
                 const SDL_FRect destination = toSdl(draw.destination);
                 const SDL_Rect source = {static_cast<int>(draw.source.x), static_cast<int>(draw.source.y),
                     static_cast<int>(draw.source.w), static_cast<int>(draw.source.h)};
