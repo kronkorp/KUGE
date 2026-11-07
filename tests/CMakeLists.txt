@@ -71,6 +71,7 @@ add_executable(kuge_tests
     core/engine_test.cpp
     core/fixed_timestep_test.cpp
     core/json_test.cpp
+    core/localization_test.cpp
     core/mailbox_test.cpp
     core/profiler_test.cpp
     core/random_test.cpp
