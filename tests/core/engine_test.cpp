@@ -230,6 +230,7 @@ Test(engine, engine_can_run_again)
     AssertEq(second.fixed, 2, "second run: stop() does not stay on");
 }
 
+#ifndef _WIN32   // (they read the handlers with sigaction)
 Test(engine, sigint_ends_run)
 {
     struct sigaction before = {};
@@ -311,6 +312,8 @@ Test(engine, two_engines_restore_handlers)
 }
 
 // One signal ends every engine that runs, not only one of them
+#endif
+
 Test(engine, one_signal_ends_both_engines)
 {
     Runner first(Loop::Then::Nothing, 0);

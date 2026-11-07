@@ -10,7 +10,9 @@ extern "C" {
 #include <filesystem>
 #include <limits>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/syscall.h>
+#endif
 #include <unistd.h>
 
 // NOTE: kronklab test names are limited to 31 characters.
@@ -200,6 +202,7 @@ Test(serializer, files_are_replaced_whole)
     Assert(throwsSerializerError([&] { kuge::writeFile(nowhere, first); }), "missing directory");
 }
 
+#ifndef _WIN32   // (fsync() is replaced by a counting one: a POSIX thing)
 // What writeFile asks of the disk. fsync() is replaced, in this program, by a function that counts
 // the calls (and can fail), then does the real thing.
 namespace
@@ -245,3 +248,4 @@ Test(serializer, files_reach_the_disk)
     AssertEq(std::filesystem::exists(path.string() + ".tmp"), false, "no temporary file left");
     std::filesystem::remove(path);
 }
+#endif
