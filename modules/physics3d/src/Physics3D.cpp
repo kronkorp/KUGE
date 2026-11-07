@@ -17,7 +17,9 @@
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -124,6 +126,30 @@ namespace
             case kuge::Collider3D::Shape::Sphere:
                 shape = new JPH::SphereShape(std::max(collider.size.x * std::max({sx, sy, sz}), MINIMUM));
                 break;
+            case kuge::Collider3D::Shape::Mesh: {
+                JPH::TriangleList triangles;
+
+                if (collider.mesh) {
+                    const auto& vertices = collider.mesh->vertices;
+                    const auto& indices = collider.mesh->indices;
+
+                    for (std::size_t i = 0; i + 2 < indices.size(); i += 3) {
+                        if (indices[i] < vertices.size() && indices[i + 1] < vertices.size() && indices[i + 2] < vertices.size()) {
+                            const auto at = [&](std::size_t k) { return JPH::Float3(vertices[indices[i + k]].x, vertices[indices[i + k]].y, vertices[indices[i + k]].z); };
+
+                            triangles.push_back(JPH::Triangle(at(0), at(1), at(2)));
+                        }
+                    }
+                }
+                const auto made = triangles.empty() ? JPH::ShapeSettings::ShapeResult() : JPH::MeshShapeSettings(triangles).Create();
+
+                // (a mesh with no triangle is a small box: a body needs a shape)
+                shape = made.IsValid() ? made.Get() : JPH::RefConst<JPH::Shape>(new JPH::BoxShape(JPH::Vec3(MINIMUM, MINIMUM, MINIMUM), 0.0f));
+                if (made.IsValid() && (sx != 1.0f || sy != 1.0f || sz != 1.0f)) {
+                    shape = new JPH::ScaledShape(shape, JPH::Vec3(sx, sy, sz));
+                }
+                break;
+            }
             case kuge::Collider3D::Shape::Capsule: {
                 const float radius = std::max(collider.size.x * std::max(sx, sz), MINIMUM);
 
@@ -482,6 +508,9 @@ struct kuge::Physics3D::Impl final : public JPH::ContactListener
 
         if (collider.trigger && type == Body3D::Type::Dynamic) {
             type = Body3D::Type::Kinematic;   // a zone does not need to fall
+        }
+        if (collider.shape == Collider3D::Shape::Mesh && !collider.trigger) {
+            type = Body3D::Type::Static;   // (a triangle mesh has no volume: it cannot be pushed, nor fall)
         }
         const JPH::EMotionType motion = type == Body3D::Type::Static ? JPH::EMotionType::Static
             : type == Body3D::Type::Kinematic ? JPH::EMotionType::Kinematic : JPH::EMotionType::Dynamic;

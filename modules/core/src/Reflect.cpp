@@ -356,7 +356,7 @@ void kuge::describeCore(ComponentRegistry& registry)
         field<Transform3D>("scale", &Transform3D::scale),
     });
     registry.describe<Collider3D>("Collider3D", {
-        field<Collider3D>("shape", &Collider3D::shape, {.names = {"Box", "Sphere", "Capsule"}}),
+        field<Collider3D>("shape", &Collider3D::shape, {.names = {"Box", "Sphere", "Capsule", "Mesh"}}),
         field<Collider3D>("size", &Collider3D::size),
         field<Collider3D>("offset", &Collider3D::offset),
         field<Collider3D>("layer", &Collider3D::layer),
