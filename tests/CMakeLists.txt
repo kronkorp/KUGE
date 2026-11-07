@@ -1,6 +1,7 @@
 # The tests include <unistd.h> for getpid() and setenv(): Windows gets them from here
 if(WIN32)
     include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/compat)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/FIunistd.h>)
 endif()
 
 # What needs no test framework runs on every platform: the boundaries, and the games played for real.

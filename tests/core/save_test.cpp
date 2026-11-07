@@ -267,6 +267,7 @@ Test(saves, checksum_is_crc32)
     AssertEq(kuge::checksum({}), 0u, "of nothing");
 }
 
+#ifndef _WIN32   // (XDG: Windows has %APPDATA%)
 Test(userdir, follows_the_xdg_variables)
 {
     Folder folder("userdir");
@@ -296,3 +297,4 @@ Test(userdir, follows_the_xdg_variables)
     if (oldConfig) { setenv("XDG_CONFIG_HOME", keepConfig.c_str(), 1); } else { unsetenv("XDG_CONFIG_HOME"); }
     if (oldData) { setenv("XDG_DATA_HOME", keepData.c_str(), 1); } else { unsetenv("XDG_DATA_HOME"); }
 }
+#endif
