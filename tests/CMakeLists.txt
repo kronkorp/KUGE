@@ -1,3 +1,8 @@
+# The tests include <unistd.h> for getpid() and setenv(): Windows gets them from here
+if(WIN32)
+    include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/compat)
+endif()
+
 # What needs no test framework runs on every platform: the boundaries, and the games played for real.
 add_subdirectory(boundaries)
 add_subdirectory(dll_ids)
@@ -149,11 +154,14 @@ target_compile_options(kuge_net_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_net_tests kuge_net_tests)
 
 # A socket whose send buffer is full: send() and sendto() are wrapped, so that a test can make them say "try again"
-add_executable(kuge_net_fault_tests net/udp_backpressure_test.cpp)
-target_link_libraries(kuge_net_fault_tests PRIVATE kuge-net kronklab-static)
-target_link_options(kuge_net_fault_tests PRIVATE -Wl,--wrap=send -Wl,--wrap=sendto)
-target_compile_options(kuge_net_fault_tests PRIVATE ${KUGE_WARNINGS})
-kuge_add_test(kuge_net_fault_tests kuge_net_fault_tests)
+# (GNU ld's --wrap: not on Windows)
+if(NOT WIN32)
+    add_executable(kuge_net_fault_tests net/udp_backpressure_test.cpp)
+    target_link_libraries(kuge_net_fault_tests PRIVATE kuge-net kronklab-static)
+    target_link_options(kuge_net_fault_tests PRIVATE -Wl,--wrap=send -Wl,--wrap=sendto)
+    target_compile_options(kuge_net_fault_tests PRIVATE ${KUGE_WARNINGS})
+    kuge_add_test(kuge_net_fault_tests kuge_net_fault_tests)
+endif()
 
 add_executable(kuge_logger_tests logger/logger_test.cpp)
 target_link_libraries(kuge_logger_tests PRIVATE kuge-logger kronklab-static)
