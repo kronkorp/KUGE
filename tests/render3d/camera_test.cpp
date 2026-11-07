@@ -86,6 +86,57 @@ Test(camera, a_glitch_is_not_a_hand)
     Assert(near(camera(fx).yaw, 250.0f * 0.0013f), "no more than 250 pixels count in a frame: %f", camera(fx).yaw);
 }
 
+Test(camera, the_punch_moves_the_view_only)
+{
+    Fixture fx;
+    kuge::CameraRig rig;
+
+    rig.pitch = 0.2f;
+    rig.punchPitch = 0.1f;
+    rig.punchYaw = -0.05f;
+    rig.look = false;
+    const kw::Entity entity = spawn(fx, 0.0f, 0.0f, 0.0f, rig);
+
+    fx.engine.step(0.0);
+    Assert(near(camera(fx).pitch, 0.3f) && near(camera(fx).yaw, -0.05f), "the camera has the aim and the punch: %f %f", camera(fx).pitch, camera(fx).yaw);
+    Assert(near(fx.world().get<kuge::CameraRig>(entity).pitch, 0.2f) && near(fx.world().get<kuge::CameraRig>(entity).yaw, 0.0f),
+        "and the rig keeps the aim");
+    fx.engine.step(0.0);
+    Assert(near(camera(fx).pitch, 0.3f), "a frame later it is not added again");
+}
+
+Test(camera, the_punch_goes_past_the_limit)
+{
+    Fixture fx;
+    kuge::CameraRig rig;
+
+    rig.punchPitch = 0.1f;
+    const kw::Entity entity = spawn(fx, 0.0f, 0.0f, 0.0f, rig);
+
+    for (int i = 0; i < 10; ++i) {
+        moveMouse(fx, 0.0f, -250.0f);
+        fx.engine.step(0.0);
+    }
+    Assert(near(fx.world().get<kuge::CameraRig>(entity).pitch, 1.5f), "the aim stops at maxPitch");
+    Assert(near(camera(fx).pitch, 1.6f), "and the view goes over it by the punch, whole: %f", camera(fx).pitch);
+}
+
+Test(camera, the_mouse_does_not_touch_it)
+{
+    Fixture fx;
+    kuge::CameraRig rig;
+
+    rig.punchPitch = 0.1f;
+    rig.punchYaw = 0.2f;
+    const kw::Entity entity = spawn(fx, 0.0f, 0.0f, 0.0f, rig);
+
+    moveMouse(fx, 100.0f, -40.0f);
+    fx.engine.step(0.0);
+    Assert(near(fx.world().get<kuge::CameraRig>(entity).yaw, 0.13f), "the mouse turned the aim only");
+    Assert(near(fx.world().get<kuge::CameraRig>(entity).punchYaw, 0.2f) && near(fx.world().get<kuge::CameraRig>(entity).punchPitch, 0.1f),
+        "and the punch is as the game set it");
+}
+
 Test(camera, orbit_stays_behind)
 {
     Fixture fx;

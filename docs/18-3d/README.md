@@ -185,6 +185,10 @@ a ray something is (negative: nothing), usually a physics' raycast, and the came
 the way the player looks. There is no roll (`k3::Camera` has none). `sensitivity` is in radians per pixel (0.0013:
 0.075 degrees), and `maxMove` is the most pixels that count in one frame (a jump of the mouse is not a hand).
 
+A recoil, a flinch or a shake is `rig.punchPitch` and `rig.punchYaw` (radians): they are added to the camera after the clamp of `pitch`, and the
+mouse never writes them, so `yaw` and `pitch` stay the aim that a game sends. The game sets them each frame (and brings them back to 0). Near
+`maxPitch` the view goes over the limit by the punch, which a camera that is almost straight up should not be given.
+
 The SDL backend looks after the mouse of a mouse look: it gives it back when the window loses the focus and takes it
 again when it gets it back, and the first move after it is taken carries no delta (the cursor is brought to the
 middle of the window). A game should let the player free the mouse (Arena: Esc gives it, a click takes it).

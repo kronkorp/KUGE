@@ -37,7 +37,7 @@ namespace kuge
      *     world.add<kuge::CameraRig>(player, kuge::CameraRig{});                              // first person
      *     world.add<kuge::CameraRig>(player, kuge::CameraRig{.mode = kuge::CameraRig::Mode::Orbit, .distance = 6.0f});
      *
-     * The game reads `yaw` to steer the entity the way it looks. There is no roll: k3::Camera has none.
+     * The game reads `yaw` to steer the entity the way it looks (`punchYaw` and `punchPitch` move the view without moving that aim). There is no roll: k3::Camera has none.
      */
     ////////////////////////////////////////////////////////////////////////////
     struct CameraRig
@@ -52,6 +52,11 @@ namespace kuge
         float distance = 5.0f;                         //!< Orbit only
         float yaw = 0.0f;                              //!< Radians, as k3::Camera: positive turns right
         float pitch = 0.0f;                            //!< Radians, positive looks up
+        //! An offset of the view, apart from the aim: a recoil, a flinch, a shake. Radians, 0 by default. `UpdateCamera` adds them to
+        //! the camera after the clamp of `pitch` (so near `maxPitch` the view goes over it by the punch, and the aim stays at the limit),
+        //! and the mouse never writes them: the game sets them each frame, and `yaw` and `pitch` stay what the game sends as its aim.
+        float punchYaw = 0.0f;
+        float punchPitch = 0.0f;
         float sensitivity = 0.0013f;                   //!< Radians per pixel of the mouse (0.075 degrees)
         float maxMove = 250.0f;                        //!< The most pixels of mouse that count in a frame: more is a glitch, not a hand
         float minPitch = -1.5f;                        //!< (a little less than a quarter turn: not straight down)
