@@ -36,9 +36,21 @@ inline int unsetenv(const char* name)
 #undef near
 #undef far
 
+inline const char* kugeDiagWhat(EXCEPTION_RECORD* r)
+{
+    if (r->ExceptionCode != 0xE06D7363 || r->NumberParameters < 3) {
+        return "(not a C++ exception)";
+    }
+    __try {
+        return reinterpret_cast<std::exception*>(r->ExceptionInformation[1])->what();
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return "(not a std::exception)";
+    }
+}
+
 inline const int kugeDiagInstalled = [] {
     SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* p) -> LONG {
-        std::fprintf(stderr, "DIAG unhandled exception code 0x%08lX at %p\n", p->ExceptionRecord->ExceptionCode, p->ExceptionRecord->ExceptionAddress);
+        std::fprintf(stderr, "DIAG unhandled exception code 0x%08lX: %s\n", p->ExceptionRecord->ExceptionCode, kugeDiagWhat(p->ExceptionRecord));
         std::fflush(stderr);
         return EXCEPTION_CONTINUE_SEARCH;
     });
