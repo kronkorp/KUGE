@@ -10,12 +10,6 @@ each with its pull request.
   (v0.1.3: a process for each test, MSVC's sections). The tests that wrap `send` with GNU ld's `--wrap`
   (`kuge_net_fault_tests`) are not built on Windows.
 
-- [ ] **`kuge.dll` gives other ids than the program** (ticket 039, kronkworld). `KUGE_BUILD_SHARED` is off by default on
-  Windows as a workaround. The fix is in `vendor/kronkworld`: `ResourceManager::id<R>()` and `ComponentManager::id<C>()`
-  must take their number from a function defined in a `.cpp` and exported (a map type name -> id under a mutex; the
-  name from `__PRETTY_FUNCTION__` / `__FUNCSIG__`), and `get<R>()` should check the type it returns. When it is in,
-  the test `dll_ids_differ` turns red: delete it with the guard in `CMakeLists.txt`.
-
 ## Scripts
 
 `kuge-script` (Lua, [docs/20-scripts](docs/20-scripts/README.md), ticket 043) is in: engine, `ScriptSystem`, hot reload,
@@ -40,6 +34,8 @@ What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet:
 
 ## Done
 
+- [x] `kuge.dll` gives the same ids as the program (ticket 039): kronkworld numbers its types by name, from one table
+  (kronkworld #27), and `KUGE_BUILD_SHARED` is ON on Windows too.
 - [x] `vendor/kronknet` is bumped to its `main` (`4c42839`): kronknet #41 and #42 are in, and so are Windows and
   IPv6 (#33).
 - [x] A spawned `RunPolicy::Main` scene that throws is logged and stopped, and no longer brings down `Engine::step()`
