@@ -20,6 +20,7 @@ inline int unsetenv(const char* name)
 // DIAGNOSTIC (branch fix/win-diag, not to be merged): say why a test process dies
 #include <cstdio>
 #include <cstdlib>
+#include <cwchar>
 #include <typeinfo>
 #include <exception>
 #ifndef NOMINMAX
