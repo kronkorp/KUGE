@@ -267,6 +267,11 @@ endif()
 
 if(BUILD_TESTS)
     enable_testing()
+    # kronklab finds the tests between two markers of a section: the padding of an incremental link (the default of
+    # MSVC without a build type, as with Ninja) would be read as tests, its own too (so this is before it is made)
+    if(MSVC)
+        add_link_options(/INCREMENTAL:NO)
+    endif()
     FetchContent_MakeAvailable(kronklab)
     add_subdirectory(tests)
 endif()
