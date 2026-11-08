@@ -276,7 +276,7 @@ Test(sdl, textures_can_go)
     Assert(close(pixel(renderer.readPixels(), 5, 5), kuge::colors::Black), "nothing was drawn");
 }
 
-#ifndef _WIN32   // (fails on Windows: #162)
+#ifndef _WIN32   // (SDL's dummy video driver has no relative mouse mode on Windows, by nature: it needs a real window. #162)
 Test(sdl, mouse_can_be_relative)
 {
     useNoScreen();

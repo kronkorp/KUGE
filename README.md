@@ -132,8 +132,8 @@ them). What differs from Linux:
 - Ctrl+C and Ctrl+Break end `run()` as SIGINT does (Windows has no SIGTERM to send).
   `kuge_rtype_server` also stops on `quit` typed in its terminal.
 - The player's folders (`userDirectory`) are both in `%APPDATA%`.
-- The unit tests are built and run (kronklab starts a process for each test there), except 8 that fail on
-  Windows and are left out, each with its issue (#155 to #162). `ctest` also runs the boundaries and the games
+- The unit tests are built and run (kronklab starts a process for each test there), except one that needs a
+  real window and is left out (#162). `ctest` also runs the boundaries and the games
   played for real: `pong_smoke`, `platformer_smoke`, and `rtype_smoke` and `arena3d_smoke`, which need the `sh`
   of Git for Windows. The tests that wrap `send` at link time (`--wrap`, GNU ld) are not built.
 - `KUGE_SANITIZE` is for GCC and Clang only.

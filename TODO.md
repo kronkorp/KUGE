@@ -5,10 +5,10 @@ each with its pull request.
 
 ## Windows
 
-- [ ] **8 unit tests are left out on Windows** (`#ifndef _WIN32`, #155 to #162: a signal, a file name, the rotation of
-  logs, a TCP refusal, SDL's offscreen screenshot...). Each issue has what was seen. kronklab itself runs there
-  (v0.1.3: a process for each test, MSVC's sections). The tests that wrap `send` with GNU ld's `--wrap`
-  (`kuge_net_fault_tests`) are not built on Windows.
+- [ ] **1 unit test is left out on Windows**: `sdl:mouse_can_be_relative` (`#ifndef _WIN32`, #162). SDL's dummy video
+  driver has no relative mouse mode there ("No relative mode implementation available"): it needs a real window.
+  kronklab itself runs there (v0.1.3: a process for each test, MSVC's sections). The tests that wrap `send` with GNU
+  ld's `--wrap` (`kuge_net_fault_tests`) are not built on Windows.
 
 ## Scripts
 
@@ -31,6 +31,10 @@ What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet:
   the 3D examples have not been seen on a Windows machine.
 
 ## Done
+
+- [x] 7 of the 8 unit tests that were left out on Windows run there (#155 to #161): `raise(SIGINT)` ends the Engine, two
+  tests wrote `/tmp` or deleted a file that was still open, SdlAudio no longer leaves a refused file open, and kronknet
+  sets `TCP_NODELAY` (one message per 200 ms on Windows otherwise) and sees a refused `connect()` (`select`).
 
 - [x] Each mod has its own memory limit (`ScriptOptions::modMemory`, 16 MiB), kept by an owner in the header of every block of Lua.
 - [x] `kuge.dll` gives the same ids as the program (ticket 039): kronkworld numbers its types by name, from one table
