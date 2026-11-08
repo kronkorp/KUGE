@@ -9,9 +9,13 @@
 #include <cmath>
 #include <deque>
 #include <format>
+#include <fstream>
+#include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <string>
 
 namespace
 {
@@ -143,7 +147,15 @@ namespace
 
             SoundId loadSound(const std::filesystem::path& file) override
             {
-                Mix_Chunk* chunk = Mix_LoadWAV(sdlPath(file).c_str());
+                // The file is read here and SDL_mixer decodes it from memory: it never holds the file, so a file it refuses
+                // (not a sound) can be deleted at once (on Windows an open file cannot)
+                std::ifstream in(file, std::ios::binary);
+                const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+                if (!in.is_open() || bytes.empty() || bytes.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+                    throw AudioError(std::format("cannot load the sound '{}': the file cannot be read, or is empty", file.string()));
+                }
+                Mix_Chunk* chunk = Mix_LoadWAV_RW(SDL_RWFromConstMem(bytes.data(), static_cast<int>(bytes.size())), 1);
 
                 if (!chunk) {
                     throw AudioError(std::format("cannot load the sound '{}': {}", file.string(), Mix_GetError()));
