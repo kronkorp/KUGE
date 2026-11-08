@@ -108,8 +108,10 @@ pass are skipped, and once `runOnce` has returned normally, the exception is thr
 `step()` (or, for a spawned scene, is logged and stops it: step 7).
 
 The scene also keeps the handle of every system it added. When it is left, `Scene::shutdown` removes them, last
-added first, **while the World and its resources still exist**. A system that holds something (a texture, a
-connection) can release it before the World goes away.
+added first, **while the World, its resources and the members of the derived scene still exist**. A system that
+holds something (a texture, a connection, a member of its scene) can release it before any of them goes away. (A bare
+`kw::World` destroys its systems before its resources since kronkworld 1.0.1, but it knows nothing of the scene
+around it, which is why the scene keeps this list.)
 
 ## Lab
 
