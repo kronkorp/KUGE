@@ -33,6 +33,8 @@ inline int unsetenv(const char* name)
 #define NOGDI
 #endif
 #include <windows.h>
+#undef near
+#undef far
 
 inline const int kugeDiagInstalled = [] {
     SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* p) -> LONG {
