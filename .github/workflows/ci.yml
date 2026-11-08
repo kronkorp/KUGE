@@ -60,7 +60,7 @@ jobs:
           path: |
             vcpkg-cache
             .vcpkg/downloads
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
       - name: Cache the compiler's work
         uses: actions/cache@v4
@@ -72,25 +72,33 @@ jobs:
             ccache-${{ runner.os }}-
 
       # vcpkg is cloned and installs vcpkg.json here, as on a contributor's machine (no VCPKG_ROOT)
+      # (Three tries: vcpkg downloads some sources from their own sites, which time out now and then)
       - name: Configure
+        id: configure
         env:
           VCPKG_ROOT: ""
         run: |
           mkdir -p vcpkg-cache
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          for attempt in 1 2 3; do
+            cmake -S . -B build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache && exit 0
+            echo "Configure failed (attempt $attempt of 3)"
+          done
+          exit 1
 
-      # Kept even if KUGE fails to build or test: building SDL takes longer than the rest
+      # Kept even if KUGE fails to build or test: building SDL takes longer than the rest. But only once the
+      # Configure step went through, which is when vcpkg has installed everything: a cache saved after a failed
+      # download (lua.org times out now and then) would be restored by every later run and never completed.
       - name: Save what vcpkg built
-        if: ${{ !cancelled() && steps.vcpkg-restore.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.configure.outcome == 'success' && steps.vcpkg-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |
             vcpkg-cache
             .vcpkg/downloads
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
       - name: Build
         run: cmake --build build -j "$(nproc)"
@@ -145,29 +153,38 @@ jobs:
           path: |
             vcpkg-cache
             .vcpkg/downloads
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
       # (Ninja needs the compiler in the environment, as a Developer PowerShell has it)
       - uses: ilammy/msvc-dev-cmd@v1
 
       # vcpkg is cloned and installs vcpkg.json here, as on a contributor's machine. (Not the
       # runner's vcpkg, nor Visual Studio's, which the Developer PowerShell puts in VCPKG_ROOT.)
+      # (Three tries: vcpkg downloads some sources from their own sites, which time out now and then)
       - name: Configure
+        id: configure
         env:
           VCPKG_ROOT: ""
         run: |
           New-Item -ItemType Directory -Force -Path vcpkg-cache | Out-Null
-          cmake -S . -B build ${{ matrix.generator == 'Ninja' && '-G Ninja' || '' }} -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON
+          foreach ($attempt in 1..3) {
+            cmake -S . -B build ${{ matrix.generator == 'Ninja' && '-G Ninja' || '' }} -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "Configure failed (attempt $attempt of 3)"
+          }
+          exit 1
 
-      # Kept even if KUGE fails to build or test: building SDL takes longer than the rest
+      # Kept even if KUGE fails to build or test: building SDL takes longer than the rest. But only once the
+      # Configure step went through, which is when vcpkg has installed everything: a cache saved after a failed
+      # download (lua.org times out now and then) would be restored by every later run and never completed.
       - name: Save what vcpkg built
-        if: ${{ !cancelled() && steps.vcpkg-restore.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.configure.outcome == 'success' && steps.vcpkg-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: |
             vcpkg-cache
             .vcpkg/downloads
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
       - name: Build
         run: cmake --build build --config Release --parallel

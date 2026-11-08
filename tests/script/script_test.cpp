@@ -276,6 +276,22 @@ Test(script, random_follows_the_seed)
     Assert(!scripts.call(world, "bad").ok && !scripts.call(world, "big").ok, "an empty or too large interval is refused");
 }
 
+Test(script, scripts_share_one_state)
+{
+    Fixture f;
+
+    // Two mods, one Lua state: `local` is private to a file, a global is shared, and the last `update` replaces the first...
+    f.scripts.loadString("local mine = 1 shared = 'a' function update() world:spawn{Enemy = {level = 1}} end", "first.lua");
+    f.scripts.loadString("local mine = 2 assert(shared == 'a') function update() world:spawn{Enemy = {level = 2}} end", "second.lua");
+    Assert(f.ok(), "%s", f.why().c_str());
+    Assert(f.registry.entitiesWith(f.world, {"Enemy"}).size() == 1 && f.world.get<Enemy>(0).level == 2, "the second update replaced the first");
+
+    // ... unless it calls the one it found (how mods are made to live together)
+    f.scripts.loadString("local previous = update function update() if previous then previous() end world:spawn{Enemy = {level = 3}} end", "third.lua");
+    Assert(f.ok(), "%s", f.why().c_str());
+    Assert(f.registry.entitiesWith(f.world, {"Enemy"}).size() == 3 && f.world.get<Enemy>(2).level == 3, "chained: the previous update ran too");
+}
+
 Test(script, has_a_function)
 {
     Fixture f;

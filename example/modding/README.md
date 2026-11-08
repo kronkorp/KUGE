@@ -1,7 +1,8 @@
 # Catch, and a mod next to it
 
 A game of 250 lines (`Catch.hpp`, `main.cpp`) made to be modded: things fall, you catch them with a paddle.
-The score is in the title of the window.
+The score is in the title of the window. The whole story of mods and scripts is [chapter 20](../../docs/20-scripts/README.md);
+this is the example it refers to.
 
 ```
 build/example/kuge_modding              # the game with the mod in mods/golden
