@@ -24,7 +24,7 @@ Read them in order the first time. Each page stands alone afterwards.
 | [09 The server](09-the-server/README.md) | A lobby, rooms, tokens, and how a player is matched to a game |
 | [10 Replication and prediction](10-replication-and-prediction/README.md) | Showing a world to clients, interpolation, and making your own player answer at once |
 | [18 3D](18-3d/README.md) | Models, animation, cameras, Jolt physics, 3D on a network, and Arena, a 3D game in three programs |
-| [20 Scripts](20-scripts/README.md) | Lua in a sandbox: a mod that changes behaviour, reading and writing the world by name |
+| [20 Scripts and mods in Lua](20-scripts/README.md) | How a mod works (data and Lua scripts), the `world` table, the sandbox, making a game moddable, hot reload, multiplayer, errors |
 
 ## Make R-Type, from A to Z
 

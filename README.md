@@ -50,6 +50,7 @@ R-Type, as a dedicated server, a client and a host, from an empty folder to test
 | Linux (GCC) and Windows (MSVC) | done |
 | 3D: scenes, models (OBJ, glTF), animation, cameras, physics (Jolt), replication and prediction | done |
 | A 3D game, three ways (Arena: server, client, host) | done |
+| Mods (data, resources) and Lua scripts in a sandbox, hot reload | done |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
 
@@ -108,7 +109,8 @@ above are):
   The vcpkg used is the toolchain given with `-DCMAKE_TOOLCHAIN_FILE`, or else the one in
   `VCPKG_ROOT`, or else vcpkg cloned at the baseline into `.vcpkg/` (`cmake/Vcpkg.cmake`). With
   `-DKUGE_BUILD_CLIENT=OFF`, none of them is built. The 3D physics (Jolt) comes from vcpkg too, with
-  its `rtti` feature (KUGE is built with RTTI); `-DKUGE_BUILD_PHYSICS3D=OFF` leaves it out.
+  its `rtti` feature (KUGE is built with RTTI); `-DKUGE_BUILD_PHYSICS3D=OFF` leaves it out. Lua (the scripts)
+  comes from vcpkg too (the `script` feature); `-DKUGE_BUILD_SCRIPT=OFF` leaves it out.
 
 A game that fetches KUGE as a subproject lists SDL2 & co. in its own `vcpkg.json`, and gives the
 vcpkg toolchain to its own build: vcpkg only reads the manifest of the top-level project.
@@ -1143,6 +1145,42 @@ It also shows a rule of thumb: the client and the room must agree on the clock. 
 "16 ms" instead of 1/60 s ran 4 % faster than its room, and its inputs piled up; the room keeps two inputs of
 margin (`InputServerConfig::jitter`), and the scripted runs keep an absolute schedule.
 
+## Script module (`kuge-script`)
+
+Mods and Lua scripts: a mod is a folder that changes the game's data and resources and, if the game allows it, adds behaviours
+written in Lua. **The game decides what is moddable** by describing components to a `ComponentRegistry`; a script reads and
+writes exactly those, by name, through one table (`world`), inside a sandbox. The whole explanation, with the Lua side, the C++ side,
+the limits and a table of error messages, is [docs/20-scripts](docs/20-scripts/README.md); the working example is
+[`example/modding`](example/modding/README.md).
+
+```cpp
+auto mods = kuge::Mods::scan("mods");                                    // mods/<name>/mod.json, data/, resources/, scripts/*.lua
+kuge::ScriptEngine scripts(registry);                                    // registry: the components the game describes
+for (const auto& file : mods.scripts()) { scripts.load(file); }          // @throw ScriptError: "mods/x/scripts/a.lua:12: ..."
+scene.addSystem(kuge::stage::Simulation, std::make_unique<kuge::ScriptSystem>(shared_scripts));   // update(dt) at each tick
+```
+
+```lua
+function update(dt)
+    for _, e in ipairs(world:view{"Transform2D", "Enemy"}) do                  -- by ascending number
+        local x = world:get(e, "Transform2D", "position")[1] - 2 * dt
+        world:set(e, "Transform2D", "position", {x, 0})                        -- checked: type, name, limits; all or nothing
+    end
+    if math.random() < 0.01 then world:spawn{Transform2D = {position = {10, 0}}, Enemy = {}} end
+end
+```
+
+- **`world`**: `view`, `get`, `set`, `has`, `add`, `drop`, `spawn`, `remove`, `components`. Values are what the registry writes in JSON.
+- **Sandbox**: no `io`, `os`, `package`, `debug`, `load`, `dofile`; text chunks only. An **instruction budget** per load and per call
+  (1,000,000 by default; `pcall` and coroutines do not get around it) and a **memory limit** (64 MiB). `math.random` is KUGE's generator
+  seeded from the tick, and there is no clock, so the same world and tick give the same result.
+- **A script that fails is stopped, not the game**: logged once with file and line, and not called again until a reload or `restart()`.
+- **Hot reload** (`ScriptSystemOptions::reloadEvery`, a decision of the game, off by default): a changed file reloads every script in a new
+  state; a script that does not load changes nothing.
+- **Multiplayer**: the scripts are in `Mods::fingerprint()`, so a client whose scripts differ from the room's is refused (`JoinError::Mods`).
+  Each side builds its own `ScriptEngine` with its own registry: that is how the room runs the rules and a client only its effects.
+- All scripts of all mods share **one** Lua state, so the last `function update` wins: chain with `local previous = update` (2.6 of the chapter).
+
 ## Physics module (`kuge-physics`)
 
 It needs the core only, so a server has it too. Add it to a scene:
@@ -1197,6 +1235,8 @@ All are text, meant to be edited by hand, and a mistake names the line it is on.
 | `.tilemap` | `TileMap::load` | `TileMap::save` |
 | `.anim` | `AnimationSet::load` | (by hand) |
 | `.ksave` (binary) | `SaveSlots::read` | `SaveSlots::write` |
+| `mod.json` (a mod's name, version, dependencies) | `Mods::scan` | (by hand) |
+| `.lua` (a mod's script, in `scripts/`) | `ScriptEngine::load` | (by hand) |
 
 Saves and network messages use the binary `ByteWriter` / `ByteReader`. Files are written
 atomically (a temporary file, then a rename), so a crash never leaves half a file.
@@ -1219,6 +1259,8 @@ ctest --test-dir build --output-on-failure
 | `kuge_rtype_tests` | R-Type: the rules, a host (server and client in one process), a dedicated server over sockets with four pilots, the server stopping with players |
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
+| `kuge_script_tests` | script: a world read and written by name (wrong values refused, all or nothing), `view`/`spawn`/`remove`, the budget (a loop, `pcall`, a coroutine, the top level), the memory limit, the sandbox (no `io`, no bytecode), errors with file and line, the seeded `math.random`, scripts sharing one state, `ScriptSystem` (a failure stops it, a new seed each tick), hot reload (a bad edit changes nothing), and the example mods |
+| `modding_smoke` | the real `kuge_modding` plays 400 frames with and without its mod: the mod's gold coin is in the picture only with it |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
 | `kuge_render3d_tests` | render3d: sounds at a place (volume, pan, range), particles that are drawn, fall and fade, an orbit camera that stops at walls, a model drawn and lit, the GPU and the CPU drawing the same picture (with an offscreen OpenGL context), the transform and its interpolation, 2D over 3D, models from files (OBJ, glTF, in the background, reloaded), animation (clips, cues, the next clip, a replicated clip), mouse look and cameras |
 | `kuge_physics3d_tests` | physics3d: bodies that fall and rest, kinematic bodies, triggers, layers, rays, characters that stay upright, bit-for-bit replay, and Jolt in a server with a predicting client |
@@ -1255,7 +1297,8 @@ modules/client/       kuge-client (input/, render/, animation/, audio/, ui/, bac
 modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net, Matchmaking)
 modules/server/       kuge-server (GameServer, the lobby, RoomScene)
 modules/replication/  kuge-replication (registry, snapshots, interpolation, inputs, prediction)
-example/              the headless example, pong/, platformer/, chat/, rtype/ and arena3d/ (common, server, client, host)
+modules/script/       kuge-script (ScriptEngine: Lua in a sandbox, ScriptSystem)
+example/              the headless example, pong/, platformer/, chat/, rtype/, arena3d/ (common, server, client, host), modding/ (a game and its mod) and mods/ (an example mod)
 tests/                one folder per module, and the boundary tests
 vendor/               submodules: kronkworld, kronkpool, kronknet, kronk3d
 ```

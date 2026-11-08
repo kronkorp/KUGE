@@ -2,6 +2,7 @@ extern "C" {
     #include "kronklab/kronklab.h"
 }
 #include "Mods.hpp"
+#include "Random.hpp"
 #include "ScriptSystem.hpp"
 #include "Time.hpp"
 #include "Transform2D.hpp"
@@ -111,6 +112,42 @@ Test(script_system, the_example_mod)
             Assert(game.xs() == first, "the same ticks give the same enemies in the same places (seeded random, fixed dt)");
         }
     }
+}
+
+// The snippet of docs/20-scripts (3.6): a mod tested with no game and no window
+Test(script_system, golden_with_no_game)
+{
+    struct Faller
+    {
+        float speed = 120.0f;
+        int   value = 1;
+    };
+    kuge::ComponentRegistry registry;
+
+    kuge::describeCore(registry);
+    registry.describe<Faller>("Faller", {
+        kuge::field<Faller>("speed", &Faller::speed, {.min = 0.0, .max = 1000.0}),
+        kuge::field<Faller>("value", &Faller::value, {.min = 1.0, .max = 100.0}),
+    });
+    const auto mods = kuge::Mods::scan(GOLDEN_MODS_DIR);
+    kuge::ScriptEngine scripts(registry);
+
+    for (const auto& file : mods.scripts()) {
+        scripts.load(file);
+    }
+    kw::World world;
+    const std::array<double, 1> dt{1.0 / 60.0};
+
+    for (std::uint32_t tick = 0; tick < 720; ++tick) {
+        scripts.seed(kuge::seedFor(0, tick));
+        const auto result = scripts.call(world, "update", dt);
+
+        Assert(result.ok, "%s", result.message.c_str());
+    }
+    const auto coins = registry.entitiesWith(world, {"Faller"});
+
+    Assert(coins.size() == 2, "two gold coins in twelve seconds: %zu", coins.size());
+    Assert(world.get<Faller>(coins[0]).value == 5 && world.get<Faller>(coins[0]).speed == 240.0f, "worth 5, falling at 240");
 }
 
 Test(script_system, a_failure_stops_it)
