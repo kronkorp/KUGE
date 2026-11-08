@@ -73,7 +73,7 @@ include(FetchContent)
 FetchContent_Declare(
     kronklab
     GIT_REPOSITORY https://github.com/kronkorp/kronklab.git
-    GIT_TAG        49c8467d76c5cff17e06b0cb4284fe1b47f35df8
+    GIT_TAG        bb62d5b80bd99894ba08583ff9a606c5a873194d
 )
 
 # kronkflow depends on kronkpool, which KUGE also uses directly: both must be
