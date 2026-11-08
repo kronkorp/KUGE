@@ -286,17 +286,18 @@ Test(logger, categories_have_levels)
     AssertEq(ring->snapshot().size(), 4u, "enable(false) silences the categories too");
 }
 
-#ifndef _WIN32   // (fails on Windows: #157)
 Test(logger, files_are_rotated)
 {
     const auto folder = std::filesystem::temp_directory_path() / ("kuge_log_" + std::to_string(::getpid()));
-    Logger logger;
+    {
+        Logger logger;
 
-    logger.setLevel(LoggerLevel::DEBUG);
-    logger.logToFile(folder / "latest.log", 400);
-    for (int i = 0; i < 30; ++i) {
-        logger.info("a line that takes some room, number {}", i);
-    }
+        logger.setLevel(LoggerLevel::DEBUG);
+        logger.logToFile(folder / "latest.log", 400);
+        for (int i = 0; i < 30; ++i) {
+            logger.info("a line that takes some room, number {}", i);
+        }
+    }   // (the logger lets go of latest.log: Windows cannot delete a file that is open)
     const auto size = [&](const char* name) { return std::filesystem::exists(folder / name) ? std::filesystem::file_size(folder / name) : 0; };
 
     Assert(size("previous.log") > 0, "the full file became previous.log");
@@ -311,4 +312,3 @@ Test(logger, files_are_rotated)
     Assert(last.find("number 29") != std::string::npos, "the newest line is in latest.log: %s", last.c_str());
     std::filesystem::remove_all(folder);
 }
-#endif
