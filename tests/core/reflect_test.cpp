@@ -170,6 +170,29 @@ Test(reflect, names_are_unique)
     AssertEq(registry.all().size(), 1u, "in registration order");
 }
 
+Test(reflect, entities_with_components)
+{
+    Fixture f;
+    const kw::Entity a = f.world.spawn(Health{}, kuge::Transform2D{});
+    const kw::Entity b = f.world.spawn(Health{});
+    const kw::Entity c = f.world.spawn(kuge::Transform2D{}, Health{});
+
+    f.world.remove(f.entity);
+    const auto both = f.registry.entitiesWith(f.world, {"Health", "Transform2D"});
+
+    Assert(both.size() == 2 && both[0] == a && both[1] == c, "the entities that have all of them, by ascending number");
+    Assert(f.registry.entitiesWith(f.world, {"Health"}).size() == 3 && b != a, "one component");
+    Assert(f.registry.entitiesWith(f.world, {}).empty(), "no component, no entity");
+    bool threw = false;
+
+    try {
+        f.registry.entitiesWith(f.world, {"Health", "Mana"});
+    } catch (const std::invalid_argument& e) {
+        threw = std::string(e.what()).find("Mana") != std::string::npos;
+    }
+    Assert(threw, "a component that is not described is named");
+}
+
 Test(reflect, the_core_is_described)
 {
     Fixture f;

@@ -16,6 +16,16 @@ each with its pull request.
   name from `__PRETTY_FUNCTION__` / `__FUNCSIG__`), and `get<R>()` should check the type it returns. When it is in,
   the test `dll_ids_differ` turns red: delete it with the guard in `CMakeLists.txt`.
 
+## Scripts
+
+`kuge-script` (Lua, [docs/20-scripts](docs/20-scripts/README.md)) has its engine: sandbox, budget, memory limit, seeded
+`math.random`, the world by name. Not there yet (ticket 043):
+
+- [ ] A `ScriptSystem` (`kw::ISystem`) that calls `update(dt)` in a stage the game chooses and sends `print` to the logger.
+- [ ] The scripts in the mods' fingerprint, and the server alone runs the scripts that change the world.
+- [ ] Hot reload of a script in `--dev`, and an example mod.
+- [ ] The tests of `kuge-script` do not run on Windows, as every kronklab test (see Windows above).
+
 ## 3D
 
 What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet:
