@@ -273,8 +273,8 @@ of a few hundred thousand simple iterations is enough to reach it. Over it, the 
 mods/golden/scripts/golden.lua:14: the script ran over its budget of 1000000 instructions
 ```
 
-`pcall` does not catch it, and neither does a coroutine. **Memory** is capped too (64 MiB by default): a script that builds a
-huge table or `string.rep("x", 1e9)` fails with Lua's `not enough memory`.
+`pcall` does not catch it, and neither does a coroutine. **Memory** is capped too, for each mod (16 MiB by default) and for all of them (64 MiB): a script that builds a
+huge table or `string.rep("x", 1e9)` fails with Lua's `not enough memory`, and only its mod is stopped.
 
 ### 2.9 Hot reload: edit while it runs
 
@@ -471,7 +471,8 @@ assert(registry.entitiesWith(world, {"Faller"}).size() == 2);      // two gold c
 |---|---|---|
 | `seed` | 1 | First seed of `math.random` |
 | `budget` | 1,000,000 | Lua instructions that one `load()` or `call()` may run |
-| `memory` | 64 MiB | Bytes the scripts may hold |
+| `memory` | 64 MiB | Bytes all the scripts together may hold |
+| `modMemory` | 16 MiB | Bytes the scripts of one scope (one mod) may hold. `ScriptEngine::memoryUsed(scope)` says how much one holds |
 | `maxEntity` | 1,048,576 | A script that names an entity above it is stopped (the world grows to hold any number it is given) |
 
 **`ScriptSystemOptions`**:
@@ -512,7 +513,11 @@ For people who change the engine, or who want to know what to trust.
   **system's** business (`ScriptSystem`), not the engine's: the engine keeps no memory of failures, so a test or a game can call anything again.
 - **The budget** is a Lua *count hook*: every 1000 instructions it adds to a counter. Past the budget it raises an error **and
   from then on fails at every single instruction**, in every coroutine, so `pcall` cannot swallow it and loop. The count restarts at each `load()` or `call()`.
-- **Memory** goes through a custom allocator that refuses a request past the limit; Lua then raises `not enough memory`.
+- **Memory** goes through a custom allocator that refuses a request past the limit; Lua then raises `not enough memory`. Each block has an
+  8 byte header with its owner: the scope that was running when it was allocated (0, the engine, for the Lua stack, the table of strings and
+  what `makeImpl` builds). A block is given back to its owner whoever frees it (the collector runs in whichever mod is running), and a
+  request is refused if it would take the total past `memory` or the owner's share past `modMemory`. The engine's own share is held by the
+  total only. Objects are never shared between mods (each has its copy of the globals), so an owner is its mod's.
 - **The `world` methods** convert the Lua arguments to `kuge::Json`, and let the registry validate and write (`fromJson`: checks
   everything first and rolls back if a write fails). Reading is the reverse (`toJson`, then pushed as Lua tables).
 - **Errors cross the C boundary with `longjmp`**: Lua is C. So every method of `world` is a lambda that throws C++ exceptions, caught
@@ -538,8 +543,10 @@ For people who change the engine, or who want to know what to trust.
 
 **Not built (yet)**
 
-- **Mods cannot call each other**; they meet in components. All mods run in one Lua state, so a mod that eats memory counts against
-  the same limit as the others (the globals and the standard tables are each mod's own, memory is not).
+- **Mods cannot call each other**; they meet in components. All mods run in one Lua state, but each has its own memory limit
+  (`modMemory`): a mod that eats its share fails alone. What is not counted for a mod: the Lua stack and the table of strings (the engine's,
+  held by the total `memory`), and the game's own memory. The collector is one for the state, so a mod that makes a lot of garbage makes
+  every mod pay a little time.
 - **Prefab files**: `world:spawn("enemy")` from a file waits for the scene and prefab files of the editor epic (#98): today a script
   gives the components in the call.
 - **Events** (a script that reacts to a collision, a death): scripts are polled each tick. The game can expose an event as a
@@ -569,7 +576,7 @@ Messages are real ones. A script error always begins with `file:line:`.
 | `mod.lua:3: the entity 0 has no component: it is gone already` | `world:remove` on an entity that is already removed | Check with `world:get(e, "X")` first |
 | `the world can only be used inside a call (not while a script is loaded)` | `world:` at the top level of a file | Put it in `update` |
 | `mod.lua:14: the script ran over its budget of 1000000 instructions` | A loop that is too long or never ends | Do less per tick; spread work over ticks |
-| `not enough memory` | Past the memory limit | Build smaller tables |
+| `not enough memory` | Past the memory limit of your mod (or of all the mods) | Build smaller tables, keep less in globals |
 | `mod.lua:3: attempt to index a nil value (field 'x')` | An ordinary Lua error | `world:get` gave `nil`: the entity has no such component |
 | `(the error is a table)` | `error({...})` with something that is not a string | `error("message")` |
 | `there is no function 'update'` | No mod defined a global `update` | Define it (a `local function update` is private to the file and does not count) |

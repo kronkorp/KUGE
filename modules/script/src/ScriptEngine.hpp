@@ -26,7 +26,8 @@ namespace kuge
     {
         std::uint64_t  seed = 1;                //!< Of `math.random` (see ScriptEngine::seed())
         std::uint64_t  budget = 1'000'000;      //!< Instructions of the virtual machine that one load() or call() may run
-        std::size_t    memory = 64u << 20;      //!< Bytes the scripts may hold
+        std::size_t    memory = 64u << 20;      //!< Bytes all the scripts together may hold
+        std::size_t    modMemory = 16u << 20;   //!< Bytes the scripts of one scope (one mod) may hold: a mod that goes past it fails alone
         kw::Entity     maxEntity = 1u << 20;    //!< A script that names an entity above this is stopped (the world grows to hold any number it is given)
     };
 
@@ -116,6 +117,10 @@ namespace kuge
 
             //! Calls the `function` of one scope only (ScriptSystem uses it to stop the scope that fails and keep the others)
             Result call(kw::World& world, const std::string& scope, const std::string& function, std::span<const double> args);
+
+            //! Bytes held by what the scripts of this scope made (its tables, strings, functions...), 0 if there is no such scope. What the engine
+            //! shares (the Lua stack, the table of strings) is not in it, but counts for `memory`.
+            std::size_t memoryUsed(const std::string& scope) const;
 
             //! The next numbers of `math.random` come from this seed on (the same seed, the same numbers)
             void seed(std::uint64_t seed);

@@ -24,6 +24,10 @@ struct kuge::ScriptEngine::Impl
     std::function<void(const std::string&)> print;
 
     std::size_t               used = 0;            // bytes held by Lua
+    // Who holds them: 0 is the engine (the stack, the string table, the shared globals), then the scopes in load order (id = index + 1).
+    // What Lua allocates is charged to `owner`, the scope that is running, and given back to the one that made it (see allocate)
+    std::vector<std::size_t>  usedBy = {0};
+    std::size_t               owner = 0;
     std::uint64_t             spent = 0;           // instructions of this load or call
     int                       step = 1000;         // instructions between two hooks (1 once the budget is gone: every instruction fails)
     bool                      over = false;
@@ -69,25 +73,45 @@ namespace
         return *static_cast<Impl*>(data);
     }
 
+    // Every block has a header that says who it is charged to, so that a block freed by the garbage collector while another mod runs
+    // is given back to its owner. (8 bytes: Lua needs no more than the alignment of a double, a pointer or a 64 bit integer.)
+    constexpr std::size_t kHeader = 8;
+    static_assert(alignof(lua_Number) <= kHeader && alignof(lua_Integer) <= kHeader && alignof(void*) <= kHeader, "Lua needs more alignment than the header keeps");
+
+    std::size_t& ownerOf(void* real)
+    {
+        return *static_cast<std::size_t*>(real);
+    }
+
     void* allocate(void* data, void* block, std::size_t oldSize, std::size_t newSize)
     {
         auto* impl = static_cast<Impl*>(data);
         const std::size_t old = block ? oldSize : 0;   // without a block, oldSize is the type of the object
+        void* real = block ? static_cast<char*>(block) - kHeader : nullptr;
+        const std::size_t owner = block ? ownerOf(real) : impl->owner;
 
         if (newSize == 0) {
             impl->used -= old;
-            std::free(block);
+            impl->usedBy[owner] -= old;
+            std::free(real);
             return nullptr;
         }
-        if (newSize > old && impl->used - old + newSize > impl->options.memory) {
-            return nullptr;
+        if (newSize > old) {
+            // The total, then the mod's own share (the engine's share is only held by the total)
+            if (impl->used - old + newSize > impl->options.memory
+                || (owner != 0 && impl->usedBy[owner] - old + newSize > impl->options.modMemory)) {
+                return nullptr;
+            }
         }
-        void* moved = std::realloc(block, newSize);
+        void* moved = std::realloc(real, newSize + kHeader);
 
-        if (moved) {
-            impl->used = impl->used - old + newSize;
+        if (!moved) {
+            return nullptr;
         }
-        return moved;
+        ownerOf(moved) = owner;
+        impl->used = impl->used - old + newSize;
+        impl->usedBy[owner] = impl->usedBy[owner] - old + newSize;
+        return static_cast<char*>(moved) + kHeader;
     }
 
     void hook(lua_State* L, lua_Debug*)
@@ -607,31 +631,54 @@ namespace
         return 1;
     }
 
-    // The registry reference of the globals of a scope, made on first use
-    int scopeRef(Impl& impl, const std::string& scope)
+    // Whatever Lua allocates while this lives is charged to the scope with that index (+ 1: 0 is the engine)
+    struct Owner
     {
-        for (const auto& [name, ref] : impl.scopes) {
-            if (name == scope) {
-                return ref;
+        Impl&       impl;
+        std::size_t before;
+
+        Owner(Impl& i, std::size_t scopeIndex) : impl(i), before(i.owner) { impl.owner = scopeIndex + 1; }
+        ~Owner() { impl.owner = before; }
+        Owner(const Owner&) = delete;
+        Owner& operator=(const Owner&) = delete;
+    };
+
+    // The index of a scope, made on first use (its globals are charged to it)
+    std::size_t scopeIndex(Impl& impl, const std::string& scope)
+    {
+        for (std::size_t i = 0; i < impl.scopes.size(); ++i) {
+            if (impl.scopes[i].first == scope) {
+                return i;
             }
         }
         lua_State* L = impl.state;
+        const std::size_t index = impl.scopes.size();
 
+        impl.usedBy.push_back(0);
         lua_pushcfunction(L, newScope);
-        if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+        int status = LUA_ERRMEM;
+        {
+            const Owner owner(impl, index);
+
+            status = lua_pcall(L, 0, 1, 0);
+        }
+        if (status != LUA_OK) {
             const std::string why = lua_tostring(L, -1);
 
             lua_pop(L, 1);
+            impl.usedBy.pop_back();
             throw kuge::ScriptError(why);
         }
         impl.scopes.emplace_back(scope, luaL_ref(L, LUA_REGISTRYINDEX));
-        return impl.scopes.back().second;
+        return index;
     }
 
     // Runs a chunk in this state, with the globals of its scope. @throw ScriptError
     void loadInto(Impl& impl, std::string_view code, const std::string& name, const std::string& scope)
     {
         lua_State* L = impl.state;
+        const std::size_t index = scopeIndex(impl, scope);
+        const Owner owner(impl, index);
 
         // "t": a text chunk, never bytecode (which can break the virtual machine)
         if (luaL_loadbufferx(L, code.data(), code.size(), ("@" + name).c_str(), "t") != LUA_OK) {
@@ -640,9 +687,7 @@ namespace
             lua_pop(L, 1);
             throw kuge::ScriptError(why);
         }
-        const int ref = scopeRef(impl, scope);
-
-        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+        lua_rawgeti(L, LUA_REGISTRYINDEX, impl.scopes[index].second);
         lua_setupvalue(L, -2, 1);           // the first upvalue of a chunk is its _ENV: its globals are the scope's
         if (const std::string why = run(impl, 0); !why.empty()) {
             throw kuge::ScriptError(why);
@@ -745,6 +790,16 @@ kuge::ScriptEngine::Reload kuge::ScriptEngine::reloadChanged(void)
     return report;
 }
 
+std::size_t kuge::ScriptEngine::memoryUsed(const std::string& scope) const
+{
+    for (std::size_t i = 0; i < m_impl->scopes.size(); ++i) {
+        if (m_impl->scopes[i].first == scope) {
+            return m_impl->usedBy[i + 1];
+        }
+    }
+    return 0;
+}
+
 std::vector<std::string> kuge::ScriptEngine::scopes(const std::string& function) const
 {
     std::vector<std::string> found;
@@ -775,8 +830,12 @@ kuge::ScriptEngine::Result kuge::ScriptEngine::call(kw::World& world, const std:
         lua_pushnumber(L, arg);
     }
     m_impl->world = &world;
-    std::string why = run(*m_impl, static_cast<int>(args.size()));
+    std::string why;
+    {
+        const Owner owner(*m_impl, static_cast<std::size_t>(found - m_impl->scopes.begin()));
 
+        why = run(*m_impl, static_cast<int>(args.size()));
+    }
     m_impl->world = nullptr;
     return {why.empty(), std::move(why)};
 }

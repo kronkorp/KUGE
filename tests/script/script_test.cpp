@@ -181,6 +181,38 @@ Test(script, memory_is_limited)
     Assert(!scripts.call(world, "table_hog").ok, "so is a table that grows");
 }
 
+Test(script, a_mod_has_its_memory)
+{
+    kuge::ComponentRegistry registry;
+    kuge::ScriptOptions options;
+    kw::World world;
+
+    options.modMemory = 1u << 20;       // 1 MiB each, 64 MiB for all
+    kuge::ScriptEngine scripts(registry, options);
+    scripts.loadString("function hog() local t = {} for i = 1, 1e6 do t[i] = i end end function keep() held = string.rep('x', 600000) end", "a.lua", "mod_a");
+    scripts.loadString("function keep() held = string.rep('y', 600000) end function light() local t = {1, 2, 3} return #t end", "b.lua", "mod_b");
+    Assert(scripts.memoryUsed("nobody") == 0, "a scope that does not exist holds nothing");
+
+    // Each mod holds 600 kB: more than a mod may hold if they shared 1 MiB, less than what one may
+    Assert(scripts.call(world, "mod_a", "keep", {}).ok && scripts.call(world, "mod_b", "keep", {}).ok, "two mods hold 600 kB each");
+    Assert(scripts.memoryUsed("mod_a") > 600000 && scripts.memoryUsed("mod_a") < (1u << 20), "mod_a holds what it made: %zu", scripts.memoryUsed("mod_a"));
+    Assert(scripts.memoryUsed("mod_b") > 600000 && scripts.memoryUsed("mod_b") < (1u << 20), "mod_b too: %zu", scripts.memoryUsed("mod_b"));
+
+    // mod_a goes past its own limit: it fails, mod_b is not touched and can still allocate
+    const auto hog = scripts.call(world, "mod_a", "hog", {});
+
+    Assert(!hog.ok && hog.message.find("not enough memory") != std::string::npos, "mod_a is stopped: %s", hog.message.c_str());
+    Assert(scripts.memoryUsed("mod_a") <= (1u << 20), "and never held more than its limit: %zu", scripts.memoryUsed("mod_a"));
+    Assert(scripts.call(world, "mod_b", "light", {}).ok, "mod_b still runs (and could not hold a second string at once: its limit is its own too)");
+    Assert(scripts.memoryUsed("mod_b") > 600000 && scripts.memoryUsed("mod_b") < (1u << 20), "with its own memory: %zu", scripts.memoryUsed("mod_b"));
+
+    // What a mod let go of (the garbage collector gives it back to its owner, whoever is running) is not held any more
+    scripts.loadString("held = nil", "a2.lua", "mod_a");
+    scripts.loadString("local x = 0", "b2.lua", "mod_b");   // runs mod_b's code: its collector may free blocks of mod_a
+    scripts.loadString("for j = 1, 150000 do local t = {j, j, j} end", "b3.lua", "mod_b");
+    Assert(scripts.memoryUsed("mod_a") < 300000, "mod_a's string is given back: %zu", scripts.memoryUsed("mod_a"));
+}
+
 Test(script, the_sandbox_is_closed)
 {
     Fixture f;
