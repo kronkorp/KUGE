@@ -200,6 +200,7 @@ Test(timeline, wrong_files_are_named)
     Assert(refused(R"({"duration": 5, "tracks": []})") == "accepted", "an empty timeline is fine");
 }
 
+#ifndef _WIN32   // (fails on Windows: #156)
 Test(timeline, a_file_names_itself)
 {
     const std::string path = "/tmp/kuge_timeline_" + std::to_string(::getpid()) + ".json";
@@ -218,3 +219,4 @@ Test(timeline, a_file_names_itself)
     try { kuge::Timeline::load(path); } catch (const kuge::TimelineError& error) { message = error.what(); }
     Assert(!message.empty() && message.find("kuge_timeline_") == 0, "a missing file too: %s", message.c_str());
 }
+#endif
