@@ -51,6 +51,15 @@ namespace
         g_signals.fetch_add(1, std::memory_order_relaxed);
         return TRUE;
     }
+
+    // std::raise(SIGINT) does not go through the console handler: the C runtime would end the process (its default
+    // action). So the engine takes the C signals too, as on POSIX.
+    extern "C" void onSignal(int)
+    {
+        g_signals.fetch_add(1, std::memory_order_relaxed);
+        std::signal(SIGINT, &onSignal);   // (the runtime puts the default action back after each signal)
+        std::signal(SIGTERM, &onSignal);
+    }
 #else
     extern "C" void onSignal(int)
     {
@@ -64,7 +73,10 @@ namespace
     // that ended first installed for good.)
     std::mutex       g_handlersMutex;
     int              g_handlersUsers = 0;
-#ifndef _WIN32
+#ifdef _WIN32
+    void (*g_oldInt)(int)  = SIG_DFL;
+    void (*g_oldTerm)(int) = SIG_DFL;
+#else
     struct sigaction g_oldInt  = {};
     struct sigaction g_oldTerm = {};
 #endif
@@ -82,6 +94,8 @@ namespace
 #ifdef _WIN32
                     // (Windows keeps a list of handlers: this one is added in front, then removed)
                     SetConsoleCtrlHandler(&onConsoleEvent, TRUE);
+                    g_oldInt = std::signal(SIGINT, &onSignal);
+                    g_oldTerm = std::signal(SIGTERM, &onSignal);
 #else
                     struct sigaction action = {};
 
@@ -101,6 +115,8 @@ namespace
                 if (--g_handlersUsers == 0) {
 #ifdef _WIN32
                     SetConsoleCtrlHandler(&onConsoleEvent, FALSE);
+                    std::signal(SIGINT, g_oldInt);
+                    std::signal(SIGTERM, g_oldTerm);
 #else
                     sigaction(SIGINT, &g_oldInt, nullptr);
                     sigaction(SIGTERM, &g_oldTerm, nullptr);
