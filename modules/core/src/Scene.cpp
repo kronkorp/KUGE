@@ -131,6 +131,7 @@ kw::SystemHandle kuge::Scene::addSystem(
 
 bool kuge::Scene::removeSystem(const kw::SystemHandle& handle)
 {
+    std::erase_if(m_systems, [&](const kw::SystemHandle& it) { return it.schedule == handle.schedule && it.id == handle.id; });
     return m_world->removeSystem(handle);
 }
 
@@ -181,8 +182,8 @@ void kuge::Scene::rethrowError(void)
     }
 }
 
-// Removing the systems while the resources are still there lets a system
-// release what it holds before the World goes away
+// The systems go first, last added first, before the members of the derived class, the context and the World:
+// a system may hold a member of its scene, and the World alone would destroy it after them
 void kuge::Scene::shutdown(void)
 {
     m_mailbox->close();
