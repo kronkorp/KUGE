@@ -213,6 +213,7 @@ namespace kuge
                 std::function<void(kw::World&, kw::Entity)>  add;       //!< A default one (nothing if it is there already)
                 std::function<void(kw::World&, kw::Entity)>  remove;
                 std::function<void*(kw::World&, kw::Entity)> get;       //!< Null if the entity has none
+                std::function<std::vector<kw::Entity>(kw::World&)> entities;   //!< Every entity that has one
             };
 
             //! @throw std::invalid_argument if the name is taken, or two fields have the same name
@@ -227,6 +228,14 @@ namespace kuge
                 component.add = [](kw::World& world, kw::Entity e) { if (!world.has<C>(e)) { world.add<C>(e, C{}); } };
                 component.remove = [](kw::World& world, kw::Entity e) { if (world.has<C>(e)) { world.remove<C>(e); } };
                 component.get = [](kw::World& world, kw::Entity e) -> void* { return world.has<C>(e) ? &world.get<C>(e) : nullptr; };
+                component.entities = [](kw::World& world) {
+                    std::vector<kw::Entity> found;
+
+                    for (const kw::Entity e : world.view<C>()) {
+                        found.push_back(e);
+                    }
+                    return found;
+                };
                 insert(std::move(component));
             }
 
@@ -237,6 +246,10 @@ namespace kuge
             //! @return  false if the component is unknown
             bool   add(kw::World& world, kw::Entity entity, std::string_view component) const;
             bool   remove(kw::World& world, kw::Entity entity, std::string_view component) const;
+
+            //! The entities that have all of these components, by ascending number (the same order on every machine)
+            //! @throw std::invalid_argument if a component is not described
+            std::vector<kw::Entity> entitiesWith(kw::World& world, const std::vector<std::string>& components) const;
 
             //! The names of the described components that this entity has, in registration order
             std::vector<std::string> componentsOf(kw::World& world, kw::Entity entity) const;
