@@ -235,6 +235,11 @@ Test(tcp, a_thousand_packets)
             server->poll(watch.serverEvents);
             client->poll(watch.clientEvents);
         }
+        // A peer that reads as the packets come, as a game's does. Without it the 1.5 MB do not fit in the buffers of Windows
+        // (about 128 KB: the client's out buffer fills up and the transport says the connection is lost, which is its answer to a
+        // peer that does not read); Linux's buffers happen to take them all
+        server->poll(watch.serverEvents);
+        client->poll(watch.clientEvents);
     }
     Assert(pollUntil(*server, *client, watch, [&] { return count(watch.serverEvents, TransportEvent::Kind::Packet) == 1000; }, 20.0), "all 1000 arrive");
     bool same = true;
