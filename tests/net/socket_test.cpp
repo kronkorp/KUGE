@@ -248,6 +248,48 @@ Test(tcp, a_thousand_packets)
     Assert(same, "each whole, in order, though TCP cut and glued them as it liked");
 }
 
+// DIAGNOSTIC (branch fix/win-net-diag, not to merge)
+static void diagThousand(bool sleepOne)
+{
+    auto [server, port] = serve(true);
+    auto client = makeTcpClient("127.0.0.1", port);
+    Watch watch;
+    std::mt19937 rng(3);
+    std::size_t bytes = 0, failedSends = 0;
+
+    pollUntil(*server, *client, watch, [&] { return count(watch.serverEvents, TransportEvent::Kind::Connected) == 1; });
+    for (int i = 0; i < 1000; ++i) {
+        auto packet = patterned(1 + rng() % 3000, static_cast<std::uint8_t>(i));
+        bytes += packet.size();
+        for (int attempt = 0; attempt < 1000 && !client->send(CLIENT_CONNECTION, packet); ++attempt) {
+            ++failedSends;
+            server->poll(watch.serverEvents);
+            client->poll(watch.clientEvents);
+        }
+    }
+    std::fprintf(stderr, "DIAG [%s] sent %zu bytes, %zu failed sends, packets so far %zu\n", sleepOne ? "sleep 1ms" : "no sleep", bytes, failedSends, count(watch.serverEvents, TransportEvent::Kind::Packet));
+    const auto start = Clock::now();
+    auto last = start;
+    std::size_t polls = 0;
+
+    while (Clock::now() - start < std::chrono::seconds(8) && count(watch.serverEvents, TransportEvent::Kind::Packet) < 1000) {
+        server->poll(watch.serverEvents);
+        client->poll(watch.clientEvents);
+        ++polls;
+        if (sleepOne) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        if (Clock::now() - last > std::chrono::seconds(1)) {
+            last = Clock::now();
+            std::fprintf(stderr, "DIAG [%s] %.1f s: %zu polls, %zu packets\n", sleepOne ? "sleep 1ms" : "no sleep", std::chrono::duration<double>(last - start).count(), polls, count(watch.serverEvents, TransportEvent::Kind::Packet));
+        }
+    }
+    std::fprintf(stderr, "DIAG [%s] end: %zu polls, %zu packets in %.1f s\n", sleepOne ? "sleep 1ms" : "no sleep", polls, count(watch.serverEvents, TransportEvent::Kind::Packet), std::chrono::duration<double>(Clock::now() - start).count());
+}
+
+Test(tcp, diag_thousand_sleep) { diagThousand(true); }
+Test(tcp, diag_thousand_nosleep) { diagThousand(false); }
+
 Test(tcp, the_biggest_packet)
 {
     auto [server, port] = serve(true);
