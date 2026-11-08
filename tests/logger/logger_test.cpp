@@ -310,5 +310,6 @@ Test(logger, files_are_rotated)
         last = line;
     }
     Assert(last.find("number 29") != std::string::npos, "the newest line is in latest.log: %s", last.c_str());
+    in.close();   // (Windows cannot delete a file that is open)
     std::filesystem::remove_all(folder);
 }
