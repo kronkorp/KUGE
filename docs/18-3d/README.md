@@ -394,5 +394,5 @@ What to read in it:
 - The picture of the GPU goes through the CPU (a read back and a copy into the 2D renderer's texture). Drawing straight to
   the window would save that, but then the sprites and the text have to be drawn by the GPU rasterizer too (kronk3d has
   `draw2D`, without rotation): it is a different 2D renderer, not done.
-- Poses are not interpolated between two ticks; no roll for the camera.
+- Poses are not interpolated between two ticks.
 - Windows (MSVC) is built by the CI like the rest; Jolt and the 3D are not checked on a machine of ours.
