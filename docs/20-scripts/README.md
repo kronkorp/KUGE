@@ -109,5 +109,6 @@ Which side runs a script is the game's choice, made with the registry it gives t
   replicated. A script cannot name what it was not given, and a replicated component written on a client is overwritten by the next
   snapshot anyway. What a client sends to the room is its inputs, and nothing a script wrote.
 
+A whole game with a mod next to it, data and script, is [`example/modding`](../../example/modding/README.md).
 [`example/mods/waves`](../../example/mods/waves/scripts/waves.lua) is a whole mod in 30 lines: an enemy comes in every two seconds, drifts
 to the left and is removed when it leaves the screen. A test (`script_system:the_example_mod`) loads it as a game would.

@@ -16,6 +16,13 @@ if(TARGET kuge_pong)
                 -P ${PROJECT_SOURCE_DIR}/cmake/RunPong.cmake)
 endif()
 
+# Catch with its mod, and without it
+if(TARGET kuge_modding)
+    add_test(NAME modding_smoke
+        COMMAND ${CMAKE_COMMAND} -DGAME=$<TARGET_FILE:kuge_modding> -DOUT=${CMAKE_CURRENT_BINARY_DIR}
+                -P ${PROJECT_SOURCE_DIR}/cmake/RunModding.cmake)
+endif()
+
 if(TARGET kuge_platformer)
     add_test(NAME platformer_smoke
         COMMAND ${CMAKE_COMMAND} -DGAME=$<TARGET_FILE:kuge_platformer> -DOUT=${CMAKE_CURRENT_BINARY_DIR}/platformer.ppm
