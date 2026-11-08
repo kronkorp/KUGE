@@ -4,6 +4,7 @@ extern "C" {
 
 // NOTE: kronklab test names are limited to 31 characters.
 
+#include "Level.hpp"
 #include "physics3d_fixture.hpp"
 
 Test(physics3d, a_crate_lands)
@@ -233,4 +234,77 @@ Test(physics3d, same_world_same_result)
         same = first[i].x == second[i].x && first[i].y == second[i].y && first[i].z == second[i].z;
     }
     Assert(same, "the same crates in the same places, to the last bit");
+}
+
+namespace
+{
+    // A slope that rises 10 m over 20 m (a roof), as two triangles whose front is up: y = 5 at x = 0
+    std::shared_ptr<const kuge::CollisionMesh> slope(void)
+    {
+        auto mesh = std::make_shared<kuge::CollisionMesh>();
+
+        mesh->vertices = {{-10.0f, 0.0f, 5.0f}, {10.0f, 10.0f, 5.0f}, {10.0f, 10.0f, -5.0f}, {-10.0f, 0.0f, -5.0f}};
+        mesh->indices = {0, 1, 2, 0, 2, 3};
+        return mesh;
+    }
+}
+
+Test(physics3d, a_ray_stops_on_a_mesh)
+{
+    Sim sim([](Level& level) { thing(level.world(), {}, kuge::Collider3D::triangles(slope())); });
+
+    sim.ticks(1);
+    const auto hit = sim.physics().raycast({0.0f, 20.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, 40.0f);
+
+    Assert(hit.has_value(), "the ray hits the slope");
+    Assert(near(hit->point.y, 5.0f, 0.01f), "on the slope (5 m) and not on a box over it (10 m): y = %f", hit->point.y);
+    Assert(hit->normal.y > 0.8f && hit->normal.y < 0.99f && hit->normal.x < -0.3f, "with its normal: (%f, %f)", hit->normal.x, hit->normal.y);
+    Assert(!sim.physics().raycast({0.0f, 20.0f, 8.0f}, {0.0f, -1.0f, 0.0f}, 40.0f).has_value(), "and the air beside it is the air");
+}
+
+Test(physics3d, a_crate_slides_down_a_mesh)
+{
+    kw::Entity box = 0;
+    kuge::Collider3D ice = kuge::Collider3D::triangles(slope());
+
+    ice.friction = 0.05f;
+    Sim sim([&](Level& level) {
+        thing(level.world(), {}, ice);
+        box = crate(level.world(), {0.0f, 6.5f, 0.0f}, kuge::Collider3D::box(1.0f, 1.0f, 1.0f).onLayer(1));
+        level.world().get<kuge::Collider3D>(box).friction = 0.05f;
+    });
+
+    sim.ticks(150);
+    Assert(sim.where(box).x < -2.0f, "it slides to the low end: x = %f", sim.where(box).x);
+    Assert(sim.where(box).y < 5.0f && sim.where(box).y > -1.0f, "on the slope, not through it: y = %f", sim.where(box).y);
+}
+
+Test(physics3d, a_mesh_does_not_fall)
+{
+    kw::Entity roof = 0;
+    Sim sim([&](Level& level) { roof = crate(level.world(), {}, kuge::Collider3D::triangles(slope())); });
+
+    sim.ticks(60);
+    Assert(near(sim.where(roof).y, 0.0f, 0.001f), "a mesh with a dynamic body is made static: y = %f", sim.where(roof).y);
+}
+
+Test(physics3d, what_stood_on_a_piece_falls)
+{
+    kw::Entity box = 0;
+    Sim sim([&box](Level& level) {
+        const kw::Entity piece = floor(level.world());
+
+        level.world().add<kuge::LevelPiece>(piece, kuge::LevelPiece{0});
+        box = crate(level.world(), {0.0f, 0.5f, 0.0f});
+    });
+
+    sim.ticks(300);   // (long enough for it to sleep on the floor)
+    Assert(near(sim.where(box).y, 0.5f), "it rests: y = %f", sim.where(box).y);
+    kuge::LevelBreaks breaks;
+
+    breaks.add(0);
+    AssertEq(kuge::applyBreaks(sim.world(), breaks), 1u, "the piece breaks");
+    sim.ticks(60);
+    Assert(sim.where(box).y < -3.0f, "and the crate that slept on it falls: y = %f", sim.where(box).y);
+    AssertEq(sim.physics().bodyCount(), 1u, "only the crate is left");
 }

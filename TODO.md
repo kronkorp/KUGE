@@ -5,16 +5,19 @@ each with its pull request.
 
 ## Windows
 
-- [ ] **The unit tests do not run on Windows.** kronklab runs each test in a `fork()` and finds the tests with the
-  ELF linker's `__start_`/`__stop_` symbols: neither exists there. Porting it (a child process per test, and MSVC's
-  sections) would also need the tests' own POSIX parts (`unistd.h`, raw sockets, `--wrap` at link time) made
-  portable. Until then, Windows runs the boundaries and the three games played for real (`*_smoke`).
+- [ ] **1 unit test is left out on Windows**: `sdl:mouse_can_be_relative` (`#ifndef _WIN32`, #162). SDL's dummy video
+  driver has no relative mouse mode there ("No relative mode implementation available"): it needs a real window.
+  kronklab itself runs there (v0.1.3: a process for each test, MSVC's sections). The tests that wrap `send` with GNU
+  ld's `--wrap` (`kuge_net_fault_tests`) are not built on Windows.
 
-- [ ] **`kuge.dll` gives other ids than the program** (ticket 039, kronkworld). `KUGE_BUILD_SHARED` is off by default on
-  Windows as a workaround. The fix is in `vendor/kronkworld`: `ResourceManager::id<R>()` and `ComponentManager::id<C>()`
-  must take their number from a function defined in a `.cpp` and exported (a map type name -> id under a mutex; the
-  name from `__PRETTY_FUNCTION__` / `__FUNCSIG__`), and `get<R>()` should check the type it returns. When it is in,
-  the test `dll_ids_differ` turns red: delete it with the guard in `CMakeLists.txt`.
+## Scripts
+
+`kuge-script` (Lua, [docs/20-scripts](docs/20-scripts/README.md), ticket 043) is in: engine, `ScriptSystem`, hot reload,
+`Mods::scripts()`, the example mod `example/mods/waves`. What is left:
+
+- [ ] The module has not been seen on MSVC by hand (the CI builds it and runs its tests).
+- [ ] No game uses it yet: R-Type or Arena could load `mods/*/scripts` in their room (server) and say it in their docs.
+- [ ] Scripts that spawn from a **prefab file** (`world:spawn("enemy")`): needs the scene and prefab files of #98, step 1.
 
 ## 3D
 
@@ -23,12 +26,19 @@ What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet:
 - [ ] **Drawing straight to the window.** The GPU's picture is read back and shown by the 2D renderer (a few
   milliseconds at 1280x720): a faster path draws the 3D into the window and the sprites and text with kronk3d's `draw2D`
   (no rotation), which means a 2D renderer on OpenGL.
-- [ ] Small things: interpolating poses between two ticks, a camera with roll (k3::Camera has none).
+- [ ] Small things: interpolating poses between two ticks (`k3::Animator` has no seek).
 - [ ] **Windows is not checked by hand.** The CI builds and runs the 3D tests' smoke programs with MSVC; Jolt and
   the 3D examples have not been seen on a Windows machine.
 
 ## Done
 
+- [x] 7 of the 8 unit tests that were left out on Windows run there (#155 to #161): `raise(SIGINT)` ends the Engine, two
+  tests wrote `/tmp` or deleted a file that was still open, SdlAudio no longer leaves a refused file open, and kronknet
+  sets `TCP_NODELAY` (one message per 200 ms on Windows otherwise) and sees a refused `connect()` (`select`).
+
+- [x] Each mod has its own memory limit (`ScriptOptions::modMemory`, 16 MiB), kept by an owner in the header of every block of Lua.
+- [x] `kuge.dll` gives the same ids as the program (ticket 039): kronkworld numbers its types by name, from one table
+  (kronkworld #27), and `KUGE_BUILD_SHARED` is ON on Windows too.
 - [x] `vendor/kronknet` is bumped to its `main` (`4c42839`): kronknet #41 and #42 are in, and so are Windows and
   IPv6 (#33).
 - [x] A spawned `RunPolicy::Main` scene that throws is logged and stopped, and no longer brings down `Engine::step()`

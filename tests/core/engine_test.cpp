@@ -230,6 +230,7 @@ Test(engine, engine_can_run_again)
     AssertEq(second.fixed, 2, "second run: stop() does not stay on");
 }
 
+#ifndef _WIN32   // (they read the handlers with sigaction)
 Test(engine, sigint_ends_run)
 {
     struct sigaction before = {};
@@ -247,6 +248,8 @@ Test(engine, sigint_ends_run)
 }
 
 // Two engines in one process (a server and a client in the same program), each in its own thread
+#endif
+
 namespace
 {
     using Clock = std::chrono::steady_clock;
@@ -287,6 +290,7 @@ namespace
     }
 }
 
+#ifndef _WIN32   // (it reads the handlers with sigaction)
 // The one that ends first must not take the handlers of the other: whatever the order,
 // when both are over the process has the handlers it had before
 Test(engine, two_engines_restore_handlers)
@@ -309,6 +313,8 @@ Test(engine, two_engines_restore_handlers)
     sigaction(SIGTERM, nullptr, &after);
     Assert(beforeTerm.sa_handler == after.sa_handler, "and so does SIGTERM");
 }
+
+#endif
 
 // One signal ends every engine that runs, not only one of them
 Test(engine, one_signal_ends_both_engines)

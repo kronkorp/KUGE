@@ -98,12 +98,14 @@ Every item here was met while building the engine and the games. Reading them is
 
 ## Building
 
-- **`kuge.dll` and a program disagree about ids on Windows.** kronkworld numbers each resource and component type
-  with a counter in its headers (`ResourceManager::id<R>()`, `ComponentManager::id<C>()`). A DLL and a program each
-  have their own copy of that `static` (Linux merges them), so a type that one puts in the World and the other reads
-  has two ids, and `get<R>()` reads whatever sits at the wrong one: a crash with nothing in the log. So `KUGE_BUILD_SHARED`
-  is off by default on Windows: link the static modules (`KUGE_MODULES`). Fixing it takes kronkworld numbering its
-  types by name; the test `dll_ids_differ` reproduces it (with hidden symbols on Linux) and turns red the day it is fixed.
+- **A resource or component type has one id per name, from one table: keep that table once.** kronkworld numbers
+  each type (`ResourceManager::id<R>()`, `ComponentManager::id<C>()`) from a table in `src/world/TypeIds.cpp`
+  (the name of the type, as the compiler spells it, gives the number), so `kuge.dll` and a program agree on the id of
+  `UiTheme`. That holds while the program's calls land in the DLL's copy of the table: link `kuge` (CMake puts it
+  before the static modules it also lists), and do not put a static `kuge-kronkworld` in front of it. Two structs of
+  the same name in anonymous namespaces of two files share a number: harmless unless both are in one World. Every
+  binary must come from the same compiler (the name is its spelling). The test `dll_ids_agree` checks it (hidden
+  symbols on Linux, a real DLL on Windows).
 - **Do not build in the source folder** (CMake refuses). Use `build/`.
 - **A server-only build** (`-DKUGE_BUILD_CLIENT=OFF`) is the cheap way to check that nothing client-side leaked into the
   server. Do it before releasing.

@@ -19,6 +19,13 @@ namespace kuge
      * a while is forgotten. Available to systems as Ref<TextRenderer>.
      */
     ////////////////////////////////////////////////////////////////////////////
+    //! What a text measures: its size in pixels and the number of lines (0 for an empty text)
+    struct TextSize
+    {
+        Vec2 size{};
+        int  lines = 0;
+    };
+
     class TextRenderer
     {
         public:
@@ -26,6 +33,9 @@ namespace kuge
 
             //! Draws text with its top-left corner at position, in pixels of the screen
             void draw(const IFont& font, std::string_view text, Vec2 position, Color color, int wrapWidth = 0);
+
+            //! What `draw` would make of the text, without drawing it: a game can check that a text fits before it shows it
+            static TextSize measure(const IFont& font, std::string_view text, int wrapWidth = 0);
 
             //! Number of texts that are kept
             std::size_t cached(void) const noexcept { return m_cache.size(); }

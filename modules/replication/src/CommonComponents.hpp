@@ -2,10 +2,12 @@
 
 #include "Replication.hpp"
 #include "AnimationState3D.hpp"
+#include "Level.hpp"
 #include "Physics3DComponents.hpp"
 #include "PhysicsComponents.hpp"
 #include "Transform2D.hpp"
 #include "Transform3D.hpp"
+#include <algorithm>
 
 namespace kuge::replication
 {
@@ -114,6 +116,31 @@ namespace kuge::replication
                 return b;
             },
             {}, predicted);
+    }
+
+    //! LevelBreaks: the pieces of the level that are gone. Sent when a piece breaks (OnChange); each side then calls applyBreaks().
+    //! A client that joins late is told them all in its first snapshot. With Prediction, give it `mirrorBreaks` as `sync`.
+    inline std::size_t registerLevelBreaks(ReplicationRegistry& registry, Replicate mode = Replicate::OnChange)
+    {
+        return registry.component<LevelBreaks>("LevelBreaks", mode,
+            [](ByteWriter& out, const LevelBreaks& b) { out.writeVector(b.broken); },
+            [](ByteReader& in) {
+                LevelBreaks b;
+
+                b.broken = in.readVector<std::uint32_t>();
+                if (!std::is_sorted(b.broken.begin(), b.broken.end())) {
+                    throw SerializerError("replication: the broken pieces are not in order");
+                }
+                return b;
+            });
+    }
+
+    //! For PredictionConfig::sync: the private world loses the pieces that the shown world's LevelBreaks names
+    inline void mirrorBreaks(kw::World& priv, kw::World& shown)
+    {
+        for (const kw::Entity entity : shown.view<LevelBreaks>()) {
+            applyBreaks(priv, shown.get<LevelBreaks>(entity));
+        }
     }
 
 }

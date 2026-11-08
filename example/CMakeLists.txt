@@ -18,6 +18,15 @@ if(TARGET kuge-client AND TARGET kuge-physics)
     target_compile_options(kuge_platformer PRIVATE ${KUGE_WARNINGS})
 endif()
 
+# Catch: a tiny game with a mod next to it (data and a Lua script)
+if(TARGET kuge-client AND TARGET kuge-script)
+    add_executable(kuge_modding modding/main.cpp)
+    target_link_libraries(kuge_modding PRIVATE kuge-client kuge-script)
+    target_include_directories(kuge_modding PRIVATE modding)
+    target_compile_definitions(kuge_modding PRIVATE CATCH_FOLDER="${CMAKE_CURRENT_SOURCE_DIR}/modding")
+    target_compile_options(kuge_modding PRIVATE ${KUGE_WARNINGS})
+endif()
+
 # A chat: a server with no window (lobby and rooms), and a client for the terminal
 if(TARGET kuge-server)
     add_executable(kuge_chat_server chat/server.cpp)

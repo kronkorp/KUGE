@@ -1,4 +1,5 @@
 #include "backend/dummy/DummyBackend.hpp"
+#include <cmath>
 #include <stdexcept>
 
 void kuge::DummyWindow::setSize(int width, int height)
@@ -7,8 +8,21 @@ void kuge::DummyWindow::setSize(int width, int height)
     if (m_renderer) {
         m_renderer->resize(m_size);
     }
+    applyBase();
     if (m_input) {
         m_input->push(ResizeEvent{width, height});
+    }
+}
+
+void kuge::DummyWindow::applyBase(void)
+{
+    if (m_base > 0 && m_fullscreen && m_size.x > 0.0f) {
+        m_logical = Vec2{static_cast<float>(m_base), std::round(static_cast<float>(m_base) * m_size.y / m_size.x)};
+    } else {
+        m_logical.reset();
+    }
+    if (m_renderer) {
+        m_renderer->setLogicalSize(m_logical);
     }
 }
 
@@ -64,7 +78,17 @@ void kuge::DummyRenderer::strokeRect(const Rect& destination, Color color)
 
 void kuge::DummyRenderer::drawTexture(const TextureDraw& draw)
 {
-    m_current.push_back({Call::Kind::Texture, draw.destination, draw.tint, draw, m_clip});
+    m_current.push_back({Call::Kind::Texture, draw.destination, draw.tint, draw, m_clip, draw.radius});
+}
+
+void kuge::DummyRenderer::fillRoundedRect(const Rect& destination, float radius, Color color)
+{
+    m_current.push_back({Call::Kind::Fill, destination, color, {}, m_clip, radius});
+}
+
+void kuge::DummyRenderer::strokeRoundedRect(const Rect& destination, float radius, float width, Color color)
+{
+    m_current.push_back({Call::Kind::Stroke, destination, color, {}, m_clip, radius, width});
 }
 
 const kuge::DummyRenderer::TextureInfo* kuge::DummyRenderer::texture(TextureId id) const

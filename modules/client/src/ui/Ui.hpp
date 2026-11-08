@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -81,6 +82,15 @@ namespace kuge
         Vec2       size{};                //!< 0: as big as what it holds (text, children)
         bool       visible   = true;      //!< With everything inside it
         int        layer     = 0;         //!< Higher is drawn over
+        //! A panel that covers buttons takes their clicks: a click inside it presses nothing that is drawn under it, the
+        //! keyboard focus does not go to a button whose center it covers, and the click is a UiEvent::Kind::Blocked of
+        //! the panel (so that a game can close it: "click outside"). Off by default, so that a label over a button does
+        //! not eat the click.
+        bool       blocksInput = false;
+        //! Its children are drawn (and hovered) only inside its rectangle, as in a UiScroll (inside the border of its
+        //! UiPanel, if it has one): a text too long for its card, a name in a list, a tooltip in a window. Off by
+        //! default: a child can come out of its parent on purpose (a badge on a corner).
+        bool       clip = false;
         //! When the node was made (a number that only goes up), not its entity: the world gives numbers back in the order they
         //! were freed, so a list rebuilt after removals has its entities in any order. A stack lays its children out, and Tab
         //! and the drawing go, in this order (then by entity, for nodes copied from one template).
@@ -119,6 +129,30 @@ namespace kuge
         std::shared_ptr<Texture> texture;                    //!< Nothing is drawn without one
         Rect                     source{};                   //!< The part of the texture, in its pixels. Width 0: all of it.
         Color                    tint{255, 255, 255, 255};   //!< Multiplies the colors of the picture
+        float                    rotation = 0.0f;            //!< Degrees, clockwise (as Transform2D), around `pivot`. The node keeps its rectangle.
+        Vec2                     pivot{0.5f, 0.5f};          //!< In the node, from (0, 0) to (1, 1): the middle
+        float                    radius = 0.0f;              //!< Pixels: the corners are cut round. Half of the shorter side or more: a circle (an avatar, a disc)
+        //! Smooth (on): the picture is mixed linearly, and one that is drawn much smaller than it is (by more than a half) is drawn from a copy made
+        //! for the size it has on the screen (`size * UiScale`) by an area filter, made again when that size changes, so its edges do not
+        //! sparkle. The copy needs the pixels of the texture: ClientConfig::keepPixels, or Texture::fromPixels(.., true); without them the
+        //! linear filter alone is used. Off: the pixels stay blocks (pixel art).
+        bool                     smooth = true;
+    };
+
+    //! The copies that UiImage::smooth made (a resource), by node: one is dropped when its node is not drawn
+    struct UiImageCache
+    {
+        struct Entry
+        {
+            std::shared_ptr<Texture> texture;      //!< The copy
+            TextureId                from = NO_TEXTURE;   //!< What it was made from, with the three below
+            std::uint64_t            revision = 0;
+            Rect                     source{};
+            int                      width = 0;
+            int                      height = 0;
+        };
+
+        std::map<kw::Entity, Entry> entries;
     };
 
     struct UiPanel
@@ -126,6 +160,9 @@ namespace kuge
         Color fill{30, 32, 44, 235};
         Color border{170, 175, 200, 255};
         float borderWidth = 2.0f;
+        //! Pixels: the corners are round, the fill and the border follow (and so does a click: one in a cut corner is
+        //! outside). Half of the shorter side or more: a pill, or a circle. Negative: `UiTheme::radius`. 0: square.
+        float radius = -1.0f;
     };
 
     //! A bar that is filled for `value / max` of its width (or of its height, from the bottom). The size of its node
@@ -141,6 +178,15 @@ namespace kuge
         bool  vertical = false;          //!< Fills from the bottom instead of from the left
     };
 
+    //! What a UiLabel does with a text that is longer than its node (a node with a width: with none, it is as wide as the text)
+    enum class Overflow : std::uint8_t {
+        None,       //!< The text comes out of its node
+        Clip,       //!< It is cut at the edge of the node
+        Ellipsis,   //!< It is cut at a letter that fits, and "..." is added
+        Scroll,     //!< It goes by in its node: wait, go, wait, begin again (`scrollSpeed`, `scrollPause`), as the title of a song on a radio
+        Wrap,       //!< It is wrapped at the width of its node (`wrapWidth` is not used), so the node needs a width
+    };
+
     struct UiLabel
     {
         std::string                text;
@@ -148,6 +194,9 @@ namespace kuge
         Color                      color{240, 240, 245, 255};
         int                        wrapWidth = 0;    //!< 0: no limit
         TextAlign                  align = TextAlign::Left;
+        Overflow                   overflow = Overflow::None;
+        float                      scrollSpeed = 40.0f;   //!< Overflow::Scroll: pixels per second (zero or less: it does not move)
+        float                      scrollPause = 1.0f;    //!< Overflow::Scroll: seconds at each end
     };
 
     struct UiButton
@@ -224,6 +273,9 @@ namespace kuge
         Color focusRing{255, 214, 90, 255};
         float focusWidth = 3.0f;
         float padding = 10.0f;     //!< Between the text of a button (or a text field) and its border
+        //! The corners of the buttons, the text fields, and the panels that have no `radius` of their own, in pixels: a
+        //! whole game is square or round by this one number. 0: square.
+        float radius = 0.0f;
 
         // Text fields (the focus ring and the disabled colors are the buttons')
         Color fieldFill{24, 26, 38, 255};
@@ -247,7 +299,7 @@ namespace kuge
     //! How big the interface is drawn (a resource). It is built for one size of window, 1280 x 720 say, and this makes it
     //! bigger on a bigger screen: the layout multiplies by `value` every pixel number of the components (`offset`,
     //! `size`, `spacing`, `padding`, `borderWidth`, `wrapWidth`, `UiScroll::offset` and `notch`) and of the theme
-    //! (`padding`, `focusWidth`, `progressWidth`, `progressHeight`), and draws the text with the same font at `value`
+    //! (`padding`, `radius`, `focusWidth`, `progressWidth`, `progressHeight`), and draws the text with the same font at `value`
     //! times its size (IFont::scaled(), so it stays sharp). The components keep the numbers you gave them. See
     //! uiScaleFor(): a game sets `value` from the size of its window when it changes.
     struct UiScale
@@ -283,6 +335,7 @@ namespace kuge
             Cancelled,   //!< "back" was asked (entity: what had the focus, if anything)
             Changed,     //!< What is in a text field changed, or a check box was flipped or a slider moved (at most once a tick: read it in the component)
             Submitted,   //!< Enter was pressed in a text field
+            Blocked,     //!< A click landed on a node with UiNode::blocksInput that nothing usable was on top of (entity: that node)
         };
 
         Kind       kind;
@@ -308,8 +361,9 @@ namespace kuge
     struct UiLayoutResult
     {
         std::map<kw::Entity, Rect> rects;     //!< Only the nodes that show
-        std::map<kw::Entity, Rect> clips;     //!< Inside a UiScroll: where it can be seen (drawOrder has only what is in it)
+        std::map<kw::Entity, Rect> clips;     //!< Inside a UiScroll or a UiNode::clip: where it can be seen (drawOrder has only what is in it)
         std::vector<kw::Entity>    drawOrder; //!< Back to front
+        std::set<kw::Entity>       truncated; //!< The labels (Overflow::Clip, Ellipsis or Scroll) whose text is longer than their node
     };
 
     //! Adds the interface to a scene: its resources, and the systems that lay it

@@ -42,7 +42,7 @@ namespace
         std::optional<kuge::Image>    image;
         bool                          available = false;     //!< false: this machine cannot do what was asked
 
-        Frame(kuge::Rendering rendering, std::function<void(Scene&)> setup)
+        Frame(kuge::Rendering rendering, std::function<void(Scene&)> setup, float renderScale = 1.0f)
         {
             setenv("SDL_VIDEODRIVER", "offscreen", 1);
             setenv("SDL_RENDER_DRIVER", "software", 1);
@@ -55,7 +55,7 @@ namespace
             try {
                 engine = std::make_unique<kuge::Engine>(kuge::Engine::Config{.mode = kuge::Engine::Mode::Windowed});
                 client = &engine->addModule<kuge::ClientModule>(kuge::makeSdlBackend(window));
-                module = &engine->addModule<kuge::Render3DModule>(*client, kuge::Render3DConfig{.rendering = rendering});
+                module = &engine->addModule<kuge::Render3DModule>(*client, kuge::Render3DConfig{.rendering = rendering, .renderScale = renderScale});
             } catch (const std::exception& error) {
                 std::fprintf(stderr, "(no %s here: %s)\n", rendering == kuge::Rendering::OpenGL ? "OpenGL" : "video", error.what());
                 return;
@@ -170,4 +170,33 @@ Test(render3d_gl, the_gpu_and_the_cpu_agree)
 
     Assert(mean < 2.0, "the same picture, give or take: %f of 255 on average", mean);
     std::fprintf(stderr, "(gpu against cpu: %f on average, %d at worst)\n", mean, worst);
+}
+
+Test(render3d_gl, the_gpu_scene_frame)
+{
+    Frame gpu(kuge::Rendering::OpenGL, cube, 0.5f);
+
+    if (!gpu.available) {
+        return;
+    }
+    Frame cpu(kuge::Rendering::Software, cube, 0.5f);
+
+    gpu.client->opengl()->makeCurrent();   // (what ModelRender does before it draws or reads: another engine made its own context current)
+    const k3::Image small = gpu.module->rasterizer().readSceneFrame();
+    const k3::Image smallCpu = cpu.module->rasterizer().readSceneFrame();
+
+    Assert(small.width == 48 && small.height == 32, "the frame of the scene is half the screen: %ux%u", small.width, small.height);
+    Assert(gpu.module->rasterizer().readPixels().width == 96, "readPixels() is still the output size");
+    Assert(smallCpu.width == 48 && smallCpu.height == 32, "the CPU says the same");
+    const auto at = [](const k3::Image& image, int x, int y) { return image.pixels.data() + (static_cast<std::size_t>(y) * image.width + x) * 4; };
+
+    Assert(at(small, 24, 16)[0] > at(small, 24, 16)[2] + 40, "the cube is orange in the middle of it: %d %d %d", at(small, 24, 16)[0], at(small, 24, 16)[1], at(small, 24, 16)[2]);
+    Assert(at(small, 1, 1)[2] > at(small, 1, 1)[0] + 40, "and the sky blue around it");
+    long total = 0;
+
+    for (std::size_t i = 0; i < small.pixels.size(); ++i) {
+        total += i % 4 == 3 ? 0 : std::abs(static_cast<int>(small.pixels[i]) - static_cast<int>(smallCpu.pixels[i]));
+    }
+    Assert(static_cast<double>(total) / (static_cast<double>(small.pixels.size()) * 0.75) < 3.0, "the GPU and the CPU draw the same small frame");
+    Assert(gpu.image && gpu.image->width == 96 && gpu.image->height == 64, "and a screenshot is the whole screen, the small frame enlarged by the 2D renderer");
 }

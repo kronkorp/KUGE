@@ -67,6 +67,28 @@ Test(models, gltf_is_loaded)
     AssertEq(model->animations.size(), 0u, "no clip");
 }
 
+Test(models, a_character_is_assembled)
+{
+    const Folder folder("models_assembly");
+    Fixture fx;
+    const auto body = folder.write("body.gltf", GLTF);
+    const auto hat = folder.write("hat.gltf", GLTF);
+    const auto first = fx.models->assemble({body, hat});
+
+    AssertEq(first->primitives.size(), 2u, "the body and the hat");
+    Assert(fx.models->assemble({body, hat}) == first, "the same pieces are one model");
+    Assert(fx.models->assemble({body}) != first, "other pieces are another");
+    AssertEq(fx.models->animatedModels().load(body)->primitives.size(), 1u, "the body file's own model is not changed");
+    bool refused = false;
+
+    try {
+        fx.models->assemble({});
+    } catch (const kuge::ModelError&) {
+        refused = true;
+    }
+    Assert(refused, "no body, no character");
+}
+
 Test(models, loaded_in_the_background)
 {
     const Folder folder("models_async");

@@ -40,12 +40,12 @@ namespace
         kuge::DummyBackend dummy;
         kuge::Engine       engine;
 
-        explicit Fixture(std::function<void(Scene&)> setup)
+        explicit Fixture(std::function<void(Scene&)> setup, kuge::Render3DConfig config = {})
             : dummy(kuge::makeDummyBackend({64.0f, 48.0f})),
               engine(kuge::Engine::Config{.mode = kuge::Engine::Mode::Windowed})
         {
             engine.addModule<kuge::ClientModule>(std::move(dummy.backend));
-            engine.addModule<kuge::Render3DModule>();
+            engine.addModule<kuge::Render3DModule>(config);
             engine.scenes().change<Scene>(std::move(setup));
             engine.step(0.0);
         }
@@ -179,6 +179,30 @@ Test(render3d, screen_resizes_the_image)
 
     Assert(calls[0].kind == Call::Kind::Texture, "drawn");
     AssertEq(fx.dummy.renderer->texture(calls[0].texture.texture)->width, 32, "at the new size");
+}
+
+Test(render3d, small_scene_enlarged_by_2d)
+{
+    Fixture fx([](Scene& scene) { lookAtQuad(scene); spawnQuad(scene); }, kuge::Render3DConfig{.rendering = kuge::Rendering::Software, .renderScale = 0.5f});
+    const auto& calls = fx.frame();
+
+    Assert(!calls.empty() && calls[0].kind == Call::Kind::Texture, "the 3D image is drawn");
+    const auto* image = fx.dummy.renderer->texture(calls[0].texture.texture);
+
+    Assert(image != nullptr && image->width == 32 && image->height == 24, "the picture handed over is the small one, not the screen's");
+    Assert(calls[0].destination == kuge::Rect(0.0f, 0.0f, 64.0f, 48.0f), "and the 2D renderer enlarges it over the whole screen");
+    Assert(calls[0].texture.filter == kuge::Filter::Nearest, "in blocks by default");
+    const std::uint8_t* middle = image->rgba.data() + (12 * 32 + 16) * 4;
+
+    Assert(middle[0] > 200 && middle[1] < 40, "and the quad is where it was");
+}
+
+Test(render3d, upscale_can_be_smooth)
+{
+    Fixture fx([](Scene& scene) { lookAtQuad(scene); spawnQuad(scene); },
+        kuge::Render3DConfig{.rendering = kuge::Rendering::Software, .renderScale = 0.5f, .upscale = kuge::Filter::Linear});
+
+    Assert(fx.frame()[0].texture.filter == kuge::Filter::Linear, "Render3DConfig::upscale is the filter of the enlargement");
 }
 
 Test(render3d, light_of_an_entity)

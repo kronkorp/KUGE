@@ -30,18 +30,10 @@ else()
     set(KUGE_WARNINGS -Wall -Wextra)
 endif()
 
-# Ticket 039: OFF by default on Windows. kronkworld numbers its resource and component types with a
-# counter in its headers, and a DLL and a program each have their own copy: kuge.dll and the game would
-# give two ids to the same type (UiTheme...) and the game reads garbage. Link the static modules there.
-# Needs kronkworld to number its types by name (see tests/dll_ids, which turns red when it does).
-if(WIN32)
-    set(KUGE_BUILD_SHARED_DEFAULT OFF)
-else()
-    set(KUGE_BUILD_SHARED_DEFAULT ON)
-endif()
-option(KUGE_BUILD_SHARED  "Also build kuge.so (kuge.dll: see ticket 039, OFF by default on Windows), an aggregate of every module" ${KUGE_BUILD_SHARED_DEFAULT})
+option(KUGE_BUILD_SHARED  "Also build kuge.so (kuge.dll on Windows), an aggregate of every module" ON)
 option(KUGE_BUILD_CLIENT  "Build the client module (window, inputs, 2D rendering: needs SDL2)" ON)
 option(KUGE_BUILD_PHYSICS3D "Build the 3D physics module (needs Jolt)" ON)
+option(KUGE_BUILD_SCRIPT   "Build the script module (needs Lua)" ON)
 option(BUILD_EXAMPLES     "Build the example/ executables" OFF)
 option(BUILD_TESTS        "Build the tests (run them with ctest)" OFF)
 set(KUGE_SANITIZE "" CACHE STRING "Build with a sanitizer: address (+ undefined) or thread")
@@ -72,7 +64,7 @@ include(FetchContent)
 FetchContent_Declare(
     kronklab
     GIT_REPOSITORY https://github.com/kronkorp/kronklab.git
-    GIT_TAG        5584149a3c9ccbb12baaf71cfd591db3b37541ad
+    GIT_TAG        f14a79e9a949b6bf720ae2204de12766bc03a0b8
 )
 
 # kronkflow depends on kronkpool, which KUGE also uses directly: both must be
@@ -138,6 +130,18 @@ if(KUGE_BUILD_PHYSICS3D)
     find_package(Jolt CONFIG REQUIRED)
 endif()
 
+# Lua (scripts), from vcpkg too
+if(KUGE_BUILD_SCRIPT)
+    if(NOT VCPKG_TOOLCHAIN)
+        message(FATAL_ERROR
+            "The script module needs Lua, which comes from vcpkg, and this build has no vcpkg toolchain. "
+            "Built on its own, KUGE finds one (cmake/Vcpkg.cmake). A game that fetches KUGE: pass "
+            "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake and list lua in the game's "
+            "vcpkg.json, or -DKUGE_BUILD_SCRIPT=OFF.")
+    endif()
+    find_package(Lua REQUIRED)
+endif()
+
 FetchContent_Declare(
     kronkflow
     GIT_REPOSITORY https://github.com/kronkorp/kronkflow
@@ -188,7 +192,7 @@ set(BUILD_TESTS OFF)
 add_subdirectory(vendor/kronknet EXCLUDE_FROM_ALL)
 unset(BUILD_TESTS)
 set_property(GLOBAL APPEND PROPERTY KUGE_VENDORS kronknet-static)
-# kronk3d (v0.1.1) too, and it needs nothing from vcpkg. Its example and tests are off when it is
+# kronk3d (v0.1.4) too, and it needs nothing from vcpkg. Its example and tests are off when it is
 # not the top-level project. Built only when a target links kronk3d::static (or kronk3d::shared).
 add_subdirectory(vendor/kronk3d EXCLUDE_FROM_ALL)
 kuge_vendor(kronkworld DEPENDS kronkflow)
@@ -206,6 +210,9 @@ add_subdirectory(modules/animation)
 if(KUGE_BUILD_PHYSICS3D)
     add_subdirectory(modules/physics3d)
 endif()
+if(KUGE_BUILD_SCRIPT)
+    add_subdirectory(modules/script)
+endif()
 if(KUGE_BUILD_CLIENT)
     add_subdirectory(modules/client)
     add_subdirectory(modules/render3d)
@@ -214,11 +221,6 @@ endif()
 # kuge.so: every module in one shared library (games can also link the modules
 # they use directly, which is what the example does)
 if(KUGE_BUILD_SHARED)
-    if(WIN32)
-        message(WARNING "kuge.dll: a program that links it and uses a resource or a component type on both "
-            "sides (installUi puts UiTheme, the game reads it) gets two ids for it and crashes. "
-            "Link the static modules instead (ticket 039).")
-    endif()
     add_library(kuge SHARED cmake/aggregate.cpp)
     set_target_properties(kuge PROPERTIES
         PREFIX ""
@@ -251,10 +253,11 @@ endif()
 
 if(BUILD_TESTS)
     enable_testing()
-    # kronklab runs each test in a fork(), which Windows does not have: there, only the tests
-    # that need no kronklab are built (see tests/CMakeLists.txt)
-    if(NOT WIN32)
-        FetchContent_MakeAvailable(kronklab)
+    # kronklab finds the tests between two markers of a section: the padding of an incremental link (the default of
+    # MSVC without a build type, as with Ninja) would be read as tests, its own too (so this is before it is made)
+    if(MSVC)
+        add_link_options(/INCREMENTAL:NO)
     endif()
+    FetchContent_MakeAvailable(kronklab)
     add_subdirectory(tests)
 endif()

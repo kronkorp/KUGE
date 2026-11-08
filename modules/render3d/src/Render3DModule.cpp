@@ -136,6 +136,7 @@ void kuge::Render3DModule::inject(kw::World& world)
     world.addResource<Ref<AssetManager<k3::AnimatedModel>>>(m_animatedModels);
     world.addResource<Ref<const ModelRevision>>(m_revision);
     world.addResource<GlContext>(GlContext{m_gl});
+    world.addResource<SceneUpscale>(SceneUpscale{m_config.upscale});
     world.addResource<Particles3D>();
     world.addResource<k3::Camera>();
     world.addResource<k3::Environment>();
@@ -172,3 +173,33 @@ std::size_t kuge::Render3DModule::reloadAssets(void)
     tell(m_animatedModels.reloadChanged());
     return count;
 }
+
+std::shared_ptr<const k3::AnimatedModel> kuge::Render3DModule::assemble(const std::vector<std::filesystem::path>& parts,
+    const std::vector<std::filesystem::path>& libraries)
+{
+    if (parts.empty()) {
+        throw ModelError("assemble: a character needs at least a body");
+    }
+    std::string key;
+
+    for (const auto& file : parts) {
+        key += file.string() + '\n';
+    }
+    key += '\n';
+    for (const auto& file : libraries) {
+        key += file.string() + '\n';
+    }
+    if (const auto found = m_assemblies.find(key); found != m_assemblies.end()) {
+        return found->second;
+    }
+    auto assembly = std::make_shared<k3::AnimatedModel>(*m_animatedModels.load(parts.front()));
+
+    for (std::size_t i = 1; i < parts.size(); ++i) {
+        k3::attach(*assembly, *m_animatedModels.load(parts[i]));
+    }
+    for (const auto& file : libraries) {
+        k3::adoptClips(*assembly, *m_animatedModels.load(file));
+    }
+    return m_assemblies[key] = std::move(assembly);
+}
+

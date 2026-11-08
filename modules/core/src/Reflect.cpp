@@ -2,6 +2,7 @@
 #include "Physics3DComponents.hpp"
 #include "Transform2D.hpp"
 #include "Transform3D.hpp"
+#include <algorithm>
 #include <cmath>
 #include <format>
 #include <stdexcept>
@@ -356,7 +357,7 @@ void kuge::describeCore(ComponentRegistry& registry)
         field<Transform3D>("scale", &Transform3D::scale),
     });
     registry.describe<Collider3D>("Collider3D", {
-        field<Collider3D>("shape", &Collider3D::shape, {.names = {"Box", "Sphere", "Capsule"}}),
+        field<Collider3D>("shape", &Collider3D::shape, {.names = {"Box", "Sphere", "Capsule", "Mesh"}}),
         field<Collider3D>("size", &Collider3D::size),
         field<Collider3D>("offset", &Collider3D::offset),
         field<Collider3D>("layer", &Collider3D::layer),
@@ -383,4 +384,28 @@ void kuge::describeCore(ComponentRegistry& registry)
         field<Character3D>("jumpSpeed", &Character3D::jumpSpeed, {.min = 0.0}),
         field<Character3D>("gravityScale", &Character3D::gravityScale),
     });
+}
+
+std::vector<kw::Entity> kuge::ComponentRegistry::entitiesWith(kw::World& world, const std::vector<std::string>& components) const
+{
+    std::vector<const Component*> wanted;
+
+    for (const auto& name : components) {
+        const Component* component = byName(name);
+
+        if (!component) {
+            throw std::invalid_argument(std::format("the component '{}' is not described", name));
+        }
+        wanted.push_back(component);
+    }
+    if (wanted.empty()) {
+        return {};
+    }
+    std::vector<kw::Entity> found = wanted.front()->entities(world);
+
+    std::erase_if(found, [&](kw::Entity e) {
+        return !std::all_of(wanted.begin() + 1, wanted.end(), [&](const Component* c) { return c->has(world, e); });
+    });
+    std::sort(found.begin(), found.end());
+    return found;
 }

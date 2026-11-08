@@ -1,6 +1,8 @@
 extern "C" {
     #include "kronklab/kronklab.h"
 }
+#include "backend/dummy/DummyFont.hpp"
+#include "ui/TextRenderer.hpp"
 #include "ui_fixture.hpp"
 #include <vector>
 
@@ -541,6 +543,33 @@ Test(uiimage, drawn_in_its_node)
     AssertEq(calls[0].texture.source.w, 0.0f, "all of the texture");
 }
 
+Test(uiimage, turned_and_round)
+{
+    kw::Entity plain = 0, turned = 0;
+    FontFile font;
+    Fixture fx([&](TestScene& scene) {
+        withUi(scene, font, [&](kw::World& w) {
+            const auto texture = picture(w, 16, 8);
+
+            plain = uiNode(w, {.offset = {10.0f, 20.0f}, .size = {40.0f, 40.0f}});
+            turned = uiNode(w, {.offset = {100.0f, 20.0f}, .size = {40.0f, 40.0f}});
+            w.add<kuge::UiImage>(plain, kuge::UiImage{.texture = texture});
+            w.add<kuge::UiImage>(turned, kuge::UiImage{.texture = texture, .rotation = 30.0f, .pivot = {0.0f, 1.0f}, .radius = 20.0f});
+        });
+    });
+    const auto calls = textureCalls(fx.frame());
+    const auto& layout = fx.scene->world().getResource<kuge::UiLayoutResult>();
+
+    AssertEq(calls.size(), 2, "two pictures");
+    AssertEq(calls[0].texture.rotation, 0.0f, "not turned by default");
+    AssertEq(calls[0].texture.radius, 0.0f, "and square");
+    AssertEq(calls[1].texture.rotation, 30.0f, "the angle, in degrees, is in the draw");
+    Assert(calls[1].texture.pivot == kuge::Vec2(0.0f, 1.0f), "around its pivot");
+    AssertEq(calls[1].texture.radius, 20.0f, "and the radius");
+    Assert(calls[1].destination == kuge::Rect(100.0f, 20.0f, 40.0f, 40.0f), "the destination is the node, not the turned picture");
+    Assert(layout.rects.at(turned) == kuge::Rect(100.0f, 20.0f, 40.0f, 40.0f), "and a rotation does not change the layout");
+}
+
 Test(uiimage, takes_the_size_it_has)
 {
     FontFile font;
@@ -772,4 +801,423 @@ Test(uiscale, a_scroll_in_ui_units)
     Assert(drawnTops(ui.tick()).front() == -20.0f, "which are 80 pixels: the second item (60 .. 120) is cut at -20");
     ui.wheel(-100.0f);
     AssertEq(ui.get<kuge::UiScroll>(list.scroll).offset, 200.0f, "the end is 300 - 100 as at scale 1");
+}
+
+// -- UiNode::clip: the children are cut to the rectangle of the node ---------------------------------------------------
+namespace
+{
+    // A node of 100 x 100 at the top left, with or without `clip`, and a child of 100 x 30 at (x, 0) that is a panel with no border
+    kw::Entity cardWithChild(kw::World& w, bool clip, float x, bool button = false)
+    {
+        const kw::Entity card = uiNode(w, {.size = {100.0f, 100.0f}, .clip = clip});
+        const kw::Entity child = uiChild(w, card, {.offset = {x, 0.0f}, .size = {100.0f, 30.0f}});
+
+        if (button) {
+            w.add<kuge::UiButton>(child, kuge::UiButton{.text = "x"});
+        } else {
+            w.add<kuge::UiPanel>(child, kuge::UiPanel{.borderWidth = 0.0f});
+        }
+        return child;
+    }
+}
+
+Test(uiclip, a_child_half_out_is_cut)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) { cardWithChild(w, true, 50.0f); });
+    const auto& calls = ui.tick();
+
+    AssertEq(calls.size(), 1, "the child is drawn, got %zu calls", calls.size());
+    Assert(calls[0].clip.has_value() && *calls[0].clip == kuge::Rect(0.0f, 0.0f, 100.0f, 100.0f), "cut to the node");
+}
+
+Test(uiclip, a_child_wholly_out_is_not_drawn)
+{
+    kw::Entity child = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { child = cardWithChild(w, true, 150.0f); });
+
+    AssertEq(ui.tick().size(), 0, "nothing is drawn");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().rects.count(child), 1, "it is placed all the same");
+}
+
+Test(uiclip, no_clip_draws_all_of_it)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) { cardWithChild(w, false, 50.0f); });
+    const auto& calls = ui.tick();
+
+    AssertEq(calls.size(), 1, "the child is drawn");
+    Assert(!calls[0].clip.has_value(), "not cut: a child can come out of its parent on purpose");
+}
+
+Test(uiclip, inside_the_border)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        const kw::Entity child = cardWithChild(w, true, 0.0f);
+
+        w.add<kuge::UiPanel>(w.get<kuge::UiNode>(child).parent, kuge::UiPanel{.borderWidth = 4.0f});
+    });
+    const auto& calls = ui.tick();
+    const auto cut = std::find_if(calls.begin(), calls.end(), [](const Call& c) { return c.clip.has_value(); });
+
+    Assert(cut != calls.end() && *cut->clip == kuge::Rect(4.0f, 4.0f, 92.0f, 92.0f), "cut inside the border of its panel, as a scroll is");
+}
+
+Test(uiclip, what_is_cut_is_not_pressed)
+{
+    kw::Entity out = 0, half = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        out = cardWithChild(w, true, 150.0f, true);
+        half = cardWithChild(w, true, 50.0f, true);
+    });
+
+    ui.tick();
+    ui.mouseTo({160.0f, 10.0f});   // on the button that is out of its node (and on the cut part of the other one)
+    ui.mouseDown({160.0f, 10.0f});
+    AssertEq(ui.count(Kind::Activated, out), 0, "a button that is out of the node cannot be pressed");
+    AssertEq(ui.count(Kind::Activated, half), 0, "nor the part of a button that is cut");
+    ui.mouseUp({160.0f, 10.0f});
+    ui.mouseTo({70.0f, 10.0f});
+    ui.mouseDown({70.0f, 10.0f});
+    AssertEq(ui.count(Kind::Activated, half), 1, "the part that is in can");
+}
+
+// -- UiLabel::overflow: a text that is longer than its node (a letter is 8 pixels wide, a line 12 high) ----------------
+namespace
+{
+    constexpr const char* LONG_TEXT = "abcdefghijklmnopqrst";   // 20 letters: 160 pixels
+
+    kw::Entity overflowLabel(kw::World& w, const char* text, kuge::Overflow overflow, float width = 100.0f)
+    {
+        const kw::Entity entity = uiNode(w, {.size = {width, 0.0f}});
+
+        w.add<kuge::UiLabel>(entity, kuge::UiLabel{.text = text, .overflow = overflow});
+        return entity;
+    }
+
+    // The draw of the text (the only texture in the frame)
+    const Call* textDraw(const std::vector<Call>& calls)
+    {
+        const auto found = std::find_if(calls.begin(), calls.end(), [](const Call& c) { return c.kind == Call::Kind::Texture; });
+
+        return found == calls.end() ? nullptr : &*found;
+    }
+}
+
+Test(uioverflow, none_comes_out)
+{
+    kw::Entity label = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { label = overflowLabel(w, LONG_TEXT, kuge::Overflow::None); });
+    const Call* draw = textDraw(ui.tick());
+
+    Assert(draw != nullptr && draw->destination.w == 160.0f, "all of the text is drawn");
+    Assert(!draw->clip.has_value(), "and not cut");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.size(), 0, "nothing is said to be cut");
+}
+
+Test(uioverflow, clip_cuts_at_the_node)
+{
+    kw::Entity label = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { label = overflowLabel(w, LONG_TEXT, kuge::Overflow::Clip); });
+    const Call* draw = textDraw(ui.tick());
+
+    Assert(draw != nullptr && draw->clip.has_value() && *draw->clip == ui.rectOf(label), "cut to the rectangle of the node");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.count(label), 1, "and it is said to be cut");
+}
+
+Test(uioverflow, a_text_that_fits_is_left_alone)
+{
+    kw::Entity label = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { label = overflowLabel(w, "short", kuge::Overflow::Ellipsis); });
+    const Call* draw = textDraw(ui.tick());
+
+    Assert(draw != nullptr && draw->destination.w == 40.0f, "the text as it is, with no dots");
+    Assert(!draw->clip.has_value(), "not cut");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.size(), 0, "and not said to be");
+}
+
+Test(uioverflow, ellipsis_ends_in_dots)
+{
+    kw::Entity label = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) { label = overflowLabel(w, LONG_TEXT, kuge::Overflow::Ellipsis); });
+    const Call* draw = textDraw(ui.tick());
+
+    // 100 pixels: "..." is 24, so 9 letters, and 12 characters in all are 96
+    Assert(draw != nullptr && draw->destination.w == 96.0f, "nine letters and three dots, got %f", draw ? draw->destination.w : -1.0f);
+    Assert(draw->destination.w <= ui.rectOf(label).w, "it fits its node");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.count(label), 1, "and it is said to be cut");
+}
+
+Test(uioverflow, scroll_goes_and_returns)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) { overflowLabel(w, LONG_TEXT, kuge::Overflow::Scroll); });
+    // 60 pixels too long at 40 pixels a second: a pause of 1 s, 1.5 s on the way, a pause of 1 s, and again
+    const auto xAfter = [&](int frames) {
+        const Call* draw = nullptr;
+
+        for (int i = 0; i < frames; ++i) {
+            draw = textDraw(ui.tick());
+        }
+        Assert(draw != nullptr, "the text is drawn");
+        return draw->destination.x;
+    };
+
+    Assert(std::fabs(xAfter(30)) <= 1.0f, "it waits at the start");                   // 0.5 s
+    Assert(std::fabs(xAfter(75) + 30.0f) <= 3.0f, "then it goes: 30 pixels in");     // 1.75 s
+    Assert(std::fabs(xAfter(60) + 60.0f) <= 1.0f, "it waits at the end");            // 2.75 s
+    Assert(std::fabs(xAfter(45)) <= 3.0f, "and it begins again");                    // 3.5 s: the cycle is 3.5 s
+}
+
+Test(uioverflow, wrap_uses_the_node_width)
+{
+    kw::Entity wrapped = 0, fixed = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        wrapped = overflowLabel(w, "aaaaa bbbbb ccccc", kuge::Overflow::Wrap, 40.0f);
+        fixed = uiNode(w, {.offset = {0.0f, 200.0f}});
+        w.add<kuge::UiLabel>(fixed, kuge::UiLabel{.text = "aaaaa bbbbb ccccc", .wrapWidth = 40});
+    });
+
+    ui.tick();
+    AssertEq(ui.rectOf(wrapped).h, 36.0f, "three lines of 12");
+    AssertEq(ui.rectOf(wrapped).h, ui.rectOf(fixed).h, "as many as wrapWidth would make");
+    AssertEq(ui.world().getResource<kuge::UiLayoutResult>().truncated.size(), 0, "a wrapped text is not cut");
+}
+
+Test(uioverflow, measure_says_lines)
+{
+    kuge::DummyFont font;
+    const auto one = kuge::TextRenderer::measure(font, "aaaaa");
+    const auto three = kuge::TextRenderer::measure(font, "aaaaa bbbbb ccccc", 40);
+
+    AssertEq(one.lines, 1, "one line");
+    AssertEq(one.size.x, 40.0f, "five letters");
+    AssertEq(three.lines, 3, "wrapped in three");
+    AssertEq(three.size.y, 36.0f, "of 12");
+    AssertEq(kuge::TextRenderer::measure(font, "").lines, 0, "an empty text has none");
+}
+
+// -- Round corners: UiPanel::radius, UiTheme::radius --------------------------------------------------------------
+namespace
+{
+    // The fill and the border of the first panel in the frame: they are what the panel draws
+    struct PanelDraw
+    {
+        const Call* fill = nullptr;
+        const Call* edge = nullptr;
+    };
+
+    PanelDraw panelDraw(const std::vector<Call>& calls)
+    {
+        PanelDraw draw;
+
+        for (const Call& call : calls) {
+            if (call.kind == Call::Kind::Fill && !draw.fill) { draw.fill = &call; }
+            if (call.kind == Call::Kind::Stroke && !draw.edge) { draw.edge = &call; }
+        }
+        return draw;
+    }
+}
+
+Test(uiround, a_panel_with_a_radius)
+{
+    kw::Entity panel = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        panel = uiNode(w, {.offset = {10.0f, 20.0f}, .size = {80.0f, 40.0f}});
+        w.add<kuge::UiPanel>(panel, kuge::UiPanel{.borderWidth = 3.0f, .radius = 10.0f});
+    });
+    const auto draw = panelDraw(ui.tick());
+
+    Assert(draw.fill != nullptr && draw.fill->radius == 10.0f, "the fill is rounded");
+    Assert(draw.edge != nullptr && draw.edge->radius == 10.0f && draw.edge->width == 3.0f, "and so is the border, as thick as it was");
+    Assert(draw.fill->destination == kuge::Rect(10.0f, 20.0f, 80.0f, 40.0f), "in the rectangle of the node: the layout is the same");
+}
+
+Test(uiround, no_radius_is_square)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        const kw::Entity panel = uiNode(w, {.size = {80.0f, 40.0f}});
+
+        w.add<kuge::UiPanel>(panel, kuge::UiPanel{.radius = 0.0f});
+    });
+    const auto& calls = ui.tick();
+    const auto draw = panelDraw(calls);
+
+    Assert(draw.fill != nullptr && draw.fill->radius == 0.0f, "square");
+    AssertEq(calls.size(), 5, "the fill and the four rectangles of the border, as before");
+    Assert(draw.edge == nullptr, "no rounded border");
+}
+
+Test(uiround, the_theme_has_the_default)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        w.getResource<kuge::UiTheme>().radius = 6.0f;
+        const kw::Entity own = uiNode(w, {.size = {80.0f, 40.0f}});
+        const kw::Entity theirs = uiNode(w, {.offset = {0.0f, 100.0f}, .size = {80.0f, 40.0f}});
+
+        w.add<kuge::UiPanel>(own, kuge::UiPanel{.radius = 4.0f});
+        w.add<kuge::UiPanel>(theirs, kuge::UiPanel{});
+        w.add<kuge::UiButton>(uiNode(w, {.offset = {0.0f, 200.0f}, .size = {80.0f, 40.0f}}), kuge::UiButton{.text = "ok"});
+        w.add<kuge::UiTextField>(uiNode(w, {.offset = {0.0f, 300.0f}, .size = {80.0f, 40.0f}}), kuge::UiTextField{});
+    });
+    std::vector<float> radii;
+
+    for (const Call& call : ui.tick()) {
+        if (call.kind == Call::Kind::Fill && call.destination.w == 80.0f && call.destination.h == 40.0f) {
+            radii.push_back(call.radius);
+        }
+    }
+    Assert(radii == std::vector<float>({4.0f, 6.0f, 6.0f, 6.0f}), "a panel's own radius wins; a panel, a button and a field follow the theme");
+}
+
+Test(uiround, the_scale_makes_it_bigger)
+{
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        w.getResource<kuge::UiScale>().value = 2.0f;
+        w.getResource<kuge::UiTheme>().radius = 6.0f;
+        w.add<kuge::UiPanel>(uiNode(w, {.size = {80.0f, 40.0f}}), kuge::UiPanel{.radius = 10.0f});
+        w.add<kuge::UiButton>(uiNode(w, {.offset = {0.0f, 100.0f}, .size = {80.0f, 40.0f}}), kuge::UiButton{.text = "ok"});
+    });
+    std::vector<float> radii;
+
+    for (const Call& call : ui.tick()) {
+        if (call.kind == Call::Kind::Fill && call.destination.w == 160.0f) {
+            radii.push_back(call.radius);
+        }
+    }
+    Assert(radii == std::vector<float>({20.0f, 12.0f}), "both are multiplied by the scale of the interface");
+}
+
+Test(uiround, a_click_in_a_cut_corner)
+{
+    kw::Entity button = 0;
+    Widgets ui([&](kw::World& w, kw::Entity) {
+        w.getResource<kuge::UiTheme>().radius = 15.0f;
+        button = uiNode(w, {.size = {80.0f, 40.0f}});
+        w.add<kuge::UiButton>(button, kuge::UiButton{.text = "ok"});
+    });
+
+    ui.tick();
+    ui.mouseTo({1.0f, 1.0f});   // in the corner of the rectangle that the radius cuts
+    ui.mouseDown({1.0f, 1.0f});
+    AssertEq(ui.count(Kind::Activated, button), 0, "the corner is outside the button");
+    ui.mouseUp({1.0f, 1.0f});
+    ui.mouseTo({40.0f, 20.0f});
+    ui.mouseDown({40.0f, 20.0f});
+    AssertEq(ui.count(Kind::Activated, button), 1, "the middle is not");
+    ui.mouseUp({40.0f, 20.0f});
+    ui.mouseTo({40.0f, 1.0f});
+    ui.mouseDown({40.0f, 1.0f});
+    AssertEq(ui.count(Kind::Activated, button), 1, "and neither is the straight edge");
+}
+
+// -- UiImage::smooth: a picture drawn smaller than it is ------------------------------------------------------------------
+namespace
+{
+    struct Drawn
+    {
+        kuge::TextureId original = 0;
+        kw::Entity      node = 0;
+    };
+
+    // A 60 x 60 picture (with its pixels, or not) in a node of `size`, with `smooth` as given
+    std::unique_ptr<Fixture> smallImage(FontFile& font, Drawn& drawn, bool keep, float size, bool smooth = true, kuge::Rect source = {})
+    {
+        return std::make_unique<Fixture>([&](TestScene& scene) {
+            withUi(scene, font, [&](kw::World& w) {
+                const std::vector<std::uint8_t> pixels(60 * 60 * 4, 200);
+                const auto texture = kuge::Texture::fromPixels(*w.getResource<kuge::Ref<kuge::IRenderer2D>>(), 60, 60, pixels, keep);
+
+                drawn.original = texture->id();
+                drawn.node = uiNode(w, {.size = {size, size}});
+                w.add<kuge::UiImage>(drawn.node, kuge::UiImage{.texture = texture, .source = source, .smooth = smooth});
+            });
+        });
+    }
+}
+
+Test(uismooth, a_third_of_its_size)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 20.0f);
+    const auto calls = textureCalls(fx->frame());
+
+    AssertEq(calls.size(), 1, "one picture");
+    Assert(calls[0].texture.texture != drawn.original, "drawn from another picture than the texture");
+    const auto* copy = fx->dummy.renderer->texture(calls[0].texture.texture);
+
+    Assert(copy != nullptr && copy->width == 20 && copy->height == 20, "the size it has on the screen");
+    Assert(calls[0].texture.source.w == 0.0f && calls[0].destination == kuge::Rect(0.0f, 0.0f, 20.0f, 20.0f), "all of it, in the node");
+    Assert(calls[0].texture.filter == kuge::Filter::Linear, "mixed linearly");
+}
+
+Test(uismooth, the_copy_is_kept)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 20.0f);
+    const auto first = textureCalls(fx->frame())[0].texture.texture;
+    const std::size_t count = fx->dummy.renderer->textureCount();
+
+    AssertEq(textureCalls(fx->frame())[0].texture.texture, first, "the same copy the next frame");
+    AssertEq(fx->dummy.renderer->textureCount(), count, "and no new texture");
+    fx->scene->world().get<kuge::UiNode>(drawn.node).size = {30.0f, 30.0f};
+    const auto second = textureCalls(fx->frame())[0];
+
+    Assert(second.texture.texture != first, "another copy when the size changes");
+    AssertEq(fx->dummy.renderer->texture(second.texture.texture)->width, 30, "for the new size");
+}
+
+Test(uismooth, the_copy_goes_with_the_node)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 20.0f);
+
+    fx->frame();
+    AssertEq(fx->scene->world().getResource<kuge::UiImageCache>().entries.size(), 1, "kept while it is drawn");
+    fx->scene->world().get<kuge::UiNode>(drawn.node).visible = false;
+    fx->frame();
+    AssertEq(fx->scene->world().getResource<kuge::UiImageCache>().entries.size(), 0, "dropped when it is not");
+}
+
+Test(uismooth, without_the_pixels_the_texture)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, false, 20.0f);
+    const auto calls = textureCalls(fx->frame());
+
+    Assert(calls[0].texture.texture == drawn.original, "no copy to make it from: the texture itself");
+    Assert(calls[0].texture.filter == kuge::Filter::Linear, "with the linear filter");
+}
+
+Test(uismooth, not_much_smaller_or_bigger)
+{
+    FontFile font;
+    Drawn near, big;
+    auto closer = smallImage(font, near, true, 45.0f);    // 60 / 45: less than a half more
+    auto bigger = smallImage(font, big, true, 120.0f);
+
+    Assert(textureCalls(closer->frame())[0].texture.texture == near.original, "drawn as it is when it is shrunk by less than a half");
+    Assert(textureCalls(bigger->frame())[0].texture.texture == big.original, "and when it is enlarged");
+}
+
+Test(uismooth, off_is_pixels)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 20.0f, false);
+    const auto calls = textureCalls(fx->frame());
+
+    Assert(calls[0].texture.texture == drawn.original && calls[0].texture.filter == kuge::Filter::Nearest, "blocks, from the texture");
+}
+
+Test(uismooth, only_the_part_shown)
+{
+    FontFile font;
+    Drawn drawn;
+    auto fx = smallImage(font, drawn, true, 10.0f, true, {0.0f, 0.0f, 30.0f, 30.0f});
+    const auto calls = textureCalls(fx->frame());
+    const auto* copy = fx->dummy.renderer->texture(calls[0].texture.texture);
+
+    Assert(copy != nullptr && copy->width == 10 && copy->height == 10, "the copy is of the part, at the size shown");
 }

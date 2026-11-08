@@ -218,6 +218,29 @@ Test(mods, what_they_replace)
     Assert(replaced[1].file == "data/a.json" && replaced[1].mod == "second" && replaced[1].replaces == "first", "second replaces first's");
 }
 
+Test(mods, scripts_in_load_order)
+{
+    Tree tree;
+
+    tree.mod("base");
+    tree.mod("extra", "[\"base\"]");
+    tree.write("mods/extra/scripts/b.lua", "-- b");
+    tree.write("mods/extra/scripts/a.lua", "-- a");
+    tree.write("mods/base/scripts/z.lua", "-- z");
+    tree.write("mods/base/scripts/notes.txt", "not a script");
+    tree.write("mods/base/data/scripts.lua", "not in scripts/");
+    const auto mods = kuge::Mods::scan(tree.path / "mods");
+    const auto scripts = mods.scripts();
+
+    Assert(scripts.size() == 3, "only scripts/*.lua: %zu", scripts.size());
+    Assert(scripts[0].file.filename() == "z.lua" && scripts[1].file.filename() == "a.lua" && scripts[2].file.filename() == "b.lua", "the mods in load order, the files by name");
+    Assert(scripts[0].mod == "base" && scripts[1].mod == "extra" && scripts[2].mod == "extra", "each says which mod it is of");
+    const auto before = mods.fingerprint();
+
+    tree.write("mods/extra/scripts/a.lua", "-- a, changed");
+    Assert(kuge::Mods::scan(tree.path / "mods").fingerprint() != before, "a script is in the fingerprint: a client with another script is refused");
+}
+
 Test(mods, a_fingerprint_of_the_files)
 {
     Tree one, two;

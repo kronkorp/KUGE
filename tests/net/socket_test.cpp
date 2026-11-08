@@ -4,15 +4,17 @@ extern "C" {
 #include "Endpoint.hpp"
 #include "SocketTransport.hpp"
 #include "net_fixture.hpp"
-#include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
-#include <netinet/in.h>
 #include <random>
 #include <set>
-#include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
+#ifndef _WIN32   // (the tests that make a socket by hand)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#endif
 
 // NOTE: kronklab test names are limited to 31 characters.
 // Real sockets, on the loopback interface of the machine.
@@ -68,6 +70,7 @@ namespace
         return static_cast<std::size_t>(std::count_if(events.begin(), events.end(), [kind](const auto& e) { return e.kind == kind; }));
     }
 
+#ifndef _WIN32
     // A raw TCP connection, made by hand: to send what a well-behaved transport never would
     int rawConnect(std::uint16_t port)
     {
@@ -83,6 +86,7 @@ namespace
         }
         return fd;
     }
+#endif
 
     std::vector<std::uint8_t> patterned(std::size_t size, std::uint8_t seed)
     {
@@ -231,6 +235,11 @@ Test(tcp, a_thousand_packets)
             server->poll(watch.serverEvents);
             client->poll(watch.clientEvents);
         }
+        // A peer that reads as the packets come, as a game's does. Without it the 1.5 MB do not fit in the buffers of Windows
+        // (about 128 KB: the client's out buffer fills up and the transport says the connection is lost, which is its answer to a
+        // peer that does not read); Linux's buffers happen to take them all
+        server->poll(watch.serverEvents);
+        client->poll(watch.clientEvents);
     }
     Assert(pollUntil(*server, *client, watch, [&] { return count(watch.serverEvents, TransportEvent::Kind::Packet) == 1000; }, 20.0), "all 1000 arrive");
     bool same = true;
@@ -343,6 +352,7 @@ Test(tcp, the_server_closes_one)
     Assert(pollUntil(*server, *a, watch, [&] { b->poll(eventsB); return count(watch.clientEvents, TransportEvent::Kind::Disconnected) + count(eventsB, TransportEvent::Kind::Disconnected) == 1; }), "one client sees it end");
 }
 
+#ifndef _WIN32
 Test(tcp, fragments_by_hand)
 {
     // A peer that sends a packet in pieces, with pauses, and two packets glued: what TCP does to us
@@ -409,6 +419,7 @@ Test(tcp, a_hostile_length)
     Assert(got == 0, "and the connection is closed on its side too");
     close(fd);
 }
+#endif
 
 // -- UDP -------------------------------------------------------------------------------------
 Test(udp, packets_both_ways)

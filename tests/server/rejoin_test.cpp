@@ -57,6 +57,82 @@ Test(rejoin, the_place_is_kept)
     AssertStrEq(ana.echoes.back().c_str(), "Ana: back", "as Ana");
 }
 
+Test(rejoin, a_restarted_client)
+{
+    Harness harness([](server::ServerConfig& c) { c.endpoint.timeout = 1.0; }, server::RoomTypeConfig{.maxPlayers = 2, .idleTimeout = 30.0, .reconnectSeconds = 10.0});
+    TestClient ana("Ana"), ben("Ben");
+
+    ana.connect(harness, 1.0);
+    ben.connect(harness, 1.0);
+    ana.join();
+    ben.join();
+    Assert(ana.until([&] { ben.poll(); return ana.inRoom() && ben.inRoom(); }), "both in");
+    const std::uint32_t networkId = ana.networkId;
+    const auto ticket = ana.matchmaking.rejoinTicket();   // what the game keeps in a file
+
+    Assert(ticket.has_value(), "there is a ticket in a room");
+    cutTheCable(harness, ana, ben, 2);
+    TestClient again("Ana");   // the game was closed and opened again: a new client that knows only the file
+
+    again.connect(harness, 1.0);
+    Assert(!again.matchmaking.canRejoin(), "it knows nothing");
+    again.matchmaking.setRejoinTicket(*ticket);
+    again.matchmaking.rejoin();
+    Assert(again.until([&] { return again.inRoom(); }), "it is back in the room");
+    AssertEq(again.networkId, networkId, "as the same player");
+    Assert(waitUntil([] { return roomLog().rejoinedCount() == 1; }), "the room says she is back");
+}
+
+Test(rejoin, a_restarted_account)
+{
+    Harness harness([](server::ServerConfig& c) {
+        c.endpoint.timeout = 1.0;
+        c.authenticate = [](const std::string& token, const std::string&) -> std::optional<std::uint32_t> {
+            return token == "ana" ? std::optional<std::uint32_t>(42) : token == "ben" ? std::optional<std::uint32_t>(43) : std::nullopt;
+        };
+    }, server::RoomTypeConfig{.maxPlayers = 2, .idleTimeout = 30.0, .reconnectSeconds = 10.0});
+    TestClient ana("Ana"), ben("Ben");
+
+    ana.matchmaking.setToken("ana");
+    ben.matchmaking.setToken("ben");
+    ana.connect(harness, 1.0);
+    ben.connect(harness, 1.0);
+    ana.join();
+    ben.join();
+    Assert(ana.until([&] { ben.poll(); return ana.inRoom() && ben.inRoom(); }), "both in");
+    const std::uint32_t networkId = ana.networkId;
+
+    cutTheCable(harness, ana, ben, 2);
+    TestClient again("Ana");
+
+    again.matchmaking.setToken("ana");
+    again.connect(harness, 1.0);
+    again.join();   // a plain request to join, with no ticket
+    Assert(again.until([&] { return again.inRoom(); }), "the account is put back in its place");
+    AssertEq(again.networkId, networkId, "the same player");
+    Assert(waitUntil([] { return roomLog().rejoinedCount() == 1; }), "and the room says she is back");
+}
+
+Test(rejoin, the_account_is_still_there)
+{
+    Harness harness([](server::ServerConfig& c) {
+        c.authenticate = [](const std::string& token, const std::string&) -> std::optional<std::uint32_t> {
+            return token == "ana" ? std::optional<std::uint32_t>(42) : std::nullopt;
+        };
+    }, server::RoomTypeConfig{.maxPlayers = 2, .idleTimeout = 30.0, .reconnectSeconds = 10.0});
+    TestClient ana("Ana"), twin("Ana");
+
+    ana.matchmaking.setToken("ana");
+    twin.matchmaking.setToken("ana");
+    ana.connect(harness);
+    twin.connect(harness);
+    ana.join();
+    Assert(ana.until([&] { return ana.inRoom(); }), "Ana is in");
+    twin.join();
+    Assert(twin.until([&] { return !twin.failures.empty(); }), "the same account while it is connected is still refused");
+    Assert(!twin.inRoom(), "and it is not in the room");
+}
+
 Test(rejoin, the_time_runs_out)
 {
     Harness harness([](server::ServerConfig& c) { c.endpoint.timeout = 1.0; }, server::RoomTypeConfig{.maxPlayers = 2, .idleTimeout = 30.0, .reconnectSeconds = 2.0});

@@ -73,6 +73,11 @@ namespace kuge
         //! @param next  The clip to play when this one ends (it must not loop; "": stay on the last pose)
         //! @return  false if the model has no such clip
         bool play(std::string_view clip, const k3::PlayOptions& options = {}, std::string_view next = {});
+
+        //! Hides (or shows again) the primitives of the model whose material or node has this name, for this entity only, so that one
+        //! assembled model (k3::attach) serves every look of a character: a body is not drawn under a top.
+        //! @return  How many primitives have that name (0: nothing changed)
+        std::size_t hide(std::string_view name, bool hidden = true);
     };
 
     ////////////////////////////////////////////////////////////////////////////

@@ -152,6 +152,26 @@ Test(animator3d, hidden_is_not_drawn)
     Assert(!redAtCenter(fx), "not visible");
 }
 
+Test(animator3d, a_part_is_hidden)
+{
+    Fixture fx;
+    auto model = std::make_shared<k3::AnimatedModel>(*character());
+
+    model->primitives[0].material->name = "body";
+    const kw::Entity entity = spawn(fx, kuge::Animator3D::of(model));
+
+    lookAtOrigin(fx);
+    tick(fx);
+    Assert(redAtCenter(fx), "the rest pose");
+    AssertEq(fx.world().get<kuge::Animator3D>(entity).hide("hood"), 0u, "no part has that name");
+    AssertEq(fx.world().get<kuge::Animator3D>(entity).hide("body"), 1u, "one has");
+    tick(fx);
+    Assert(!redAtCenter(fx), "and it is not drawn");
+    fx.world().get<kuge::Animator3D>(entity).hide("root", false);   // (the node's name: this one is a rigid primitive of it)
+    tick(fx);
+    Assert(redAtCenter(fx), "shown again");
+}
+
 Test(animator3d, a_reloaded_model_restarts)
 {
     const render3d::Folder folder("anim_reload");

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/kuge-logo-blanc.svg" alt="KUGE" width="320">
+</p>
+
 # KUGE
 
 KUGE is a C++20 game engine made of independent building blocks: a game links the ones
@@ -46,6 +50,7 @@ R-Type, as a dedicated server, a client and a host, from an empty folder to test
 | Linux (GCC) and Windows (MSVC) | done |
 | 3D: scenes, models (OBJ, glTF), animation, cameras, physics (Jolt), replication and prediction | done |
 | A 3D game, three ways (Arena: server, client, host) | done |
+| Mods (data, resources) and Lua scripts in a sandbox, hot reload | done |
 
 Everything listed as *done* is covered by tests (see [Tests](#tests)).
 
@@ -86,7 +91,7 @@ ctest --test-dir build --output-on-failure
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build `kuge-client` (needs SDL2, SDL2_mixer, SDL2_ttf). Turn it off for a server. |
 | `KUGE_BUILD_PHYSICS3D` | `ON` | Build `kuge-physics3d` (needs Jolt, from vcpkg). A server of a 2D game can turn it off. |
-| `KUGE_BUILD_SHARED` | `ON` (`OFF` on Windows) | Also build `kuge.so`, every module in one shared library. Off by default on Windows: a program that links `kuge.dll` and shares a resource or component type with it gets two ids for it (see [14 pitfalls](docs/14-pitfalls/README.md)); link the static modules there. |
+| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. A program that links it shares its resource and component ids with it (kronkworld numbers them by name, see [14 pitfalls](docs/14-pitfalls/README.md)). |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. |
@@ -104,7 +109,8 @@ above are):
   The vcpkg used is the toolchain given with `-DCMAKE_TOOLCHAIN_FILE`, or else the one in
   `VCPKG_ROOT`, or else vcpkg cloned at the baseline into `.vcpkg/` (`cmake/Vcpkg.cmake`). With
   `-DKUGE_BUILD_CLIENT=OFF`, none of them is built. The 3D physics (Jolt) comes from vcpkg too, with
-  its `rtti` feature (KUGE is built with RTTI); `-DKUGE_BUILD_PHYSICS3D=OFF` leaves it out.
+  its `rtti` feature (KUGE is built with RTTI); `-DKUGE_BUILD_PHYSICS3D=OFF` leaves it out. Lua (the scripts)
+  comes from vcpkg too (the `script` feature); `-DKUGE_BUILD_SCRIPT=OFF` leaves it out.
 
 A game that fetches KUGE as a subproject lists SDL2 & co. in its own `vcpkg.json`, and gives the
 vcpkg toolchain to its own build: vcpkg only reads the manifest of the top-level project.
@@ -126,12 +132,13 @@ them). What differs from Linux:
 - Ctrl+C and Ctrl+Break end `run()` as SIGINT does (Windows has no SIGTERM to send).
   `kuge_rtype_server` also stops on `quit` typed in its terminal.
 - The player's folders (`userDirectory`) are both in `%APPDATA%`.
-- The unit tests are not built: kronklab runs each test in a `fork()`. `ctest` runs the
-  boundaries and the games played for real: `pong_smoke`, `platformer_smoke`, and
-  `rtype_smoke` and `arena3d_smoke`, which need the `sh` of Git for Windows.
+- The unit tests are built and run (kronklab starts a process for each test there), except one that needs a
+  real window and is left out (#162). `ctest` also runs the boundaries and the games
+  played for real: `pong_smoke`, `platformer_smoke`, and `rtype_smoke` and `arena3d_smoke`, which need the `sh`
+  of Git for Windows. The tests that wrap `send` at link time (`--wrap`, GNU ld) are not built.
 - `KUGE_SANITIZE` is for GCC and Clang only.
 
-The CI builds and tests both: Linux with GCC, Windows with MSVC.
+The CI builds and tests both: Linux with GCC, Windows with MSVC (with Visual Studio's generator and with Ninja).
 
 ### Using KUGE from a game
 
@@ -156,6 +163,7 @@ Built with `-DBUILD_EXAMPLES=ON`.
 | `build/example/kuge_chat_server`, `kuge_chat_client` | A chat over the network: a server with no window (lobby and rooms of four), and a terminal client. `kuge_chat_client Ana --say hello --wait 2` says it once and leaves. |
 | `build/example/kuge_rtype_server [port]`, `kuge_rtype_client`, `kuge_rtype_host` | R-Type, the small one: up to four ships shoot waves of enemies. The **server** has no window, the **client** connects to it, the **host** runs the room and the window in one process (see [R-Type](#r-type-one-game-three-ways)). Arrows or WASD, Space to fire. `--frames N --screenshot f.ppm` plays a scripted pilot. |
 | `build/example/kuge_arena3d_server [port]`, `kuge_arena3d_client`, `kuge_arena3d_host` | Arena, a 3D shooter: up to four players run, jump, push crates (Jolt) and shoot one another on a map with ramps and cover; the character is the robot of Godot's platformer demo (glTF, with clips for idle, run, jump, falling and shooting), in first person with fog and a day that goes by. Same three programs as R-Type (server, client, host). W A S D or arrows, the mouse turns the view, Space jumps, left button or F fires, V changes the view, Esc frees the mouse. With sounds and sparks. Drawn by the GPU when there is one (`--software` or `--opengl` to choose, `--size 1920x1080`). `--frames N --screenshot f.ppm` plays a scripted player. See [3D](docs/18-3d/README.md). |
+| `build/example/kuge_modding [--no-mods]` | Catch, a game of 250 lines with a mod next to it (`example/modding/mods/golden`): the mod changes a data file and adds a gold coin with a Lua script, in a sandbox. Left/Right or A/D, Esc to quit. See [its README](example/modding/README.md). |
 | `build/example/kuge_platformer` | A platformer that uses everything: tilemap, animations, physics, HUD text, menus, sounds and saves. A/D or arrows, Space to jump, Esc to pause (Resume / Save game / Main menu). Collect the 8 coins; avoid the blobs. `--font <file.ttf>` picks the font. |
 
 `kuge_pong --frames 90 --screenshot out.ppm` plays a scripted match without waiting and
@@ -1138,6 +1146,44 @@ It also shows a rule of thumb: the client and the room must agree on the clock. 
 "16 ms" instead of 1/60 s ran 4 % faster than its room, and its inputs piled up; the room keeps two inputs of
 margin (`InputServerConfig::jitter`), and the scripted runs keep an absolute schedule.
 
+## Script module (`kuge-script`)
+
+Mods and Lua scripts: a mod is a folder that changes the game's data and resources and, if the game allows it, adds behaviours
+written in Lua. **The game decides what is moddable** by describing components to a `ComponentRegistry`; a script reads and
+writes exactly those, by name, through one table (`world`), inside a sandbox. The whole explanation, with the Lua side, the C++ side,
+the limits and a table of error messages, is [docs/20-scripts](docs/20-scripts/README.md); the working example is
+[`example/modding`](example/modding/README.md).
+
+```cpp
+auto mods = kuge::Mods::scan("mods");                                    // mods/<name>/mod.json, data/, resources/, scripts/*.lua
+kuge::ScriptEngine scripts(registry);                                    // registry: the components the game describes
+for (const auto& s : mods.scripts()) { scripts.load(s.file, s.mod); }    // a mod's name is its scope. @throw ScriptError: "mods/x/scripts/a.lua:12: ..."
+scene.addSystem(kuge::stage::Simulation, std::make_unique<kuge::ScriptSystem>(shared_scripts));   // update(dt) at each tick
+```
+
+```lua
+function update(dt)
+    for _, e in ipairs(world:view{"Transform2D", "Enemy"}) do                  -- by ascending number
+        local x = world:get(e, "Transform2D", "position")[1] - 2 * dt
+        world:set(e, "Transform2D", "position", {x, 0})                        -- checked: type, name, limits; all or nothing
+    end
+    if math.random() < 0.01 then world:spawn{Transform2D = {position = {10, 0}}, Enemy = {}} end
+end
+```
+
+- **`world`**: `view`, `get`, `set`, `has`, `add`, `drop`, `spawn`, `remove`, `components`. Values are what the registry writes in JSON.
+- **Sandbox**: no `io`, `os`, `package`, `debug`, `load`, `dofile`; text chunks only. An **instruction budget** per load and per call
+  (1,000,000 by default; `pcall` and coroutines do not get around it) and a **memory limit** (64 MiB). `math.random` is KUGE's generator
+  seeded from the tick, and there is no clock, so the same world and tick give the same result.
+- **A script that fails is stopped, not the game, and not the other mods**: logged once with file and line, and that mod is not called
+  again until a reload or `restart()`.
+- **Hot reload** (`ScriptSystemOptions::reloadEvery`, a decision of the game, off by default): a changed file reloads every script in a new
+  state; a script that does not load changes nothing.
+- **Multiplayer**: the scripts are in `Mods::fingerprint()`, so a client whose scripts differ from the room's is refused (`JoinError::Mods`).
+  Each side builds its own `ScriptEngine` with its own registry: that is how the room runs the rules and a client only its effects.
+- **Mods live together**: each mod has its own Lua globals (its files share them), so a `function update` or a variable of one mod can never
+  replace another's, and the `update` of **every** mod runs, in load order. Mods meet in the components of the game, not in each other's code.
+
 ## Physics module (`kuge-physics`)
 
 It needs the core only, so a server has it too. Add it to a scene:
@@ -1192,6 +1238,8 @@ All are text, meant to be edited by hand, and a mistake names the line it is on.
 | `.tilemap` | `TileMap::load` | `TileMap::save` |
 | `.anim` | `AnimationSet::load` | (by hand) |
 | `.ksave` (binary) | `SaveSlots::read` | `SaveSlots::write` |
+| `mod.json` (a mod's name, version, dependencies) | `Mods::scan` | (by hand) |
+| `.lua` (a mod's script, in `scripts/`) | `ScriptEngine::load` | (by hand) |
 
 Saves and network messages use the binary `ByteWriter` / `ByteReader`. Files are written
 atomically (a temporary file, then a rename), so a crash never leaves half a file.
@@ -1214,6 +1262,8 @@ ctest --test-dir build --output-on-failure
 | `kuge_rtype_tests` | R-Type: the rules, a host (server and client in one process), a dedicated server over sockets with four pilots, the server stopping with players |
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
+| `kuge_script_tests` | script: a world read and written by name (wrong values refused, all or nothing), `view`/`spawn`/`remove`, the budget (a loop, `pcall`, a coroutine, the top level), the memory limit, the sandbox (no `io`, no bytecode), errors with file and line, the seeded `math.random`, mods with their own globals whose `update`s all run, `ScriptSystem` (a failing mod stops alone, a new seed each tick), hot reload (a bad edit changes nothing), and the example mods |
+| `modding_smoke` | the real `kuge_modding` plays 400 frames with and without its mod: the mod's gold coin is in the picture only with it |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
 | `kuge_render3d_tests` | render3d: sounds at a place (volume, pan, range), particles that are drawn, fall and fade, an orbit camera that stops at walls, a model drawn and lit, the GPU and the CPU drawing the same picture (with an offscreen OpenGL context), the transform and its interpolation, 2D over 3D, models from files (OBJ, glTF, in the background, reloaded), animation (clips, cues, the next clip, a replicated clip), mouse look and cameras |
 | `kuge_physics3d_tests` | physics3d: bodies that fall and rest, kinematic bodies, triggers, layers, rays, characters that stay upright, bit-for-bit replay, and Jolt in a server with a predicting client |
@@ -1224,7 +1274,7 @@ ctest --test-dir build --output-on-failure
 | `arena3d_smoke` | the real Arena programs (server, client, host) play a scripted game: the character runs, jumps and shoots (each clip is played, the bullets are seen), and the picture has the HUD, the shirt and hundreds of colours |
 | `pong_smoke`, `platformer_smoke` | the real binaries play a scripted game and leave a picture that is checked |
 
-On Windows, only `boundary_*` and the `*_smoke` tests are built (see [On Windows](#on-windows)).
+On Windows, the unit tests run too, minus the few listed in [On Windows](#on-windows).
 
 Things that are worth knowing:
 
@@ -1250,7 +1300,8 @@ modules/client/       kuge-client (input/, render/, animation/, audio/, ui/, bac
 modules/net/          kuge-net (Wire, Reliable, Endpoint, Loopback, SocketTransport, Net, Matchmaking)
 modules/server/       kuge-server (GameServer, the lobby, RoomScene)
 modules/replication/  kuge-replication (registry, snapshots, interpolation, inputs, prediction)
-example/              the headless example, pong/, platformer/, chat/, rtype/ and arena3d/ (common, server, client, host)
+modules/script/       kuge-script (ScriptEngine: Lua in a sandbox, ScriptSystem)
+example/              the headless example, pong/, platformer/, chat/, rtype/, arena3d/ (common, server, client, host), modding/ (a game and its mod) and mods/ (an example mod)
 tests/                one folder per module, and the boundary tests
 vendor/               submodules: kronkworld, kronkpool, kronknet, kronk3d
 ```

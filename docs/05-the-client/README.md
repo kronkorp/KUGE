@@ -160,6 +160,13 @@ video mode; leaving it gives the size back), `fullscreen()`, `setVsync(on)`, `se
 `ResizeEvent` at the next frame, and the camera follows it (see above): a game with a "Display" screen needs nothing else.
 The dummy backend does the same, so a test can follow it.
 
+**A base resolution.** On a 3840 x 2400 screen a game that draws at the pixels of the screen draws 9 million of them. `WindowConfig::baseResolution = 1280`
+(or `window.setBaseResolution(1280)` later) makes the game draw in 1280 pixels wide, and the platform enlarges it: in **fullscreen only** (in a window
+it is lifted), `window.size()`, `renderer.outputSize()` and the `ResizeEvent` say the base size (the height follows the ratio of the screen), and the
+mouse is in that size too, so a click at the middle of the screen is at (640, 360). `readPixels()` still gives the pixels of the screen, with their size.
+**Everything is drawn at the base size, the 2D too**: text and edges are as sharp as 1280 pixels are, then enlarged. For a sharp interface on a big
+screen, leave this at 0 and draw only the 3D small (`Render3DConfig::renderScale`, see the 3D chapter), with `UiScale` for the interface.
+
 ## Assets
 
 `client.textures().load(path)` reads a file once and shares the object while someone holds it (the same for
@@ -225,7 +232,32 @@ and options are **entities in screen pixels** made of `UiNode` (a rectangle plac
 left / right, or the mouse; `Changed` when it moves). A long list is a node with a size, a `UiStack` and a
 `UiScroll`: the mouse wheel scrolls it, the keyboard focus brings its child into view, and what is outside is cut
 (`IRenderer2D::setClip`). The wheel is also an input: `Binding::wheel(1)` is "Wheel.Up".
-`UiImage` puts a texture (an icon, a portrait) in the rectangle of a node.
+`UiImage` puts a texture (an icon, a portrait) in the rectangle of a node; `rotation` (degrees, clockwise) and `pivot` turn it
+without changing the layout (a disc that turns while the music plays), and `radius` cuts its corners round (half the shorter side: a circle, for an
+avatar). A picture drawn smaller than it is aliases (the renderer has no mipmaps): `UiImage::smooth` (on by default) mixes the pixels linearly, and
+draws a picture that is shrunk by more than a half from a copy made for the size it has on the screen (`shrink()`: an area filter that weighs the
+colours by their alpha, so no dark fringe), made again when that size changes. The copy needs the pixels of the texture, which a texture does not keep
+unless `ClientConfig::keepPixels` is on (or `Texture::fromPixels(.., true)`): a copy of every picture is memory; without it only the linear filter is
+used. `smooth = false` keeps the pixels as blocks (pixel art). `TextureDraw::filter` is the same choice for a sprite that you draw yourself.
+There is no mask texture: a shape other than a rounded rectangle is made with the picture itself. `UiNode::clip = true` cuts the children of a node to its
+rectangle (inside the border of its `UiPanel`) without a scroll: a text too long for its card, a name in a list. A cut part is not drawn
+and cannot be pressed. Off by default: a child can come out of its parent on purpose.
+
+**Round corners.** `UiPanel::radius` (pixels) rounds the fill and the border of a panel; `UiTheme::radius` is the default of the panels that have
+none (a negative `radius`, which is what a `UiPanel` has until you set it), and the radius of the buttons and the text fields, so a whole game is
+square or round by one number (0: square, as before). A click in a cut corner is outside. Half of the shorter side or more makes a pill, or a circle.
+The progress bars, the sliders and the check boxes stay square. `IRenderer2D::fillRoundedRect` and `strokeRoundedRect` are what draw them.
+
+**A text that is too long.** `UiLabel::overflow` says what a label does with a text longer than its node (a node with a width: with none it is
+as wide as the text): `None` (it comes out), `Clip` (cut at the edge), `Ellipsis` (cut at a letter that fits, then "..."), `Scroll` (it goes by in
+its node: a pause, the way, a pause, again; `scrollSpeed`, `scrollPause`), `Wrap` (wrapped at the width of the node). `UiLayoutResult::truncated`
+lists the labels that were cut. `TextRenderer::measure(font, text, wrapWidth)` gives the size and the number of lines of a text without drawing
+it, so a game (or a test) can check that a text fits.
+
+**A panel over buttons.** A node of a higher `layer` is drawn over the buttons under it, but it only takes their clicks if it has
+`UiNode::blocksInput = true` (off by default, so that a label over a button does not eat the click): a click inside it presses
+nothing under it, the keys do not land on a button that it covers entirely, and `UiEvent::Kind::Blocked` (entity: the panel) says
+that it took the click, so that a game can close the panel on a "click outside".
 
 **Order, and removing.** A `UiStack` lays its children out (and Tab and the drawing go) in the order the `UiNode`s were *made* (`UiNode::sequence`,
 a number that only goes up), not in the order of their entities: the world gives entity numbers back in the order they were freed, so a list

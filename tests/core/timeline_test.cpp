@@ -3,6 +3,7 @@ extern "C" {
 }
 #include "Timeline.hpp"
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <unistd.h>
 
@@ -202,7 +203,7 @@ Test(timeline, wrong_files_are_named)
 
 Test(timeline, a_file_names_itself)
 {
-    const std::string path = "/tmp/kuge_timeline_" + std::to_string(::getpid()) + ".json";
+    const std::string path = (std::filesystem::temp_directory_path() / ("kuge_timeline_" + std::to_string(::getpid()) + ".json")).string();
     std::string message;
 
     std::ofstream(path) << BOSS;

@@ -10,10 +10,29 @@
 #include <thread>
 #ifdef _WIN32
     #include <windows.h>
+    #include <timeapi.h>
 #endif
 
 namespace
 {
+    // On Windows a sleep lasts a multiple of the timer's period (15.6 ms by default): a frame limit of
+    // 240 fps would give 64. The period is 1 ms while an engine runs.
+    struct TimerPeriod
+    {
+        TimerPeriod(void)
+        {
+#ifdef _WIN32
+            timeBeginPeriod(1);
+#endif
+        }
+        ~TimerPeriod(void)
+        {
+#ifdef _WIN32
+            timeEndPeriod(1);
+#endif
+        }
+    };
+
     // The number of SIGINT / SIGTERM (on Windows: Ctrl+C / Ctrl+Break) received by the process. An
     // engine does not reset it: it remembers the value it saw when it began, so a signal ends every
     // engine that runs (a server and a client in one process), and an old one does not end an
@@ -32,6 +51,15 @@ namespace
         g_signals.fetch_add(1, std::memory_order_relaxed);
         return TRUE;
     }
+
+    // std::raise(SIGINT) does not go through the console handler: the C runtime would end the process (its default
+    // action). So the engine takes the C signals too, as on POSIX.
+    extern "C" void onSignal(int)
+    {
+        g_signals.fetch_add(1, std::memory_order_relaxed);
+        std::signal(SIGINT, &onSignal);   // (the runtime puts the default action back after each signal)
+        std::signal(SIGTERM, &onSignal);
+    }
 #else
     extern "C" void onSignal(int)
     {
@@ -45,7 +73,10 @@ namespace
     // that ended first installed for good.)
     std::mutex       g_handlersMutex;
     int              g_handlersUsers = 0;
-#ifndef _WIN32
+#ifdef _WIN32
+    void (*g_oldInt)(int)  = SIG_DFL;
+    void (*g_oldTerm)(int) = SIG_DFL;
+#else
     struct sigaction g_oldInt  = {};
     struct sigaction g_oldTerm = {};
 #endif
@@ -63,6 +94,8 @@ namespace
 #ifdef _WIN32
                     // (Windows keeps a list of handlers: this one is added in front, then removed)
                     SetConsoleCtrlHandler(&onConsoleEvent, TRUE);
+                    g_oldInt = std::signal(SIGINT, &onSignal);
+                    g_oldTerm = std::signal(SIGTERM, &onSignal);
 #else
                     struct sigaction action = {};
 
@@ -82,6 +115,8 @@ namespace
                 if (--g_handlersUsers == 0) {
 #ifdef _WIN32
                     SetConsoleCtrlHandler(&onConsoleEvent, FALSE);
+                    std::signal(SIGINT, g_oldInt);
+                    std::signal(SIGTERM, g_oldTerm);
 #else
                     sigaction(SIGINT, &g_oldInt, nullptr);
                     sigaction(SIGTERM, &g_oldTerm, nullptr);
@@ -392,6 +427,7 @@ int kuge::Engine::run(void)
 {
     using Clock = std::chrono::steady_clock;
     SignalGuard signals;
+    TimerPeriod timer;
     auto last = Clock::now();
 
     while (true) {

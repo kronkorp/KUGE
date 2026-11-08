@@ -19,12 +19,14 @@ namespace kuge
         public:
             explicit DummyWindow(Vec2 size) noexcept : m_size(size) {}
 
-            Vec2 size(void) const override { return m_size; }
+            Vec2 size(void) const override { return m_logical ? *m_logical : m_size; }
             void setTitle(const std::string& title) override { m_title = title; }
 
             //! Like a real window: the renderer follows, and a ResizeEvent comes (see follow())
             void setSize(int width, int height) override;
-            void setFullscreen(bool on) override { m_fullscreen = on; }
+            void setFullscreen(bool on) override { m_fullscreen = on; applyBase(); }
+            //! Like the real one: in fullscreen, the width is `width` and the height follows the ratio of the screen
+            void setBaseResolution(int width) override { m_base = width > 0 ? width : 0; applyBase(); }
             bool fullscreen(void) const override { return m_fullscreen; }
             void setVsync(bool on) override { m_vsync = on; }
             bool vsync(void) const noexcept { return m_vsync; }
@@ -35,10 +37,14 @@ namespace kuge
             void setClipboardText(const std::string& text) override { m_clipboard = text; }
 
             const std::string& title(void) const noexcept { return m_title; }
-            void resize(Vec2 size) noexcept { m_size = size; }
+            void resize(Vec2 size) noexcept { m_size = size; applyBase(); }
 
         private:
+            void applyBase(void);
+
             Vec2          m_size;
+            int           m_base = 0;
+            std::optional<Vec2> m_logical;   //!< The base resolution, while it is on
             std::string   m_title;
             std::string   m_clipboard;   //!< (its own: tests do not touch the real clipboard)
             bool          m_fullscreen = false;
@@ -77,6 +83,8 @@ namespace kuge
                 Color       color;
                 TextureDraw texture;   //!< Kind::Texture only
                 std::optional<Rect> clip;   //!< The clip that was set when it was drawn
+                float       radius = 0.0f;   //!< A rounded rectangle (Fill or Stroke), or a rounded picture (Texture: TextureDraw::radius)
+                float       width  = 0.0f;   //!< Stroke of a rounded rectangle: how thick
             };
 
             struct TextureInfo {
@@ -87,7 +95,7 @@ namespace kuge
 
             explicit DummyRenderer(Vec2 size) noexcept : m_size(size) {}
 
-            Vec2 outputSize(void) const override { return m_size; }
+            Vec2 outputSize(void) const override { return m_logical ? *m_logical : m_size; }
             void begin(Color clear) override;
             void present(void) override;
             TextureId createTexture(int width, int height, std::span<const std::uint8_t> rgba) override;
@@ -97,6 +105,8 @@ namespace kuge
             void fillRect(const Rect& destination, Color color) override;
             void strokeRect(const Rect& destination, Color color) override;
             void drawTexture(const TextureDraw& draw) override;
+            void fillRoundedRect(const Rect& destination, float radius, Color color) override;
+            void strokeRoundedRect(const Rect& destination, float radius, float width, Color color) override;
             Image readPixels(void) override { return {}; }
 
             //! What was drawn since begin()
@@ -108,6 +118,8 @@ namespace kuge
             std::size_t presented(void) const noexcept { return m_presented; }
             Color       clearColor(void) const noexcept { return m_clear; }
             void        resize(Vec2 size) noexcept { m_size = size; }
+            //! The size the window says it has instead of its own (a base resolution); none: its own
+            void        setLogicalSize(std::optional<Vec2> size) noexcept { m_logical = size; }
 
             //! Textures that exist
             std::size_t textureCount(void) const noexcept { return m_textures.size(); }
@@ -115,6 +127,7 @@ namespace kuge
 
         private:
             Vec2                          m_size;
+            std::optional<Vec2>           m_logical;
             Color                         m_clear{};
             std::optional<Rect>           m_clip;
             std::vector<Call>             m_current;

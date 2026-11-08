@@ -78,3 +78,20 @@ bool kuge::Animator3D::play(std::string_view clip, const k3::PlayOptions& playOp
     }
     return true;
 }
+
+std::size_t kuge::Animator3D::hide(std::string_view name, bool hidden)
+{
+    std::size_t found = 0;
+
+    for (std::size_t i = 0; i < model->primitives.size(); ++i) {
+        const auto& primitive = model->primitives[i];
+        const bool rigid = primitive.skin < 0 && primitive.node >= 0 && static_cast<std::size_t>(primitive.node) < model->nodes.size();
+
+        if ((primitive.material && primitive.material->name == name) || (rigid && model->nodes[static_cast<std::size_t>(primitive.node)].name == name)) {
+            animator.hide(i, hidden);
+            ++found;
+        }
+    }
+    return found;
+}
+

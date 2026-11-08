@@ -40,7 +40,7 @@ There, `ctest` runs the boundaries and the games played for real, not the unit t
 library, kronklab, runs each test in a `fork()`). The README's "On Windows" says what else differs.
 
 `vendor/` holds submodules (kronkworld, the ECS; kronkpool, the thread pool; kronknet, the sockets;
-kronk3d, the 3D renderer, v0.1.1: it is configured with KUGE but built only for a target that links
+kronk3d, the 3D renderer, v0.1.4: it is configured with KUGE but built only for a target that links
 `kronk3d::static`; it needs nothing from vcpkg). kronkflow (the scheduler) and kronklab (the test library) are fetched at a
 fixed commit. SDL2, SDL2_mixer and SDL2_ttf come from vcpkg (images are read by kronk3d's stb_image): `vcpkg.json` lists
 them and its `builtin-baseline` fixes their versions. When no toolchain is given and `VCPKG_ROOT`
@@ -50,7 +50,7 @@ is not set, `cmake/Vcpkg.cmake` clones vcpkg at that baseline into `.vcpkg/`.
 |---|---|---|
 | `KUGE_BUILD_CLIENT` | `ON` | Build the client module. Turn it off for a server: no SDL needed. |
 | `KUGE_BUILD_PHYSICS3D` | `ON` | Build the 3D physics module (Jolt, from vcpkg). |
-| `KUGE_BUILD_SHARED` | `ON` (`OFF` on Windows) | Also build `kuge.so`, every module in one shared library. Off by default on Windows: a program that links `kuge.dll` and shares a resource or component type with it gets two ids for it (see [14 pitfalls](../14-pitfalls/README.md)); link the static modules there. |
+| `KUGE_BUILD_SHARED` | `ON` | Also build `kuge.so` (`kuge.dll` on Windows), every module in one shared library. A program that links it shares its resource and component ids with it (kronkworld numbers them by name, see [14 pitfalls](../14-pitfalls/README.md)). |
 | `BUILD_EXAMPLES` | `OFF` | Build the examples. |
 | `BUILD_TESTS` | `OFF` | Build the tests. |
 | `KUGE_SANITIZE` | empty | `address` (with UBSan) or `thread`. See [testing](../12-testing-and-debugging/README.md). |

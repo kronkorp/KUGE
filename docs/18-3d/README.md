@@ -4,7 +4,7 @@ KUGE makes 3D games out of the same parts as 2D ones, with three more modules an
 
 | Piece | What it is |
 |---|---|
-| [kronk3d](https://github.com/kronkorp/kronk3d) (`vendor/kronk3d`, v0.1.1) | The renderer: meshes, materials, lights, shadows, sky, fog, glTF and OBJ loading, skeletal animation. KUGE uses it as it is |
+| [kronk3d](https://github.com/kronkorp/kronk3d) (`vendor/kronk3d`, v0.1.4) | The renderer: meshes, materials, lights, shadows, sky, fog, glTF and OBJ loading, skeletal animation. KUGE uses it as it is |
 | `kuge-render3d` | A 3D scene in a client: `Render3DModule`, `Model3D`, `Light3D`, `Animator3D`, `CameraRig` |
 | `kuge-animation` | Poses, layered blends, state machines read from a file, with no window: the room samples them too |
 | `kuge-physics3d` | Rigid bodies with [Jolt](https://github.com/jrouwe/JoltPhysics): `Physics3D`, `Collider3D`, `Body3D` |
@@ -30,7 +30,7 @@ cube the difference is zero):
 
 Either way the scene is drawn off screen and the image is then given to the 2D renderer, which shows it on the whole
 screen. Two things follow: sprites, text and the interface are drawn **over** the 3D with the tools you already know, and
-screenshots have the 3D in them. On the GPU the image is read back (a few milliseconds), which is what keeps all of
+screenshots have the 3D in them. On the GPU the image is read back (a few milliseconds at 1280x720, less with `renderScale`), which is what keeps all of
 that working.
 
 ```cpp
@@ -40,7 +40,13 @@ engine.addModule<kuge::Render3DModule>(client);     // after the client: it is d
 
 `Render3DConfig::rendering` is `Auto` (the GPU if there is a context, else the CPU, and the log says which),
 `Software` or `OpenGL` (`Render3DError` if there is no context). The module without a client (`Render3DModule()`) is
-the CPU. `renderScale` draws at a fraction of the screen and enlarges it, `antiAliasing` is kronk3d's (FXAA or SSAA).
+the CPU. `antiAliasing` is kronk3d's (FXAA or SSAA).
+
+**`renderScale`** draws the scene at a fraction of the screen (0.33: a ninth of the pixels) and the picture that is **read back and copied is the small
+one**: the 2D renderer enlarges it over the whole screen when it draws it (`Render3DConfig::upscale`: `Nearest` keeps blocks, `Linear` is smooth). The
+sprites, the text and the interface are drawn after it at the pixels of the screen, so **they stay sharp** while the 3D is cheap: this is the way to
+fullscreen on a 4K screen. (`WindowConfig::baseResolution` is the other one: it makes everything, the 2D too, be drawn small; see the client chapter.)
+Needs kronk3d 0.1.2 (`IRasterizer::readSceneFrame()`).
 
 What it costs, on one machine (16 threads, an RTX 4070 laptop GPU) for the whole of Arena, server in the same process
 (the loop does not go above about 250 frames a second): 
@@ -184,6 +190,10 @@ a ray something is (negative: nothing), usually a physics' raycast, and the came
 `UpdateCamera` turns `yaw` and `pitch` with the mouse and places the `k3::Camera`; read the rig's `yaw` to walk
 the way the player looks. There is no roll (`k3::Camera` has none). `sensitivity` is in radians per pixel (0.0013:
 0.075 degrees), and `maxMove` is the most pixels that count in one frame (a jump of the mouse is not a hand).
+
+A recoil, a flinch or a shake is `rig.punchPitch` and `rig.punchYaw` (radians): they are added to the camera after the clamp of `pitch`, and the
+mouse never writes them, so `yaw` and `pitch` stay the aim that a game sends. The game sets them each frame (and brings them back to 0). Near
+`maxPitch` the view goes over the limit by the punch, which a camera that is almost straight up should not be given.
 
 The SDL backend looks after the mouse of a mouse look: it gives it back when the window loses the focus and takes it
 again when it gets it back, and the first move after it is taken carries no delta (the cursor is brought to the
@@ -384,5 +394,5 @@ What to read in it:
 - The picture of the GPU goes through the CPU (a read back and a copy into the 2D renderer's texture). Drawing straight to
   the window would save that, but then the sprites and the text have to be drawn by the GPU rasterizer too (kronk3d has
   `draw2D`, without rotation): it is a different 2D renderer, not done.
-- Poses are not interpolated between two ticks; no roll for the camera.
+- Poses are not interpolated between two ticks.
 - Windows (MSVC) is built by the CI like the rest; Jolt and the 3D are not checked on a machine of ours.

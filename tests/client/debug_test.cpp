@@ -152,6 +152,7 @@ Test(debug, the_screenshot_of_sdl)
     in.seekg(13);
     in.read(reinterpret_cast<char*>(pixel), 3);
     Assert(pixel[0] == 10 && pixel[1] == 20 && pixel[2] == 30, "with the colour of the background");
+    in.close();   // (Windows cannot delete a file that is open)
     std::filesystem::remove(file);
 }
 
