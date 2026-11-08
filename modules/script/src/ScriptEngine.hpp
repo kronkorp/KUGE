@@ -72,6 +72,13 @@ namespace kuge
                 std::string  message;   //!< Why not, with the file and the line
             };
 
+            //! What reloadChanged() did
+            struct Reload
+            {
+                bool         reloaded = false;   //!< The scripts ran again in a new state
+                std::string  error;              //!< Else, if not empty: why a changed script was refused (the old ones keep running)
+            };
+
             explicit ScriptEngine(const ComponentRegistry& registry, ScriptOptions options = {});
             ~ScriptEngine();
             ScriptEngine(const ScriptEngine&) = delete;
@@ -81,6 +88,12 @@ namespace kuge
             void load(const std::filesystem::path& file);
             //! Same for a text; `name` is what the messages call it. @throw ScriptError
             void loadString(std::string_view code, const std::string& name);
+
+            //! Hot reload: if a file given to load() changed (its date or its size), everything that was loaded runs again, in the same
+            //! order, in a **new** state (what the scripts kept in globals is lost). If any script fails, nothing changes: the old state keeps
+            //! running, the error is returned once, and the files are looked at again when one changes. A text given to loadString() is run
+            //! again as it was. Cheap when nothing changed (a stat per file).
+            Reload reloadChanged(void);
 
             //! Is there a function of that name (a global)?
             bool has(const std::string& function) const;
