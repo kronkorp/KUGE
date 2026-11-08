@@ -219,7 +219,6 @@ Test(tcp, packets_both_ways)
     Assert(server->reliable() && client->reliable(), "tcp says it is reliable");
 }
 
-#ifndef _WIN32   // (fails on Windows: #160)
 Test(tcp, a_thousand_packets)
 {
     auto [server, port] = serve(true);
@@ -248,7 +247,6 @@ Test(tcp, a_thousand_packets)
     }
     Assert(same, "each whole, in order, though TCP cut and glued them as it liked");
 }
-#endif
 
 Test(tcp, the_biggest_packet)
 {
@@ -263,7 +261,6 @@ Test(tcp, the_biggest_packet)
     Assert(watch.serverEvents.back().packet == patterned(MAX_PACKET, 9), "whole");
 }
 
-#ifndef _WIN32   // (fails on Windows: #161)
 Test(tcp, nobody_listens)
 {
     // A port where nobody listens: a server made then destroyed
@@ -279,7 +276,6 @@ Test(tcp, nobody_listens)
 
     Assert(pollUntil(*other.transport, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Disconnected) == 1; }), "the client learns it cannot connect");
 }
-#endif
 
 Test(tcp, over_ipv6)
 {

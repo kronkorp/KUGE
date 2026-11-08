@@ -286,7 +286,6 @@ Test(logger, categories_have_levels)
     AssertEq(ring->snapshot().size(), 4u, "enable(false) silences the categories too");
 }
 
-#ifndef _WIN32   // (fails on Windows: #157)
 Test(logger, files_are_rotated)
 {
     const auto folder = std::filesystem::temp_directory_path() / ("kuge_log_" + std::to_string(::getpid()));
@@ -311,4 +310,3 @@ Test(logger, files_are_rotated)
     Assert(last.find("number 29") != std::string::npos, "the newest line is in latest.log: %s", last.c_str());
     std::filesystem::remove_all(folder);
 }
-#endif

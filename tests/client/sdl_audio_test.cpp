@@ -147,7 +147,6 @@ Test(sdlaudio, a_sound_can_go_while_it_plays)
     Assert(audio->play(sound, 1.0f, 0.0f, false) == kuge::NO_VOICE, "and a sound that is gone cannot be played");
 }
 
-#ifndef _WIN32   // (fails on Windows: #159)
 Test(sdlaudio, bad_files_are_errors)
 {
     useNoSoundCard();
@@ -167,7 +166,6 @@ Test(sdlaudio, bad_files_are_errors)
     Assert(notSound, "a file that is not a sound");
     Assert(missingMusic, "a music that is not there");
 }
-#endif
 
 Test(sdlaudio, music)
 {

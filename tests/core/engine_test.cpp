@@ -317,7 +317,6 @@ Test(engine, two_engines_restore_handlers)
 // One signal ends every engine that runs, not only one of them
 #endif
 
-#ifndef _WIN32   // (fails on Windows: #155)
 Test(engine, one_signal_ends_both_engines)
 {
     Runner first(Loop::Then::Nothing, 0);
@@ -328,4 +327,3 @@ Test(engine, one_signal_ends_both_engines)
     std::raise(SIGINT);
     Assert(waitFor([&] { return first.over.load() && second.over.load(); }, 3.0), "both are over after one signal");
 }
-#endif
