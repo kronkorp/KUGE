@@ -233,7 +233,8 @@ Test(mods, scripts_in_load_order)
     const auto scripts = mods.scripts();
 
     Assert(scripts.size() == 3, "only scripts/*.lua: %zu", scripts.size());
-    Assert(scripts[0].filename() == "z.lua" && scripts[1].filename() == "a.lua" && scripts[2].filename() == "b.lua", "the mods in load order, the files by name");
+    Assert(scripts[0].file.filename() == "z.lua" && scripts[1].file.filename() == "a.lua" && scripts[2].file.filename() == "b.lua", "the mods in load order, the files by name");
+    Assert(scripts[0].mod == "base" && scripts[1].mod == "extra" && scripts[2].mod == "extra", "each says which mod it is of");
     const auto before = mods.fingerprint();
 
     tree.write("mods/extra/scripts/a.lua", "-- a, changed");

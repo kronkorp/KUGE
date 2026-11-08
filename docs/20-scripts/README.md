@@ -10,8 +10,8 @@ KUGE does this with three small pieces that you already know, plus one new modul
 |---|---|
 | `kuge::Mods` (core) | Finds the mods, puts them in order, lays their files over the game's, lists their scripts, hashes everything for the multiplayer check |
 | `kuge::ComponentRegistry` (core) | The list of the components **the game chose to show**, by name, with their fields, types and limits |
-| `kuge::ScriptEngine` (`kuge-script`) | One sandboxed Lua state. Gives the scripts a single door to the game: the `world` table |
-| `kuge::ScriptSystem` (`kuge-script`) | A system that calls the script's `update(dt)` at each tick, and stops a script that fails |
+| `kuge::ScriptEngine` (`kuge-script`) | One sandboxed Lua state, with one scope of globals per mod. Gives the scripts a single door to the game: the `world` table |
+| `kuge::ScriptSystem` (`kuge-script`) | A system that calls the `update(dt)` of every mod at each tick, and stops a mod that fails (alone) |
 
 **The idea in one sentence:** the game decides what is moddable by *describing* components to the registry; a script can read and
 write exactly those, by name, inside a sandbox that has no files, no clock and a budget.
@@ -37,7 +37,7 @@ it with this chapter at hand.
    scripts/golden.lua ┼─► Mods::scan("mods") ──┐
                       │                        │
                       │      Mods::apply(roots)│       data: AssetRoots finds the mod's file before the game's
-                      │      Mods::scripts() ──┴─►  ScriptEngine::load(file)   (one Lua state, files in load order)
+                      │      Mods::scripts() ──┴─►  ScriptEngine::load(file, mod)   (one Lua state, each mod its own globals)
                                                             │
                           every tick (Fixed schedule)       ▼
                           ScriptSystem ───────────►  update(dt)  in Lua
@@ -86,8 +86,8 @@ mods/golden/
 A folder in `mods/` without a `mod.json` is not a mod and is ignored.
 
 **Load order.** By `depends` first (a mod comes after what it depends on), then by name. It is the same on every machine. The
-**last** mod loaded wins: if two mods replace the same file, the later one's file is the one the game reads; if two mods
-define the same global in Lua, the later one's definition is the one that stays (see [2.6](#26-several-scripts-and-several-mods)).
+**last** mod loaded wins: if two mods replace the same file, the later one's file is the one the game reads. Scripts are different:
+every mod's `update` runs, in this order (see [2.6](#26-several-scripts-and-several-mods)).
 
 ### 2.2 Data: change numbers and files, with no code
 
@@ -194,28 +194,35 @@ stops with `Health.points: 5000 is outside 0.000000 to 1000.000000`. Floats in c
 
 ### 2.6 Several scripts and several mods
 
-**All the scripts of all the mods share ONE Lua state**, loaded in order: the mods in load order, and inside a mod the files by
-path name. So:
-
-- `local` is private to the file that wrote it. A `local` in `a.lua` is invisible to `b.lua`.
-- A **global** (`function update`, `shared = 1`) is visible to every script loaded after, and **can be replaced**.
-- **The last `function update` wins.** If two mods each define `update`, only the later one runs, silently. This is the
-  most common problem when mods meet.
-
-The way to live together is to **chain**: keep the previous `update` and call it.
+**Every mod has its own globals, and every mod's `update` runs.** You write `function update(dt)` and you do not have to know what other
+mods are installed: nothing you define can replace what another mod defined, and the engine calls the `update` of **each** mod, one
+after the other, in load order (the mods by `depends`, then by name).
 
 ```lua
--- scripts/golden.lua: works whether or not another mod already defined update
-local previous = update
-
-function update(dt)
-    if previous then previous(dt) end        -- the mods loaded before this one still run
-    -- ... this mod's own work ...
-end
+-- mods/golden/scripts/golden.lua            -- mods/waves/scripts/waves.lua
+timer = 0                                    timer = 100          -- the same name: no clash, each mod's `timer` is its own
+function update(dt) ... end                  function update(dt) ... end        -- both run, golden first
 ```
 
-Do the same for any other global function the game may call. Give the pieces of a mod that are meant to be shared a prefix
-(`golden_spawn_coin`), and keep everything else `local`.
+What belongs to whom:
+
+| | Visible to |
+|---|---|
+| a `local` | the file that wrote it |
+| a global (`timer = 0`, `function update`, `function helper`) | **all the files of the same mod**, and nobody else |
+| `_G` | the mod's own globals (`_G.x = 1` stays in the mod) |
+| `world`, `print`, `math`, `string`, `table`, `utf8`, `coroutine`, `pairs`... | everyone |
+
+So the files of one mod (`scripts/a.lua`, `scripts/more/b.lua`) share their globals in load order (files by path name): `a.lua` can define
+a `helper` that `b.lua` calls, and a global `update` defined in two files of the same mod is replaced by the later file's. Two mods can
+never do that to each other.
+
+**A failure stays in its mod.** If `golden`'s `update` fails (an error, the budget), the game logs it and stops calling **`golden`**; the other
+mods go on.
+
+What mods **cannot** do is call each other's functions, or read each other's variables: they meet in the components of the game, which is
+the point. A mod that wants to give something to another writes it in a component the game described (a `Config` entity, a `Hit` marker), and
+the other reads it with `world:get`. The standard tables are the one thing that is shared: a mod that writes `math.floor = nil` breaks it for all.
 
 ### 2.7 Time, randomness and "the same every time"
 
@@ -367,8 +374,8 @@ const kuge::Mods mods = kuge::Mods::scan("mods");                 // @throw ModE
 kuge::AssetRoots roots("."); mods.apply(roots);                    // data and resources: the mods on top of the game
 auto registry = std::make_shared<kuge::ComponentRegistry>();       // ...described as in 3.1
 auto scripts = std::make_shared<kuge::ScriptEngine>(*registry);    // the registry must outlive the engine
-for (const auto& file : mods.scripts()) {                          // scripts/*.lua of each mod, in load order
-    scripts->load(file);                                           // @throw ScriptError: "mods/golden/scripts/golden.lua:14: ..."
+for (const auto& script : mods.scripts()) {                        // scripts/*.lua of each mod, in load order
+    scripts->load(script.file, script.mod);                        // the mod's name is its scope (its own globals); @throw ScriptError: "mods/golden/scripts/golden.lua:14: ..."
 }
 // in the scene, on the Fixed schedule:
 addSystem(kw::Schedule::Fixed, kuge::stage::Simulation, std::make_unique<kuge::ScriptSystem>(scripts));
@@ -381,8 +388,11 @@ game does not start half way (Catch does exactly this in `main()`).
 
 1. reads the clock (`kuge::Time`): `dt` is the fixed tick; without a `Time` in the world it uses 1/60;
 2. seeds `math.random` with `seedFor(0, tick, seedSalt)`;
-3. calls the global `update(dt)` (or `ScriptSystemOptions::function`);
-4. if it fails, **logs once** and stops calling until the scripts are reloaded or `restart()`.
+3. calls the `update(dt)` (or `ScriptSystemOptions::function`) of **every mod that defines it**, in load order;
+4. if one mod's call fails, **logs once** (`the script of 'golden' is stopped, the game goes on: ...`) and stops calling **that mod**, until
+   the scripts are reloaded or `restart()`. The other mods go on. `stopped()` is true when no mod is left to call.
+
+A game with no mods that loads its own scripts gives them no scope (`scripts->load(file)`): they are then one scope, and share their globals.
 
 Which **stage**? Scripts that decide things (spawn, move, hurt) go in `kuge::stage::Simulation`, **after** the game's own systems that
 they build on and **before** the ones that react to them (in Catch: the game's `Rain`, then the scripts, then `Fall`). A script that
@@ -472,13 +482,14 @@ assert(registry.entitiesWith(world, {"Faller"}).size() == 2);      // two gold c
 | `seedSalt` | 0 | Mixed into the seed of each tick, so two systems do not roll the same numbers |
 | `reloadEvery` | 0 | Ticks between two looks at the files (0: never) |
 
-**`ScriptEngine`**: `load(path)`, `loadString(code, name)` (both `@throw ScriptError`), `has(function)`, `call(world, function, args)`
-→ `{ok, message}`, `seed(n)`, `onPrint(sink)` (where `print` goes; `ScriptSystem` sends it to the logger, category `script`),
-`reloadChanged()` → `{reloaded, error}`.
+**`ScriptEngine`**: `load(path[, scope])`, `loadString(code, name[, scope])` (both `@throw ScriptError`; the scope is a mod's name, empty
+for a game's own scripts), `scopes(function)` (who defines it, in load order), `has(function)`, `call(world, function, args)` (the function
+of **every** scope; `{ok, message}` with one line per failure), `call(world, scope, function, args)` (one scope), `seed(n)`, `onPrint(sink)`
+(where `print` goes; `ScriptSystem` sends it to the logger, category `script`), `reloadChanged()` → `{reloaded, error}`.
 
 **`ScriptSystem`**: `stopped()`, `restart()`.
 
-**`Mods`**: `scan(folder[, version])`, `ordered()`, `apply(roots)`, `overrides(gameRoot)`, `scripts()`, `fingerprint()`.
+**`Mods`**: `scan(folder[, version])`, `ordered()`, `apply(roots)`, `overrides(gameRoot)`, `scripts()` (a list of `{mod, file}`), `fingerprint()`.
 
 **`ComponentRegistry`**: `describe<C>(name, fields)`, `byName`, `has`/`add`/`remove`, `get`/`set`, `componentsOf`, `entitiesWith(world, names)`,
 `toJson`/`fromJson`, `entityToJson`/`entityFromJson` (the same registry serves an editor, a prefab file, a timeline...).
@@ -492,6 +503,11 @@ For people who change the engine, or who want to know what to trust.
 - **One Lua state per `ScriptEngine`** (Lua 5.5, from vcpkg: the feature `script`, `KUGE_BUILD_SCRIPT`, ON by default). Only the
   libraries `base`, `table`, `string`, `math`, `utf8`, `coroutine` are opened, then `dofile`, `loadfile`, `load`, `collectgarbage` are
   removed. Chunks are loaded in text mode only (`"t"`).
+- **Scopes** are what lets mods live together in that one state. Each scope is a table of globals whose metatable reads the real
+  globals (`__index`) and whose writes stay in itself; it also holds `_G` (itself). A chunk is loaded with this table as its `_ENV` (the first
+  upvalue of a chunk). Calling a function of a scope is a `rawget` in that table, so only what the scope itself defined is found:
+  `call(world, "update")` is a loop over the scopes in load order. Which scopes failed is the **system's** business (`ScriptSystem`), not the
+  engine's: the engine keeps no memory of failures, so a test or a game can call anything again.
 - **The budget** is a Lua *count hook*: every 1000 instructions it adds to a counter. Past the budget it raises an error **and
   from then on fails at every single instruction**, in every coroutine, so `pcall` cannot swallow it and loop. The count restarts at each `load()` or `call()`.
 - **Memory** goes through a custom allocator that refuses a request past the limit; Lua then raises `not enough memory`.
@@ -520,7 +536,8 @@ For people who change the engine, or who want to know what to trust.
 
 **Not built (yet)**
 
-- **One global `update`** and one Lua state for all the mods (see 2.6). Chaining is the convention; there is no per-mod isolation.
+- **Mods cannot call each other**, and share the standard tables (`string`, `math`...): isolation is of globals, not of the libraries.
+  They meet in components. (And since all mods run in one Lua state, a mod that eats memory counts against the same limit as the others.)
 - **Prefab files**: `world:spawn("enemy")` from a file waits for the scene and prefab files of the editor epic (#98): today a script
   gives the components in the call.
 - **Events** (a script that reacts to a collision, a death): scripts are polled each tick. The game can expose an event as a
@@ -553,11 +570,11 @@ Messages are real ones. A script error always begins with `file:line:`.
 | `not enough memory` | Past the memory limit | Build smaller tables |
 | `mod.lua:3: attempt to index a nil value (field 'x')` | An ordinary Lua error | `world:get` gave `nil`: the entity has no such component |
 | `(the error is a table)` | `error({...})` with something that is not a string | `error("message")` |
-| `there is no function 'update'` | No global `update` after the load (or it was overwritten by a later script) | Define it; chain (2.6) |
+| `there is no function 'update'` | No mod defined a global `update` | Define it (a `local function update` is private to the file and does not count) |
 | `the scripts were not reloaded, the old ones go on: ...` | A hot reload met an error | Fix the file; it loads on the next save |
 | `JoinError::Mods` (a client cannot join) | The client's mods differ from the server's, scripts included | Same mods, same bytes |
-| The mod does nothing, no error | Another mod redefined `update`, or `update` never reaches the code you edited | `print("here")`; check 2.6 and the log |
+| The mod does nothing, no error | It was stopped earlier (look for `is stopped` in the log), or its `update` is not where you think | `print("here")`; check the log from the start |
 
-**`print` is your debugger.** It goes to the game's log as `[ INFO ] ... [script] <text>`. A script that was **stopped** by a failure
-says so once: `[ ERROR ] ... [script] a script is stopped, the game goes on: <message>`. After that, nothing is called until a
-successful reload or a `restart()`, so a mod that fails *at every tick* does not fill the log.
+**`print` is your debugger.** It goes to the game's log as `[ INFO ] ... [script] <text>`. A mod that was **stopped** by a failure
+says so once: `[ ERROR ] ... [script] the script of 'golden' is stopped, the game goes on: <message>`. After that, that mod is not called
+until a successful reload or a `restart()`, so a mod that fails *at every tick* does not fill the log; the other mods go on.

@@ -161,14 +161,14 @@ std::vector<kuge::Mods::Override> kuge::Mods::overrides(const std::filesystem::p
     return found;
 }
 
-std::vector<std::filesystem::path> kuge::Mods::scripts(void) const
+std::vector<kuge::Mods::Script> kuge::Mods::scripts(void) const
 {
-    std::vector<std::filesystem::path> found;
+    std::vector<Script> found;
 
     for (const ModInfo& mod : m_mods) {
         for (const auto& [relative, path] : filesOf(mod.folder, false)) {   // sorted by name
             if (relative.starts_with("scripts/") && path.extension() == ".lua") {
-                found.push_back(path);
+                found.push_back({mod.name, path});
             }
         }
     }

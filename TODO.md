@@ -21,6 +21,8 @@ each with its pull request.
 `kuge-script` (Lua, [docs/20-scripts](docs/20-scripts/README.md), ticket 043) is in: engine, `ScriptSystem`, hot reload,
 `Mods::scripts()`, the example mod `example/mods/waves`. What is left:
 
+- [ ] Mods are isolated in their **globals**, not in the standard tables (`math.floor = nil` in one mod breaks it for all) nor in memory
+  (one Lua state, one limit).
 - [ ] The tests of `kuge-script` do not run on Windows, as every kronklab test (see Windows above), and the module has not
   been seen on MSVC by hand.
 - [ ] No game uses it yet: R-Type or Arena could load `mods/*/scripts` in their room (server) and say it in their docs.
