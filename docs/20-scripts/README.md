@@ -72,8 +72,42 @@ What the sandbox does **not** stop: a single, very long call of the standard lib
 without counting instructions), and the order of `pairs` over a table of strings, which is the same in every run but is Lua's
 to choose: sort the keys when the order matters to a result. `world:view` and `world:get` are already in a fixed order.
 
-## What is next
+## Running scripts every tick: ScriptSystem
 
-This is the first half: the engine. Still to come (see [TODO](../TODO.md)): a `ScriptSystem` that calls
-`update(dt)` in a stage you choose and logs what a script prints, the scripts in the mods' fingerprint (the server decides which
-scripts run), hot reload in `--dev`, and an example mod.
+```cpp
+auto scripts = std::make_shared<kuge::ScriptEngine>(registry);
+for (const auto& file : mods.scripts()) {                         // scripts/*.lua of each mod, in load order
+    scripts->load(file);                                          // @throw ScriptError
+}
+scene.addSystem(kuge::stage::Simulation, std::make_unique<kuge::ScriptSystem>(scripts, kuge::ScriptSystemOptions{.reloadEvery = dev ? 30 : 0}));
+```
+
+`ScriptSystem` calls the global `update(dt)` at each tick, with the fixed `dt` of `kuge::Time`. Before each call it seeds
+`math.random` from the tick (`seedFor(0, tick, seedSalt)`), so a tick run again (prediction, a replay) rolls the same numbers.
+`print` goes to the logger, category `script`.
+
+**A script that fails is stopped, not the game.** The error is logged once (`a script is stopped, the game goes on: ai.lua:7: ...`)
+and nothing more is called until the scripts are reloaded or you call `restart()`: a script that fails at every tick would fill the log
+60 times a second and leave the world half changed 60 times a second. `ScriptSystem::stopped()` tells.
+
+## Hot reload
+
+`ScriptEngine::reloadChanged()` (the system calls it every `reloadEvery` ticks; 0 is never, which is what a shipped game wants) looks at the
+date and size of every file given to `load()`. If one changed, **all** the scripts run again, in order, in a new Lua state: what a
+script kept in its variables is lost. If any of them fails, nothing changes: the old scripts keep running, the error is logged once and
+the files are looked at again when one is edited.
+
+## Mods with scripts, and who runs what
+
+A mod can carry `scripts/*.lua` (`Mods::scripts()` lists them). They are in `Mods::fingerprint()` like every file of a mod, so in multiplayer
+a client whose scripts are not the server's gets `JoinError::Mods`.
+
+Which side runs a script is the game's choice, made with the registry it gives the engine:
+
+- **The room** (the authority) runs the scripts that change the rules, with a registry of every component.
+- **A client** runs its own engine for the interface and the effects, with a registry of the components it owns, the ones that are not
+  replicated. A script cannot name what it was not given, and a replicated component written on a client is overwritten by the next
+  snapshot anyway. What a client sends to the room is its inputs, and nothing a script wrote.
+
+[`example/mods/waves`](../../example/mods/waves/scripts/waves.lua) is a whole mod in 30 lines: an enemy comes in every two seconds, drifts
+to the left and is removed when it leaves the screen. A test (`script_system:the_example_mod`) loads it as a game would.

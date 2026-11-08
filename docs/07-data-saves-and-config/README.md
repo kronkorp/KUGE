@@ -129,7 +129,7 @@ The platformer's Save game / Continue is the complete example (`example/platform
 `kuge::Json` is a small strict JSON value (`Json::parse(text)`, `dump()`): depth is limited to 64, and an error says its line and column.
 
 A **mod** is a folder `mods/<name>/` with a `mod.json` (`name`, `version`, `kuge`, `depends`) and the same `data/` and `resources/` as the game.
-It carries data only, no code.
+It carries data and, if the game wants them, Lua scripts in `scripts/` that run in a sandbox: no native code ([20 Scripts](../20-scripts/README.md)).
 
 ```cpp
 auto mods = kuge::Mods::scan("mods", "0.1");     // @throw ModError: a cycle, a missing dependency, a bad mod.json (it names the mod)

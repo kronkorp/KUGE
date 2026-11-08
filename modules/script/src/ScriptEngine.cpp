@@ -1,12 +1,15 @@
 #include "ScriptEngine.hpp"
 #include "Random.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <format>
 #include <fstream>
 #include <iterator>
 #include <lua.hpp>
+#include <optional>
 #include <utility>
+#include <vector>
 
 // The functions Lua calls (the hook, the allocator, the world's methods) must not leave a C++ object alive when they raise a Lua error: Lua is C and
 // raises with longjmp. So a binding is a lambda that throws, `guarded()` catches, pushes the message and raises once the lambda is gone.
@@ -25,7 +28,25 @@ struct kuge::ScriptEngine::Impl
     int                       step = 1000;         // instructions between two hooks (1 once the budget is gone: every instruction fails)
     bool                      over = false;
 
+    // What was loaded, in order: a reload runs it again in a new state
+    struct Source
+    {
+        std::string                                   name;
+        std::string                                   code;
+        std::optional<std::filesystem::path>          file;
+        std::pair<std::filesystem::file_time_type, std::uintmax_t> stamp;   // of the file when it was read: its date and its size
+    };
+    std::vector<Source>       sources;
+
     Impl(const ComponentRegistry& r, ScriptOptions o) : registry(r), options(o), random(o.seed) {}
+    ~Impl()
+    {
+        if (state) {
+            lua_close(state);
+        }
+    }
+    Impl(const Impl&) = delete;
+    Impl& operator=(const Impl&) = delete;
 };
 
 namespace
@@ -490,80 +511,143 @@ namespace
         lua_pop(impl.state, 1);
         return why;
     }
-}
+    std::unique_ptr<Impl> makeImpl(const kuge::ComponentRegistry& registry, const kuge::ScriptOptions& options)
+    {
+        auto impl = std::make_unique<Impl>(registry, options);
 
-kuge::ScriptEngine::ScriptEngine(const ComponentRegistry& registry, ScriptOptions options) : m_impl(std::make_unique<Impl>(registry, options))
-{
 #if LUA_VERSION_NUM >= 505
-    m_impl->state = lua_newstate(allocate, m_impl.get(), 0);   // a fixed seed: the order of `pairs` is the same in every run
+        impl->state = lua_newstate(allocate, impl.get(), 0);   // a fixed seed: the order of `pairs` is the same in every run
 #else
-    m_impl->state = lua_newstate(allocate, m_impl.get());
+        impl->state = lua_newstate(allocate, impl.get());
 #endif
-    if (!m_impl->state) {
-        throw ScriptError("cannot create a Lua state");
+        if (!impl->state) {
+            throw kuge::ScriptError("cannot create a Lua state");
+        }
+        lua_State* L = impl->state;
+
+        openLibrary(L, "_G", luaopen_base);
+        openLibrary(L, LUA_TABLIBNAME, luaopen_table);
+        openLibrary(L, LUA_STRLIBNAME, luaopen_string);
+        openLibrary(L, LUA_MATHLIBNAME, luaopen_math);
+        openLibrary(L, LUA_UTF8LIBNAME, luaopen_utf8);
+        openLibrary(L, LUA_COLIBNAME, luaopen_coroutine);
+        removeGlobals(L, {"dofile", "loadfile", "load", "collectgarbage"});
+        lua_pushcfunction(L, print);
+        lua_setglobal(L, "print");
+
+        lua_getglobal(L, "math");
+        lua_pushcfunction(L, mathRandom);
+        lua_setfield(L, -2, "random");
+        lua_pushcfunction(L, mathRandomSeed);
+        lua_setfield(L, -2, "randomseed");
+        lua_pop(L, 1);
+
+        static const luaL_Reg methods[] = {
+            {"get", worldGet}, {"set", worldSet}, {"has", worldHas}, {"add", worldAdd}, {"drop", worldDrop},
+            {"spawn", worldSpawn}, {"remove", worldRemove}, {"view", worldView}, {"components", worldComponents}, {nullptr, nullptr},
+        };
+
+        lua_newtable(L);
+        luaL_setfuncs(L, methods, 0);
+        lua_setglobal(L, "world");
+        return impl;
     }
-    lua_State* L = m_impl->state;
 
-    openLibrary(L, "_G", luaopen_base);
-    openLibrary(L, LUA_TABLIBNAME, luaopen_table);
-    openLibrary(L, LUA_STRLIBNAME, luaopen_string);
-    openLibrary(L, LUA_MATHLIBNAME, luaopen_math);
-    openLibrary(L, LUA_UTF8LIBNAME, luaopen_utf8);
-    openLibrary(L, LUA_COLIBNAME, luaopen_coroutine);
-    removeGlobals(L, {"dofile", "loadfile", "load", "collectgarbage"});
-    lua_pushcfunction(L, print);
-    lua_setglobal(L, "print");
+    // Runs a chunk in this state. @throw ScriptError
+    void loadInto(Impl& impl, std::string_view code, const std::string& name)
+    {
+        lua_State* L = impl.state;
 
-    lua_getglobal(L, "math");
-    lua_pushcfunction(L, mathRandom);
-    lua_setfield(L, -2, "random");
-    lua_pushcfunction(L, mathRandomSeed);
-    lua_setfield(L, -2, "randomseed");
-    lua_pop(L, 1);
+        // "t": a text chunk, never bytecode (which can break the virtual machine)
+        if (luaL_loadbufferx(L, code.data(), code.size(), ("@" + name).c_str(), "t") != LUA_OK) {
+            const std::string why = lua_tostring(L, -1);
 
-    static const luaL_Reg methods[] = {
-        {"get", worldGet}, {"set", worldSet}, {"has", worldHas}, {"add", worldAdd}, {"drop", worldDrop},
-        {"spawn", worldSpawn}, {"remove", worldRemove}, {"view", worldView}, {"components", worldComponents}, {nullptr, nullptr},
-    };
+            lua_pop(L, 1);
+            throw kuge::ScriptError(why);
+        }
+        if (const std::string why = run(impl, 0); !why.empty()) {
+            throw kuge::ScriptError(why);
+        }
+    }
 
-    lua_newtable(L);
-    luaL_setfuncs(L, methods, 0);
-    lua_setglobal(L, "world");
+    std::string readFile(const std::filesystem::path& file)
+    {
+        std::ifstream in(file, std::ios::binary);
+
+        if (!in) {
+            throw kuge::ScriptError(std::format("{}: cannot read the script", file.generic_string()));
+        }
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+
+    std::pair<std::filesystem::file_time_type, std::uintmax_t> stampOf(const std::filesystem::path& file)
+    {
+        std::error_code ignored;
+        const auto time = std::filesystem::last_write_time(file, ignored);
+        const auto size = std::filesystem::file_size(file, ignored);
+
+        return {time, size};
+    }
 }
 
-kuge::ScriptEngine::~ScriptEngine()
+kuge::ScriptEngine::ScriptEngine(const ComponentRegistry& registry, ScriptOptions options) : m_impl(makeImpl(registry, options))
 {
-    if (m_impl && m_impl->state) {
-        lua_close(m_impl->state);
-    }
 }
+
+kuge::ScriptEngine::~ScriptEngine() = default;
 
 void kuge::ScriptEngine::loadString(std::string_view code, const std::string& name)
 {
-    lua_State* L = m_impl->state;
-
-    // "t": a text chunk, never bytecode (which can break the virtual machine)
-    if (luaL_loadbufferx(L, code.data(), code.size(), ("@" + name).c_str(), "t") != LUA_OK) {
-        const std::string why = lua_tostring(L, -1);
-
-        lua_pop(L, 1);
-        throw ScriptError(why);
-    }
-    if (const std::string why = run(*m_impl, 0); !why.empty()) {
-        throw ScriptError(why);
-    }
+    loadInto(*m_impl, code, name);
+    m_impl->sources.push_back({name, std::string(code), std::nullopt, {}});
 }
 
 void kuge::ScriptEngine::load(const std::filesystem::path& file)
 {
-    std::ifstream in(file, std::ios::binary);
+    std::string code = readFile(file);
+    const std::string name = file.generic_string();
 
-    if (!in) {
-        throw ScriptError(std::format("{}: cannot read the script", file.generic_string()));
+    loadInto(*m_impl, code, name);
+    m_impl->sources.push_back({name, std::move(code), file, stampOf(file)});
+}
+
+kuge::ScriptEngine::Reload kuge::ScriptEngine::reloadChanged(void)
+{
+    auto& sources = m_impl->sources;
+    const bool changed = std::any_of(sources.begin(), sources.end(), [](const Impl::Source& s) { return s.file && stampOf(*s.file) != s.stamp; });
+
+    if (!changed) {
+        return {};
     }
-    const std::string code((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // Everything runs again in a new state; the old one is kept if anything fails (and the new dates are kept too, so the error is
+    // said once, and the files are tried again when one changes)
+    auto next = makeImpl(m_impl->registry, m_impl->options);
+    std::vector<Impl::Source> fresh = sources;
+    Reload report;
 
-    loadString(code, file.generic_string());
+    next->print = m_impl->print;
+    next->random = m_impl->random;
+    try {
+        for (Impl::Source& source : fresh) {
+            if (source.file) {
+                source.code = readFile(*source.file);
+                source.stamp = stampOf(*source.file);
+            }
+            loadInto(*next, source.code, source.name);
+        }
+    } catch (const ScriptError& e) {
+        for (Impl::Source& source : sources) {
+            if (source.file) {
+                source.stamp = stampOf(*source.file);
+            }
+        }
+        report.error = e.what();
+        return report;
+    }
+    next->sources = std::move(fresh);
+    m_impl = std::move(next);
+    report.reloaded = true;
+    return report;
 }
 
 bool kuge::ScriptEngine::has(const std::string& function) const

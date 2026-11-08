@@ -28,7 +28,7 @@ namespace kuge
 
     ////////////////////////////////////////////////////////////////////////////
     /**
-     * @brief  Mods: folders of data and resources laid over the game's, in a load order, with nothing to run
+     * @brief  Mods: folders of data and resources laid over the game's, in a load order (and scripts, which only the script module runs)
      *
      *     mods/dark_wand/mod.json        { "name": "dark_wand", "version": "1.0", "kuge": "0.1", "depends": ["base_pack"] }
      *     mods/dark_wand/data/weapons/wand.json         (replaces the game's)
@@ -39,9 +39,9 @@ namespace kuge
      *     mods.apply(roots);                                 // the mods on top, the last one loaded wins
      *     for (const auto& o : mods.overrides(".")) log.info("{} replaces {} of {}", o.mod, o.file, o.replaces);
      *
-     * The order is by `depends` (a mod comes after what it depends on) then by name, so it is the same on every machine. **A mod is data,
-     * never code**: what it may change (a JSON of balance, a sprite, a sound) is the game's decision (it only loads what it reads through
-     * the roots). In multiplayer the server decides: `fingerprint()` is a hash of the names, versions, files and their bytes, and a client
+     * The order is by `depends` (a mod comes after what it depends on) then by name, so it is the same on every machine. **A mod is data, never
+     * native code**: what it may change (a JSON of balance, a sprite, a sound) is the game's decision (it only loads what it reads through the
+     * roots). A mod can also carry `scripts/*.lua` (see `scripts()`); they run only if the game gives them to a sandboxed `kuge::ScriptEngine`. In multiplayer the server decides: `fingerprint()` is a hash of the names, versions, files and their bytes, and a client
      * whose fingerprint is not the server's is refused (see MatchmakingClient::setMods()).
      */
     ////////////////////////////////////////////////////////////////////////////
@@ -69,6 +69,10 @@ namespace kuge
 
             //! The files that mods replace, in load order. `gameRoot` is the folder of the game.
             std::vector<Override> overrides(const std::filesystem::path& gameRoot) const;
+
+            //! The scripts of the mods, to give to a script engine in this order: the `scripts/*.lua` of each mod (the mods in load order, the
+            //! files by name). They are in the fingerprint like every file of a mod, so a client whose scripts differ is refused too.
+            std::vector<std::filesystem::path> scripts(void) const;
 
             //! 64 bits that are the same for the same mods in the same order with the same files: 0 when there is no mod
             std::uint64_t fingerprint(void) const;

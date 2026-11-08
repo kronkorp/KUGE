@@ -18,13 +18,13 @@ each with its pull request.
 
 ## Scripts
 
-`kuge-script` (Lua, [docs/20-scripts](docs/20-scripts/README.md)) has its engine: sandbox, budget, memory limit, seeded
-`math.random`, the world by name. Not there yet (ticket 043):
+`kuge-script` (Lua, [docs/20-scripts](docs/20-scripts/README.md), ticket 043) is in: engine, `ScriptSystem`, hot reload,
+`Mods::scripts()`, the example mod `example/mods/waves`. What is left:
 
-- [ ] A `ScriptSystem` (`kw::ISystem`) that calls `update(dt)` in a stage the game chooses and sends `print` to the logger.
-- [ ] The scripts in the mods' fingerprint, and the server alone runs the scripts that change the world.
-- [ ] Hot reload of a script in `--dev`, and an example mod.
-- [ ] The tests of `kuge-script` do not run on Windows, as every kronklab test (see Windows above).
+- [ ] The tests of `kuge-script` do not run on Windows, as every kronklab test (see Windows above), and the module has not
+  been seen on MSVC by hand.
+- [ ] No game uses it yet: R-Type or Arena could load `mods/*/scripts` in their room (server) and say it in their docs.
+- [ ] Scripts that spawn from a **prefab file** (`world:spawn("enemy")`): needs the scene and prefab files of #98, step 1.
 
 ## 3D
 
