@@ -87,14 +87,14 @@ Test(script_system, the_example_mod)
     const auto mods = kuge::Mods::scan(WAVES_MODS_DIR);
     const auto files = mods.scripts();
 
-    Assert(files.size() == 1 && files[0].filename() == "waves.lua", "the example mod has its script");
+    Assert(files.size() == 1 && files[0].file.filename() == "waves.lua" && files[0].mod == "waves", "the example mod has its script");
     std::vector<float> first;
 
     for (int run = 0; run < 2; ++run) {
         Game game;
 
-        for (const auto& file : files) {
-            game.engine->load(file);
+        for (const auto& script : files) {
+            game.engine->load(script.file, script.mod);
         }
         kuge::ScriptSystem system(game.engine);
 
@@ -132,8 +132,8 @@ Test(script_system, golden_with_no_game)
     const auto mods = kuge::Mods::scan(GOLDEN_MODS_DIR);
     kuge::ScriptEngine scripts(registry);
 
-    for (const auto& file : mods.scripts()) {
-        scripts.load(file);
+    for (const auto& script : mods.scripts()) {
+        scripts.load(script.file, script.mod);
     }
     kw::World world;
     const std::array<double, 1> dt{1.0 / 60.0};
@@ -163,6 +163,61 @@ Test(script_system, a_failure_stops_it)
     system.restart();
     game.tick(system, 1);
     Assert(game.enemies() == 4 && !system.stopped(), "restart() lets it run again");
+}
+
+Test(script_system, mods_run_and_fail_alone)
+{
+    Game game;
+
+    game.engine->loadString("function update() world:spawn{Enemy = {speed = 1}} end", "a.lua", "mod_a");
+    game.engine->loadString("local calls = 0 function update() calls = calls + 1 if calls == 2 then error('b breaks') end world:spawn{Enemy = {speed = 2}} end", "b.lua", "mod_b");
+    kuge::ScriptSystem system(game.engine);
+
+    game.tick(system, 5);
+    // mod_a ran 5 times, mod_b once (the second call broke it: it is not called any more)
+    Assert(game.enemies() == 6, "both mods ran, then only the one that did not fail: %zu", game.enemies());
+    Assert(!system.stopped(), "one mod is still running: the system is not stopped");
+    system.restart();
+    game.tick(system, 1);
+    Assert(game.enemies() == 8, "restart() gives the failed mod its calls again (mod_b is at its third): %zu", game.enemies());
+}
+
+// What example/modding/README.md says: a copy of a mod under another name, and both run
+Test(script_system, two_mods_from_disk)
+{
+    Folder folder;
+    const std::string script = "timer = 0 function update(dt) timer = timer + dt if timer >= 1 then timer = 0 world:spawn{Enemy = {speed = %d}} end end";
+
+    for (const char* name : {"golden", "mine"}) {
+        fs::create_directories(folder.path / name / "scripts");
+        folder.write(std::string(name) + "/mod.json", std::string("{\"name\": \"") + name + "\", \"version\": \"1\", \"depends\": []}");
+        folder.write(std::string(name) + "/scripts/a.lua", std::string(script).replace(script.find("%d"), 2, name[0] == 'g' ? "1" : "2"));
+    }
+    const auto mods = kuge::Mods::scan(folder.path);
+    Game game;
+
+    for (const auto& s : mods.scripts()) {
+        game.engine->load(s.file, s.mod);
+    }
+    kuge::ScriptSystem system(game.engine);
+
+    game.tick(system, 125);   // a bit over two seconds
+    Assert(game.enemies() == 4, "both mods, whose `timer` has the same name, ran twice each: %zu", game.enemies());
+    Assert(!system.stopped(), "nothing failed");
+}
+
+// Two systems on one engine, with two function names, in two stages
+Test(script_system, two_functions_two_systems)
+{
+    Game game;
+
+    game.engine->loadString("function update() world:spawn{Enemy = {speed = 1}} end function late_update() world:spawn{Enemy = {speed = 2}} end", "s.lua", "mod");
+    kuge::ScriptSystem first(game.engine);
+    kuge::ScriptSystem second(game.engine, {.function = "late_update"});
+
+    game.tick(first, 3);
+    game.tick(second, 2);
+    Assert(game.enemies() == 5, "update 3 times, late_update 2 times: %zu", game.enemies());
 }
 
 Test(script_system, over_budget_is_stopped)

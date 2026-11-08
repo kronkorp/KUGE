@@ -4,6 +4,7 @@
 #include "kronkworld/Kronkworld.hpp"
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
 
 namespace kuge
@@ -21,16 +22,17 @@ namespace kuge
      * @brief  A system that calls `update(dt)` of a ScriptEngine at each tick, in the stage the game chooses
      *
      *     auto scripts = std::make_shared<kuge::ScriptEngine>(registry);
-     *     for (const auto& file : mods.scripts()) { scripts->load(file); }              // @throw ScriptError
+     *     for (const auto& script : mods.scripts()) { scripts->load(script.file, script.mod); }   // @throw ScriptError
      *     scene.addSystem(kuge::stage::Simulation, std::make_unique<kuge::ScriptSystem>(scripts, kuge::ScriptSystemOptions{.reloadEvery = dev ? 30 : 0}));
      *
      * - `dt` is the fixed tick of `kuge::Time` (a World without one gets 1/60).
      * - Before each call the generator of `math.random` is seeded from the tick (`seedFor(0, tick, seedSalt)`): a system run again
      *   (prediction, a replay) rolls the same numbers.
      * - `print` goes to the logger, category "script".
-     * - **A script that fails is stopped, not the game.** The error (file, line, or "over its budget") is logged once, and the system
-     *   calls nothing more until the scripts are reloaded successfully (`reloadEvery`, or `restart()`): a script that fails at each tick
-     *   would fill the log 60 times a second and leave the world half changed 60 times a second.
+     * - **Every mod's `update` is called**, in load order (each mod is a scope of its own: see ScriptEngine).
+     * - **A script that fails is stopped, not the game, and not the other mods.** The error (file, line, or "over its budget") is logged
+     *   once, and that mod is not called any more until the scripts are reloaded successfully (`reloadEvery`, or `restart()`): a script
+     *   that fails at each tick would fill the log 60 times a second and leave the world half changed 60 times a second.
      *
      * **Which side runs which script is the game's choice**, made with the registry it gives the engine. The room (the authority) runs the
      * scripts that change the rules, with a registry of every component. A client runs its own engine for the interface and the effects
@@ -45,15 +47,16 @@ namespace kuge
 
             bool handle(kw::World& world) override;
 
-            //! Has a failure stopped it?
-            bool stopped(void) const noexcept { return m_stopped; }
-            //! Lets it call the scripts again (after the game fixed what failed)
-            void restart(void) noexcept { m_stopped = false; }
+            //! Is there nothing left to call? (every scope that had the function failed, or none has it)
+            bool stopped(void) const noexcept;
+            //! Lets every scope that failed run again (after the game fixed what failed)
+            void restart(void) noexcept;
 
         private:
             std::shared_ptr<ScriptEngine>  m_engine;
             ScriptSystemOptions            m_options;
-            bool                           m_stopped = false;
+            std::set<std::string>          m_stopped;   //!< The scopes (mods) that failed and are not called any more
+            bool                           m_idle = false;
     };
 
 }

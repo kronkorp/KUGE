@@ -1156,7 +1156,7 @@ the limits and a table of error messages, is [docs/20-scripts](docs/20-scripts/R
 ```cpp
 auto mods = kuge::Mods::scan("mods");                                    // mods/<name>/mod.json, data/, resources/, scripts/*.lua
 kuge::ScriptEngine scripts(registry);                                    // registry: the components the game describes
-for (const auto& file : mods.scripts()) { scripts.load(file); }          // @throw ScriptError: "mods/x/scripts/a.lua:12: ..."
+for (const auto& s : mods.scripts()) { scripts.load(s.file, s.mod); }    // a mod's name is its scope. @throw ScriptError: "mods/x/scripts/a.lua:12: ..."
 scene.addSystem(kuge::stage::Simulation, std::make_unique<kuge::ScriptSystem>(shared_scripts));   // update(dt) at each tick
 ```
 
@@ -1174,12 +1174,14 @@ end
 - **Sandbox**: no `io`, `os`, `package`, `debug`, `load`, `dofile`; text chunks only. An **instruction budget** per load and per call
   (1,000,000 by default; `pcall` and coroutines do not get around it) and a **memory limit** (64 MiB). `math.random` is KUGE's generator
   seeded from the tick, and there is no clock, so the same world and tick give the same result.
-- **A script that fails is stopped, not the game**: logged once with file and line, and not called again until a reload or `restart()`.
+- **A script that fails is stopped, not the game, and not the other mods**: logged once with file and line, and that mod is not called
+  again until a reload or `restart()`.
 - **Hot reload** (`ScriptSystemOptions::reloadEvery`, a decision of the game, off by default): a changed file reloads every script in a new
   state; a script that does not load changes nothing.
 - **Multiplayer**: the scripts are in `Mods::fingerprint()`, so a client whose scripts differ from the room's is refused (`JoinError::Mods`).
   Each side builds its own `ScriptEngine` with its own registry: that is how the room runs the rules and a client only its effects.
-- All scripts of all mods share **one** Lua state, so the last `function update` wins: chain with `local previous = update` (2.6 of the chapter).
+- **Mods live together**: each mod has its own Lua globals (its files share them), so a `function update` or a variable of one mod can never
+  replace another's, and the `update` of **every** mod runs, in load order. Mods meet in the components of the game, not in each other's code.
 
 ## Physics module (`kuge-physics`)
 
@@ -1259,7 +1261,7 @@ ctest --test-dir build --output-on-failure
 | `kuge_rtype_tests` | R-Type: the rules, a host (server and client in one process), a dedicated server over sockets with four pilots, the server stopping with players |
 | `kuge_logger_tests`, `kuge_logger_init_tests` | logger: whole lines from many threads, first use from many threads |
 | `kuge_client_tests` | client: inputs, sprites, tiles, animations, audio, text, the UI (layout, focus, mouse, drawing), the SDL backend (on SDL's dummy screen and audio, reading real pixels), and the game logic of Pong and of the platformer |
-| `kuge_script_tests` | script: a world read and written by name (wrong values refused, all or nothing), `view`/`spawn`/`remove`, the budget (a loop, `pcall`, a coroutine, the top level), the memory limit, the sandbox (no `io`, no bytecode), errors with file and line, the seeded `math.random`, scripts sharing one state, `ScriptSystem` (a failure stops it, a new seed each tick), hot reload (a bad edit changes nothing), and the example mods |
+| `kuge_script_tests` | script: a world read and written by name (wrong values refused, all or nothing), `view`/`spawn`/`remove`, the budget (a loop, `pcall`, a coroutine, the top level), the memory limit, the sandbox (no `io`, no bytecode), errors with file and line, the seeded `math.random`, mods with their own globals whose `update`s all run, `ScriptSystem` (a failing mod stops alone, a new seed each tick), hot reload (a bad edit changes nothing), and the example mods |
 | `modding_smoke` | the real `kuge_modding` plays 400 frames with and without its mod: the mod's gold coin is in the picture only with it |
 | `kuge_physics_tests` | physics: shapes, broad phase, scenarios, a property test, bit-for-bit replay |
 | `kuge_render3d_tests` | render3d: sounds at a place (volume, pan, range), particles that are drawn, fall and fade, an orbit camera that stops at walls, a model drawn and lit, the GPU and the CPU drawing the same picture (with an offscreen OpenGL context), the transform and its interpolation, 2D over 3D, models from files (OBJ, glTF, in the background, reloaded), animation (clips, cues, the next clip, a replicated clip), mouse look and cameras |

@@ -114,9 +114,9 @@ namespace catchgame
                 kuge::field<Faller>("value", &Faller::value, {.min = 1.0, .max = 100.0, .help = "Points when caught"}),
             });
             setup.scripts = std::make_shared<kuge::ScriptEngine>(*setup.registry);
-            for (const auto& file : files) {
-                setup.scripts->load(file);
-                log.info("script {}", file.generic_string());
+            for (const auto& script : files) {
+                setup.scripts->load(script.file, script.mod);                // the mod's name is its scope: its globals are its own
+                log.info("script {} of the mod {}", script.file.generic_string(), script.mod);
             }
         }
         return setup;

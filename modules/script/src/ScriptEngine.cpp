@@ -33,10 +33,15 @@ struct kuge::ScriptEngine::Impl
     {
         std::string                                   name;
         std::string                                   code;
+        std::string                                   scope;
         std::optional<std::filesystem::path>          file;
         std::pair<std::filesystem::file_time_type, std::uintmax_t> stamp;   // of the file when it was read: its date and its size
     };
     std::vector<Source>       sources;
+
+    // The globals of each scope: a table that reads the shared globals (the libraries, `world`) and writes in itself. Kept in the registry
+    // of Lua by reference; in load order
+    std::vector<std::pair<std::string, int>> scopes;
 
     Impl(const ComponentRegistry& r, ScriptOptions o) : registry(r), options(o), random(o.seed) {}
     ~Impl()
@@ -553,8 +558,42 @@ namespace
         return impl;
     }
 
-    // Runs a chunk in this state. @throw ScriptError
-    void loadInto(Impl& impl, std::string_view code, const std::string& name)
+    // Pushes a new table of globals for a scope. Runs under lua_pcall (a Lua function that cannot raise but for memory)
+    int newScope(lua_State* L)
+    {
+        lua_newtable(L);                    // the scope's globals
+        lua_newtable(L);                    // their metatable: what is not defined here is read from the shared globals
+        lua_pushglobaltable(L);
+        lua_setfield(L, -2, "__index");
+        lua_setmetatable(L, -2);
+        lua_pushvalue(L, -1);
+        lua_setfield(L, -2, "_G");          // `_G` is the scope's own table: `_G.x = 1` does not leak into the others
+        return 1;
+    }
+
+    // The registry reference of the globals of a scope, made on first use
+    int scopeRef(Impl& impl, const std::string& scope)
+    {
+        for (const auto& [name, ref] : impl.scopes) {
+            if (name == scope) {
+                return ref;
+            }
+        }
+        lua_State* L = impl.state;
+
+        lua_pushcfunction(L, newScope);
+        if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+            const std::string why = lua_tostring(L, -1);
+
+            lua_pop(L, 1);
+            throw kuge::ScriptError(why);
+        }
+        impl.scopes.emplace_back(scope, luaL_ref(L, LUA_REGISTRYINDEX));
+        return impl.scopes.back().second;
+    }
+
+    // Runs a chunk in this state, with the globals of its scope. @throw ScriptError
+    void loadInto(Impl& impl, std::string_view code, const std::string& name, const std::string& scope)
     {
         lua_State* L = impl.state;
 
@@ -565,9 +604,29 @@ namespace
             lua_pop(L, 1);
             throw kuge::ScriptError(why);
         }
+        const int ref = scopeRef(impl, scope);
+
+        lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+        lua_setupvalue(L, -2, 1);           // the first upvalue of a chunk is its _ENV: its globals are the scope's
         if (const std::string why = run(impl, 0); !why.empty()) {
             throw kuge::ScriptError(why);
         }
+    }
+
+    // Pushes the function of a scope, or nothing: true if it was there. (rawget: only what the scope itself defined)
+    bool pushFunction(Impl& impl, const std::pair<std::string, int>& scope, const std::string& function)
+    {
+        lua_State* L = impl.state;
+
+        lua_rawgeti(L, LUA_REGISTRYINDEX, scope.second);
+        lua_pushlstring(L, function.data(), function.size());
+        lua_rawget(L, -2);
+        lua_remove(L, -2);
+        if (lua_isfunction(L, -1)) {
+            return true;
+        }
+        lua_pop(L, 1);
+        return false;
     }
 
     std::string readFile(const std::filesystem::path& file)
@@ -596,19 +655,19 @@ kuge::ScriptEngine::ScriptEngine(const ComponentRegistry& registry, ScriptOption
 
 kuge::ScriptEngine::~ScriptEngine() = default;
 
-void kuge::ScriptEngine::loadString(std::string_view code, const std::string& name)
+void kuge::ScriptEngine::loadString(std::string_view code, const std::string& name, const std::string& scope)
 {
-    loadInto(*m_impl, code, name);
-    m_impl->sources.push_back({name, std::string(code), std::nullopt, {}});
+    loadInto(*m_impl, code, name, scope);
+    m_impl->sources.push_back({name, std::string(code), scope, std::nullopt, {}});
 }
 
-void kuge::ScriptEngine::load(const std::filesystem::path& file)
+void kuge::ScriptEngine::load(const std::filesystem::path& file, const std::string& scope)
 {
     std::string code = readFile(file);
     const std::string name = file.generic_string();
 
-    loadInto(*m_impl, code, name);
-    m_impl->sources.push_back({name, std::move(code), file, stampOf(file)});
+    loadInto(*m_impl, code, name, scope);
+    m_impl->sources.push_back({name, std::move(code), scope, file, stampOf(file)});
 }
 
 kuge::ScriptEngine::Reload kuge::ScriptEngine::reloadChanged(void)
@@ -633,7 +692,7 @@ kuge::ScriptEngine::Reload kuge::ScriptEngine::reloadChanged(void)
                 source.code = readFile(*source.file);
                 source.stamp = stampOf(*source.file);
             }
-            loadInto(*next, source.code, source.name);
+            loadInto(*next, source.code, source.name, source.scope);
         }
     } catch (const ScriptError& e) {
         for (Impl::Source& source : sources) {
@@ -650,21 +709,30 @@ kuge::ScriptEngine::Reload kuge::ScriptEngine::reloadChanged(void)
     return report;
 }
 
-bool kuge::ScriptEngine::has(const std::string& function) const
+std::vector<std::string> kuge::ScriptEngine::scopes(const std::string& function) const
 {
-    lua_getglobal(m_impl->state, function.c_str());
-    const bool found = lua_isfunction(m_impl->state, -1);
+    std::vector<std::string> found;
 
-    lua_pop(m_impl->state, 1);
+    for (const auto& scope : m_impl->scopes) {
+        if (pushFunction(*m_impl, scope, function)) {
+            lua_pop(m_impl->state, 1);
+            found.push_back(scope.first);
+        }
+    }
     return found;
 }
 
-kuge::ScriptEngine::Result kuge::ScriptEngine::call(kw::World& world, const std::string& function, std::span<const double> args)
+bool kuge::ScriptEngine::has(const std::string& function) const
+{
+    return !scopes(function).empty();
+}
+
+kuge::ScriptEngine::Result kuge::ScriptEngine::call(kw::World& world, const std::string& scope, const std::string& function, std::span<const double> args)
 {
     lua_State* L = m_impl->state;
+    const auto found = std::find_if(m_impl->scopes.begin(), m_impl->scopes.end(), [&](const auto& s) { return s.first == scope; });
 
-    if (lua_getglobal(L, function.c_str()) != LUA_TFUNCTION) {
-        lua_pop(L, 1);
+    if (found == m_impl->scopes.end() || !pushFunction(*m_impl, *found, function)) {
         return {false, std::format("there is no function '{}'", function)};
     }
     for (const double arg : args) {
@@ -675,6 +743,23 @@ kuge::ScriptEngine::Result kuge::ScriptEngine::call(kw::World& world, const std:
 
     m_impl->world = nullptr;
     return {why.empty(), std::move(why)};
+}
+
+kuge::ScriptEngine::Result kuge::ScriptEngine::call(kw::World& world, const std::string& function, std::span<const double> args)
+{
+    const std::vector<std::string> names = scopes(function);
+    Result total;
+
+    if (names.empty()) {
+        return {false, std::format("there is no function '{}'", function)};
+    }
+    for (const std::string& name : names) {
+        if (Result one = call(world, name, function, args); !one.ok) {
+            total.message += (total.ok ? "" : "\n") + one.message;
+            total.ok = false;
+        }
+    }
+    return total;
 }
 
 void kuge::ScriptEngine::seed(std::uint64_t seed)

@@ -276,20 +276,59 @@ Test(script, random_follows_the_seed)
     Assert(!scripts.call(world, "bad").ok && !scripts.call(world, "big").ok, "an empty or too large interval is refused");
 }
 
-Test(script, scripts_share_one_state)
+Test(script, every_mods_update_runs)
 {
     Fixture f;
 
-    // Two mods, one Lua state: `local` is private to a file, a global is shared, and the last `update` replaces the first...
-    f.scripts.loadString("local mine = 1 shared = 'a' function update() world:spawn{Enemy = {level = 1}} end", "first.lua");
-    f.scripts.loadString("local mine = 2 assert(shared == 'a') function update() world:spawn{Enemy = {level = 2}} end", "second.lua");
+    // Two mods: each has its own globals, so the second `update` does not replace the first, and both run in load order
+    f.scripts.loadString("shared = 'a' function update() world:spawn{Enemy = {level = 1}} end", "a.lua", "mod_a");
+    f.scripts.loadString("assert(shared == nil) function update() world:spawn{Enemy = {level = 2}} end", "b.lua", "mod_b");
+    Assert(f.scripts.scopes("update").size() == 2 && f.scripts.scopes("update")[0] == "mod_a", "two scopes have an update, in load order");
     Assert(f.ok(), "%s", f.why().c_str());
-    Assert(f.registry.entitiesWith(f.world, {"Enemy"}).size() == 1 && f.world.get<Enemy>(0).level == 2, "the second update replaced the first");
+    const auto enemies = f.registry.entitiesWith(f.world, {"Enemy"});
 
-    // ... unless it calls the one it found (how mods are made to live together)
-    f.scripts.loadString("local previous = update function update() if previous then previous() end world:spawn{Enemy = {level = 3}} end", "third.lua");
+    Assert(enemies.size() == 2 && f.world.get<Enemy>(enemies[0]).level == 1 && f.world.get<Enemy>(enemies[1]).level == 2, "both updates ran, the first mod first");
+}
+
+Test(script, globals_of_a_mod_stay_its_own)
+{
+    Fixture f;
+
+    f.scripts.loadString("counter = 10 _G.leak = 1 function bump() counter = counter + 1 return counter end function update() end", "a.lua", "mod_a");
+    f.scripts.loadString("function update() assert(counter == nil and leak == nil and _G == _ENV, 'nothing leaked') end", "b.lua", "mod_b");
     Assert(f.ok(), "%s", f.why().c_str());
-    Assert(f.registry.entitiesWith(f.world, {"Enemy"}).size() == 3 && f.world.get<Enemy>(2).level == 3, "chained: the previous update ran too");
+    Assert(f.scripts.has("bump") && f.scripts.scopes("bump").size() == 1, "a function of one mod is found in that mod only");
+    // The files of a mod do share their globals
+    f.scripts.loadString("function twice() return bump() + bump() end function use() assert(twice() == 23) end", "a2.lua", "mod_a");
+    Assert(f.ok("use"), "%s", f.why("use").c_str());
+    // And the libraries and `world` are there for everyone
+    f.scripts.loadString("function update() assert(math.floor(1.5) == 1 and type(world.get) == 'function') end", "c.lua", "mod_c");
+    Assert(f.ok(), "%s", f.why().c_str());
+}
+
+Test(script, a_failing_mod_stops_alone)
+{
+    Fixture f;
+
+    f.scripts.loadString("function update() error('mod a is broken') end", "a.lua", "mod_a");
+    f.scripts.loadString("function update() world:spawn{Enemy = {}} end", "b.lua", "mod_b");
+    const auto result = f.scripts.call(f.world, "update");
+
+    Assert(!result.ok && result.message.find("a.lua:1: mod a is broken") != std::string::npos, "the failure is said: %s", result.message.c_str());
+    Assert(f.registry.entitiesWith(f.world, {"Enemy"}).size() == 1, "and the other mod still ran");
+    Assert(f.scripts.call(f.world, "mod_b", "update", {}).ok, "one scope can be called alone");
+    Assert(!f.scripts.call(f.world, "mod_z", "update", {}).ok, "a scope that does not exist is said");
+}
+
+Test(script, the_default_scope_is_shared)
+{
+    Fixture f;
+
+    // With no scope, the scripts share their globals (what a game that has no mods does with its own files): the last `update` wins
+    f.scripts.loadString("x = 1 function update() world:spawn{Enemy = {level = 1}} end", "one.lua");
+    f.scripts.loadString("assert(x == 1) function update() world:spawn{Enemy = {level = 2}} end", "two.lua");
+    Assert(f.ok(), "%s", f.why().c_str());
+    Assert(f.registry.entitiesWith(f.world, {"Enemy"}).size() == 1 && f.world.get<Enemy>(0).level == 2, "one scope, the second update replaced the first");
 }
 
 Test(script, has_a_function)

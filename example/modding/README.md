@@ -44,5 +44,6 @@ end
 - Change `"playerSpeed"` in `mods/golden/data/catch.json`, run again.
 - In `golden.lua`, change `EVERY` and `value`; a mistake that stops the script from loading is said with its file and line, and the
   game does not start (the log shows it before any window). A script that fails *while running* is stopped and logged once, and the game goes on.
-- Copy `mods/golden` to `mods/mine`, and make your own: `"depends": ["golden"]` loads it after.
+- Copy `mods/golden` to `mods/mine` (change the `name` in its `mod.json`), and make your own: both are loaded, **both `update`s run**
+  (each mod has its own globals, so they cannot clash: two coins fall). `"depends": ["golden"]` loads yours after.
 - In multiplayer the server would refuse a client whose mods differ (`Mods::fingerprint()`): see [Scripts](../../docs/20-scripts/README.md).

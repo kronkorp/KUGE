@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace kuge
 {
@@ -53,6 +54,12 @@ namespace kuge
      * A value is what the registry writes in JSON: a number, a boolean, a string, an enum by its name, a Vec2/Vec3/Vec4 as `{x, y}`, `{x, y, z}`,
      * `{x, y, z, w}`, an entity as its number. A wrong name, type or limit stops the script with the message of the registry (and changes nothing).
      *
+     * **Scopes: how several mods live together.** A script is loaded in a *scope* (a mod gives its name). The files of a scope share their
+     * globals; each scope has **its own**: a `function update` or a variable of one mod can never replace another's, and
+     * `call(world, "update")` runs the `update` of **every** scope, in load order. A scope reads the standard library and `world` through
+     * its globals, and `_G` is its own table. Scopes cannot call one another (they meet in the components of the game). The sandbox is the same
+     * for all, and they do share the standard tables (`string`, `math`...): a mod that changes `math.floor` changes it for all.
+     *
      * **Sandbox.** Only the base (without `dofile`, `loadfile`, `load`, `collectgarbage`), `string`, `table`, `math`, `utf8` and `coroutine` libraries
      * exist: no `io`, `os`, `package`, `debug`. A chunk is text (no bytecode). `math.random` is KUGE's generator (PCG32, seeded with seed()) and
      * there is no clock, so a script gives the same results for the same world and the same seed. A load or a call that runs over `budget` instructions
@@ -84,10 +91,11 @@ namespace kuge
             ScriptEngine(const ScriptEngine&) = delete;
             ScriptEngine& operator=(const ScriptEngine&) = delete;
 
-            //! Reads and runs a file (its top level: it defines functions, `world` cannot be used yet). @throw ScriptError
-            void load(const std::filesystem::path& file);
+            //! Reads and runs a file (its top level: it defines functions, `world` cannot be used yet), in the scope `scope` (see the class
+            //! description: the files of a scope share their globals, two scopes never do). @throw ScriptError
+            void load(const std::filesystem::path& file, const std::string& scope = {});
             //! Same for a text; `name` is what the messages call it. @throw ScriptError
-            void loadString(std::string_view code, const std::string& name);
+            void loadString(std::string_view code, const std::string& name, const std::string& scope = {});
 
             //! Hot reload: if a file given to load() changed (its date or its size), everything that was loaded runs again, in the same
             //! order, in a **new** state (what the scripts kept in globals is lost). If any script fails, nothing changes: the old state keeps
@@ -95,11 +103,19 @@ namespace kuge
             //! again as it was. Cheap when nothing changed (a stat per file).
             Reload reloadChanged(void);
 
-            //! Is there a function of that name (a global)?
+            //! The scopes that define a function of that name, in load order (a scope that was only given a text with no `scope` is "")
+            std::vector<std::string> scopes(const std::string& function) const;
+
+            //! Does any scope define a function of that name?
             bool has(const std::string& function) const;
 
-            //! Calls the global `function(args...)` with `world` bound to this world. It never throws for a script's mistake: it says why not.
+            //! Calls `function(args...)` of **every** scope that defines it, in load order, with `world` bound to this world. A scope that fails
+            //! does not stop the others: `ok` is false if any did, and `message` has one line for each. It never throws for a script's
+            //! mistake: it says why not. Nothing defines it: `ok` is false too.
             Result call(kw::World& world, const std::string& function, std::span<const double> args = {});
+
+            //! Calls the `function` of one scope only (ScriptSystem uses it to stop the scope that fails and keep the others)
+            Result call(kw::World& world, const std::string& scope, const std::string& function, std::span<const double> args);
 
             //! The next numbers of `math.random` come from this seed on (the same seed, the same numbers)
             void seed(std::uint64_t seed);

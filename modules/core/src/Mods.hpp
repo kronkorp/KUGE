@@ -70,9 +70,16 @@ namespace kuge
             //! The files that mods replace, in load order. `gameRoot` is the folder of the game.
             std::vector<Override> overrides(const std::filesystem::path& gameRoot) const;
 
+            //! A script of a mod
+            struct Script
+            {
+                std::string            mod;    //!< The name of the mod: the scope to load it in (`ScriptEngine::load(file, mod)`)
+                std::filesystem::path  file;
+            };
+
             //! The scripts of the mods, to give to a script engine in this order: the `scripts/*.lua` of each mod (the mods in load order, the
             //! files by name). They are in the fingerprint like every file of a mod, so a client whose scripts differ is refused too.
-            std::vector<std::filesystem::path> scripts(void) const;
+            std::vector<Script> scripts(void) const;
 
             //! 64 bits that are the same for the same mods in the same order with the same files: 0 when there is no mod
             std::uint64_t fingerprint(void) const;
