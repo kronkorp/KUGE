@@ -1,12 +1,11 @@
-// Ticket 039. On Windows a DLL and a program each have their own copy of the `static` that kronkworld
-// uses to number the types (ResourceManager::id<R>(), ComponentManager::id<C>()): the same type gets two
-// ids, and `get<R>()` reads whatever sits at the program's id. That is why kuge.dll is not built by
-// default there (KUGE_BUILD_SHARED, CMakeLists.txt). Linux merges those statics, so module.cpp is built
-// with hidden symbols to behave like a DLL.
+// Ticket 039. A DLL and a program each have their own copy of a `static` of an inline function, so a
+// counter in a header (what kronkworld used to number its types with) gave the same type two ids:
+// ResourceManager::id<R>(), ComponentManager::id<C>(). kronkworld now takes the number from a table
+// in a .cpp (name of the type -> id), which must exist once: here, in the library. Linux merges
+// statics, so module.cpp is built with hidden symbols to behave like a DLL.
 //
-// This program returns 0 when both sides agree. It does not, so ctest expects it to FAIL (WILL_FAIL):
-// the day kronkworld numbers its types by name, it succeeds, ctest goes red, and the guard in
-// CMakeLists.txt (and the workaround of the games) can go.
+// This program returns 0 when both sides agree. It meets other types first, so that a counter of
+// its own would not give the library's numbers.
 #include "probe.hpp"
 #include <cstdio>
 
