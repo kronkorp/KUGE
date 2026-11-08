@@ -276,6 +276,7 @@ Test(sdl, textures_can_go)
     Assert(close(pixel(renderer.readPixels(), 5, 5), kuge::colors::Black), "nothing was drawn");
 }
 
+#ifndef _WIN32   // (fails on Windows: #162)
 Test(sdl, mouse_can_be_relative)
 {
     useNoScreen();
@@ -286,6 +287,7 @@ Test(sdl, mouse_can_be_relative)
     backend.input->setRelativeMouse(false);
     Assert(SDL_GetRelativeMouseMode() == SDL_FALSE, "and freed");
 }
+#endif
 
 Test(sdl, textures_can_be_updated)
 {

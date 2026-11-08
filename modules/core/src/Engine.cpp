@@ -10,10 +10,29 @@
 #include <thread>
 #ifdef _WIN32
     #include <windows.h>
+    #include <timeapi.h>
 #endif
 
 namespace
 {
+    // On Windows a sleep lasts a multiple of the timer's period (15.6 ms by default): a frame limit of
+    // 240 fps would give 64. The period is 1 ms while an engine runs.
+    struct TimerPeriod
+    {
+        TimerPeriod(void)
+        {
+#ifdef _WIN32
+            timeBeginPeriod(1);
+#endif
+        }
+        ~TimerPeriod(void)
+        {
+#ifdef _WIN32
+            timeEndPeriod(1);
+#endif
+        }
+    };
+
     // The number of SIGINT / SIGTERM (on Windows: Ctrl+C / Ctrl+Break) received by the process. An
     // engine does not reset it: it remembers the value it saw when it began, so a signal ends every
     // engine that runs (a server and a client in one process), and an old one does not end an
@@ -392,6 +411,7 @@ int kuge::Engine::run(void)
 {
     using Clock = std::chrono::steady_clock;
     SignalGuard signals;
+    TimerPeriod timer;
     auto last = Clock::now();
 
     while (true) {

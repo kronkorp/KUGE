@@ -118,6 +118,7 @@ Test(debug, the_screenshot_command)
     Assert(!std::filesystem::exists(file), "the dummy backend cannot read its pixels: no file (a warning in the log)");
 }
 
+#ifndef _WIN32   // (fails on Windows: #158)
 Test(debug, the_screenshot_of_sdl)
 {
     setenv("SDL_VIDEODRIVER", "dummy", 1);
@@ -154,6 +155,7 @@ Test(debug, the_screenshot_of_sdl)
     Assert(pixel[0] == 10 && pixel[1] == 20 && pixel[2] == 30, "with the colour of the background");
     std::filesystem::remove(file);
 }
+#endif
 
 Test(debug, the_overlay_shows_numbers)
 {

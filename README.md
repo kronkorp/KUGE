@@ -132,13 +132,13 @@ them). What differs from Linux:
 - Ctrl+C and Ctrl+Break end `run()` as SIGINT does (Windows has no SIGTERM to send).
   `kuge_rtype_server` also stops on `quit` typed in its terminal.
 - The player's folders (`userDirectory`) are both in `%APPDATA%`.
-- The unit tests are not built: kronklab runs each test in a `fork()`. `ctest` runs the
-  boundaries and the games played for real: `pong_smoke`, `platformer_smoke`, and
-  `rtype_smoke` and `arena3d_smoke`, which need the `sh` of Git for Windows.
+- The unit tests are built and run (kronklab starts a process for each test there), except 8 that fail on
+  Windows and are left out, each with its issue (#155 to #162). `ctest` also runs the boundaries and the games
+  played for real: `pong_smoke`, `platformer_smoke`, and `rtype_smoke` and `arena3d_smoke`, which need the `sh`
+  of Git for Windows. The tests that wrap `send` at link time (`--wrap`, GNU ld) are not built.
 - `KUGE_SANITIZE` is for GCC and Clang only.
 
-The CI builds on both (Linux with GCC, Windows with MSVC, with Visual Studio's generator and with Ninja) and **runs the tests on Linux
-only**: nothing is run on Windows in the CI, so the `*_smoke` games above are a check to do by hand there.
+The CI builds and tests both: Linux with GCC, Windows with MSVC (with Visual Studio's generator and with Ninja).
 
 ### Using KUGE from a game
 
@@ -1274,7 +1274,7 @@ ctest --test-dir build --output-on-failure
 | `arena3d_smoke` | the real Arena programs (server, client, host) play a scripted game: the character runs, jumps and shoots (each clip is played, the bullets are seen), and the picture has the HUD, the shirt and hundreds of colours |
 | `pong_smoke`, `platformer_smoke` | the real binaries play a scripted game and leave a picture that is checked |
 
-On Windows, only `boundary_*` and the `*_smoke` tests are built (see [On Windows](#on-windows)).
+On Windows, the unit tests run too, minus the few listed in [On Windows](#on-windows).
 
 Things that are worth knowing:
 

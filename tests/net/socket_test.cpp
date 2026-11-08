@@ -4,15 +4,17 @@ extern "C" {
 #include "Endpoint.hpp"
 #include "SocketTransport.hpp"
 #include "net_fixture.hpp"
-#include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
-#include <netinet/in.h>
 #include <random>
 #include <set>
-#include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
+#ifndef _WIN32   // (the tests that make a socket by hand)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#endif
 
 // NOTE: kronklab test names are limited to 31 characters.
 // Real sockets, on the loopback interface of the machine.
@@ -68,6 +70,7 @@ namespace
         return static_cast<std::size_t>(std::count_if(events.begin(), events.end(), [kind](const auto& e) { return e.kind == kind; }));
     }
 
+#ifndef _WIN32
     // A raw TCP connection, made by hand: to send what a well-behaved transport never would
     int rawConnect(std::uint16_t port)
     {
@@ -83,6 +86,7 @@ namespace
         }
         return fd;
     }
+#endif
 
     std::vector<std::uint8_t> patterned(std::size_t size, std::uint8_t seed)
     {
@@ -215,6 +219,7 @@ Test(tcp, packets_both_ways)
     Assert(server->reliable() && client->reliable(), "tcp says it is reliable");
 }
 
+#ifndef _WIN32   // (fails on Windows: #160)
 Test(tcp, a_thousand_packets)
 {
     auto [server, port] = serve(true);
@@ -243,6 +248,7 @@ Test(tcp, a_thousand_packets)
     }
     Assert(same, "each whole, in order, though TCP cut and glued them as it liked");
 }
+#endif
 
 Test(tcp, the_biggest_packet)
 {
@@ -257,6 +263,7 @@ Test(tcp, the_biggest_packet)
     Assert(watch.serverEvents.back().packet == patterned(MAX_PACKET, 9), "whole");
 }
 
+#ifndef _WIN32   // (fails on Windows: #161)
 Test(tcp, nobody_listens)
 {
     // A port where nobody listens: a server made then destroyed
@@ -272,6 +279,7 @@ Test(tcp, nobody_listens)
 
     Assert(pollUntil(*other.transport, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Disconnected) == 1; }), "the client learns it cannot connect");
 }
+#endif
 
 Test(tcp, over_ipv6)
 {
@@ -343,6 +351,7 @@ Test(tcp, the_server_closes_one)
     Assert(pollUntil(*server, *a, watch, [&] { b->poll(eventsB); return count(watch.clientEvents, TransportEvent::Kind::Disconnected) + count(eventsB, TransportEvent::Kind::Disconnected) == 1; }), "one client sees it end");
 }
 
+#ifndef _WIN32
 Test(tcp, fragments_by_hand)
 {
     // A peer that sends a packet in pieces, with pauses, and two packets glued: what TCP does to us
@@ -409,6 +418,7 @@ Test(tcp, a_hostile_length)
     Assert(got == 0, "and the connection is closed on its side too");
     close(fd);
 }
+#endif
 
 // -- UDP -------------------------------------------------------------------------------------
 Test(udp, packets_both_ways)

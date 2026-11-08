@@ -5,11 +5,10 @@ each with its pull request.
 
 ## Windows
 
-- [ ] **The unit tests do not run on Windows.** kronklab runs each test in a `fork()` and finds the tests with the
-  ELF linker's `__start_`/`__stop_` symbols: neither exists there. Porting it (a child process per test, and MSVC's
-  sections) would also need the tests' own POSIX parts (`unistd.h`, raw sockets, `--wrap` at link time) made
-  portable. Until then, Windows runs the boundaries and the games played for real (`*_smoke`) **by hand only**: the CI only
-  builds on Windows, it runs no test there.
+- [ ] **8 unit tests are left out on Windows** (`#ifndef _WIN32`, #155 to #162: a signal, a file name, the rotation of
+  logs, a TCP refusal, SDL's offscreen screenshot...). Each issue has what was seen. kronklab itself runs there
+  (v0.1.3: a process for each test, MSVC's sections). The tests that wrap `send` with GNU ld's `--wrap`
+  (`kuge_net_fault_tests`) are not built on Windows.
 
 - [ ] **`kuge.dll` gives other ids than the program** (ticket 039, kronkworld). `KUGE_BUILD_SHARED` is off by default on
   Windows as a workaround. The fix is in `vendor/kronkworld`: `ResourceManager::id<R>()` and `ComponentManager::id<C>()`
@@ -24,8 +23,7 @@ each with its pull request.
 
 - [ ] Mods are isolated in their **globals**, not in the standard tables (`math.floor = nil` in one mod breaks it for all) nor in memory
   (one Lua state, one limit).
-- [ ] The tests of `kuge-script` do not run on Windows, as every kronklab test (see Windows above), and the module has not
-  been seen on MSVC by hand.
+- [ ] The module has not been seen on MSVC by hand (the CI builds it and runs its tests).
 - [ ] No game uses it yet: R-Type or Arena could load `mods/*/scripts` in their room (server) and say it in their docs.
 - [ ] Scripts that spawn from a **prefab file** (`world:spawn("enemy")`): needs the scene and prefab files of #98, step 1.
 
@@ -37,7 +35,7 @@ What the 3D chapter ([docs/18-3d](docs/18-3d/README.md)) says is not there yet:
   milliseconds at 1280x720): a faster path draws the 3D into the window and the sprites and text with kronk3d's `draw2D`
   (no rotation), which means a 2D renderer on OpenGL.
 - [ ] Small things: interpolating poses between two ticks (`k3::Animator` has no seek).
-- [ ] **Windows is not checked by hand.** The CI only builds the 3D programs with MSVC, it runs none; Jolt and
+- [ ] **Windows is not checked by hand.** The CI builds and runs the 3D tests' smoke programs with MSVC; Jolt and
   the 3D examples have not been seen on a Windows machine.
 
 ## Done

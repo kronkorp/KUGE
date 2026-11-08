@@ -73,7 +73,7 @@ include(FetchContent)
 FetchContent_Declare(
     kronklab
     GIT_REPOSITORY https://github.com/kronkorp/kronklab.git
-    GIT_TAG        5584149a3c9ccbb12baaf71cfd591db3b37541ad
+    GIT_TAG        f14a79e9a949b6bf720ae2204de12766bc03a0b8
 )
 
 # kronkflow depends on kronkpool, which KUGE also uses directly: both must be
@@ -267,10 +267,11 @@ endif()
 
 if(BUILD_TESTS)
     enable_testing()
-    # kronklab runs each test in a fork(), which Windows does not have: there, only the tests
-    # that need no kronklab are built (see tests/CMakeLists.txt)
-    if(NOT WIN32)
-        FetchContent_MakeAvailable(kronklab)
+    # kronklab finds the tests between two markers of a section: the padding of an incremental link (the default of
+    # MSVC without a build type, as with Ninja) would be read as tests, its own too (so this is before it is made)
+    if(MSVC)
+        add_link_options(/INCREMENTAL:NO)
     endif()
+    FetchContent_MakeAvailable(kronklab)
     add_subdirectory(tests)
 endif()
