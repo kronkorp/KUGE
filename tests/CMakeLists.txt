@@ -95,6 +95,14 @@ target_link_libraries(kuge_tests PRIVATE kuge-core kronklab-static)
 target_compile_options(kuge_tests PRIVATE ${KUGE_WARNINGS})
 kuge_add_test(kuge_tests kuge_tests)
 
+# The scripts only need the core
+if(TARGET kuge-script)
+    add_executable(kuge_script_tests script/script_test.cpp)
+    target_link_libraries(kuge_script_tests PRIVATE kuge-script kronklab-static)
+    target_compile_options(kuge_script_tests PRIVATE ${KUGE_WARNINGS})
+    kuge_add_test(kuge_script_tests kuge_script_tests)
+endif()
+
 # The physics only needs the core
 add_executable(kuge_physics_tests
     physics/physics_property_test.cpp

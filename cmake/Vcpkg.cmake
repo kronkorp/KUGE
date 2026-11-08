@@ -25,6 +25,11 @@ if(NOT DEFINED KUGE_BUILD_PHYSICS3D OR KUGE_BUILD_PHYSICS3D)
     list(APPEND VCPKG_MANIFEST_FEATURES physics3d)
 endif()
 
+# And the scripts (Lua)
+if(NOT DEFINED KUGE_BUILD_SCRIPT OR KUGE_BUILD_SCRIPT)
+    list(APPEND VCPKG_MANIFEST_FEATURES script)
+endif()
+
 set(KUGE_VCPKG_DIR "${CMAKE_SOURCE_DIR}/.vcpkg" CACHE PATH "Where vcpkg is cloned when VCPKG_ROOT is not set")
 set(kuge_vcpkg_toolchain "${KUGE_VCPKG_DIR}/scripts/buildsystems/vcpkg.cmake")
 

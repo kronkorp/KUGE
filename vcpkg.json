@@ -5,6 +5,10 @@
   "description": "Kronk Ultra Game Engine",
   "builtin-baseline": "2750401336fb7c95f6619657a46a7e798661341c",
   "features": {
+    "script": {
+      "description": "The script module: Lua",
+      "dependencies": ["lua"]
+    },
     "physics3d": {
       "description": "The 3D physics module: Jolt (with RTTI, which KUGE is built with)",
       "dependencies": [

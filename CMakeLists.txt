@@ -42,6 +42,7 @@ endif()
 option(KUGE_BUILD_SHARED  "Also build kuge.so (kuge.dll: see ticket 039, OFF by default on Windows), an aggregate of every module" ${KUGE_BUILD_SHARED_DEFAULT})
 option(KUGE_BUILD_CLIENT  "Build the client module (window, inputs, 2D rendering: needs SDL2)" ON)
 option(KUGE_BUILD_PHYSICS3D "Build the 3D physics module (needs Jolt)" ON)
+option(KUGE_BUILD_SCRIPT   "Build the script module (needs Lua)" ON)
 option(BUILD_EXAMPLES     "Build the example/ executables" OFF)
 option(BUILD_TESTS        "Build the tests (run them with ctest)" OFF)
 set(KUGE_SANITIZE "" CACHE STRING "Build with a sanitizer: address (+ undefined) or thread")
@@ -138,6 +139,18 @@ if(KUGE_BUILD_PHYSICS3D)
     find_package(Jolt CONFIG REQUIRED)
 endif()
 
+# Lua (scripts), from vcpkg too
+if(KUGE_BUILD_SCRIPT)
+    if(NOT VCPKG_TOOLCHAIN)
+        message(FATAL_ERROR
+            "The script module needs Lua, which comes from vcpkg, and this build has no vcpkg toolchain. "
+            "Built on its own, KUGE finds one (cmake/Vcpkg.cmake). A game that fetches KUGE: pass "
+            "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake and list lua in the game's "
+            "vcpkg.json, or -DKUGE_BUILD_SCRIPT=OFF.")
+    endif()
+    find_package(Lua REQUIRED)
+endif()
+
 FetchContent_Declare(
     kronkflow
     GIT_REPOSITORY https://github.com/kronkorp/kronkflow
@@ -205,6 +218,9 @@ add_subdirectory(modules/physics)
 add_subdirectory(modules/animation)
 if(KUGE_BUILD_PHYSICS3D)
     add_subdirectory(modules/physics3d)
+endif()
+if(KUGE_BUILD_SCRIPT)
+    add_subdirectory(modules/script)
 endif()
 if(KUGE_BUILD_CLIENT)
     add_subdirectory(modules/client)
