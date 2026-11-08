@@ -236,7 +236,10 @@ Test(tcp, a_thousand_packets)
             client->poll(watch.clientEvents);
         }
     }
-    Assert(pollUntil(*server, *client, watch, [&] { return count(watch.serverEvents, TransportEvent::Kind::Packet) == 1000; }, 20.0), "all 1000 arrive");
+    const auto t0 = Clock::now();
+    const bool ok = pollUntil(*server, *client, watch, [&] { return count(watch.serverEvents, TransportEvent::Kind::Packet) == 1000; }, 20.0);
+    std::fprintf(stderr, "DIAG thousand: ok=%d after %.1f s, packets=%zu disconnected=%zu\n", (int)ok, std::chrono::duration<double>(Clock::now() - t0).count(), count(watch.serverEvents, TransportEvent::Kind::Packet), count(watch.serverEvents, TransportEvent::Kind::Disconnected));
+    Assert(ok, "all 1000 arrive");
     bool same = true;
     std::size_t next = 0;
 
@@ -274,7 +277,10 @@ Test(tcp, nobody_listens)
     Watch watch;
     auto other = serve(true);
 
-    Assert(pollUntil(*other.transport, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Disconnected) == 1; }), "the client learns it cannot connect");
+    const auto t0 = Clock::now();
+    const bool ok = pollUntil(*other.transport, *client, watch, [&] { return count(watch.clientEvents, TransportEvent::Kind::Disconnected) == 1; });
+    std::fprintf(stderr, "DIAG nobody_listens: ok=%d after %.1f s, client events=%zu (connected %zu)\n", (int)ok, std::chrono::duration<double>(Clock::now() - t0).count(), watch.clientEvents.size(), count(watch.clientEvents, TransportEvent::Kind::Connected));
+    Assert(ok, "the client learns it cannot connect");
 }
 
 Test(tcp, over_ipv6)

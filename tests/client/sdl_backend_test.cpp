@@ -282,6 +282,7 @@ Test(sdl, mouse_can_be_relative)
     auto backend = kuge::makeSdlBackend(windowOf(100, 100));
 
     backend.input->setRelativeMouse(true);
+    { SDL_version v; SDL_GetVersion(&v); std::fprintf(stderr, "DIAG relmouse: mode=%d err='%s' driver=%s sdl=%d.%d.%d\n", (int)SDL_GetRelativeMouseMode(), SDL_GetError(), SDL_GetCurrentVideoDriver(), v.major, v.minor, v.patch); }
     Assert(SDL_GetRelativeMouseMode() == SDL_TRUE, "the cursor is captured");
     backend.input->setRelativeMouse(false);
     Assert(SDL_GetRelativeMouseMode() == SDL_FALSE, "and freed");
