@@ -555,17 +555,53 @@ namespace
         lua_newtable(L);
         luaL_setfuncs(L, methods, 0);
         lua_setglobal(L, "world");
+
+        // The metatable of strings reads the engine's own `string` table: a script must not get it (`getmetatable("").__index`)
+        lua_pushliteral(L, "");
+        lua_getmetatable(L, -1);
+        lua_pushliteral(L, "the metatable of strings is not for scripts");
+        lua_setfield(L, -2, "__metatable");
+        lua_pop(L, 2);
         return impl;
     }
 
-    // Pushes a new table of globals for a scope. Runs under lua_pcall (a Lua function that cannot raise but for memory)
+    // Pushes a shallow copy of the table at `index`. (The libraries and `world` hold functions and strings only: nothing is shared)
+    void copyTable(lua_State* L, int index)
+    {
+        index = lua_absindex(L, index);
+        lua_newtable(L);
+        lua_pushnil(L);
+        while (lua_next(L, index)) {        // copy, key, value
+            lua_pushvalue(L, -2);
+            lua_pushvalue(L, -2);
+            lua_rawset(L, -5);
+            lua_pop(L, 1);
+        }
+    }
+
+    // Pushes a new table of globals for a scope: a copy of the shared globals, and the libraries and `world` are copies too, so that
+    // `math.floor = nil` or `world.get = nil` in one mod stays in that mod. No metatable (the one that read the shared globals was a door
+    // to them: `getmetatable(_G).__index`). Runs under lua_pcall (a Lua function that cannot raise but for memory)
     int newScope(lua_State* L)
     {
-        lua_newtable(L);                    // the scope's globals
-        lua_newtable(L);                    // their metatable: what is not defined here is read from the shared globals
-        lua_pushglobaltable(L);
-        lua_setfield(L, -2, "__index");
-        lua_setmetatable(L, -2);
+        lua_newtable(L);                    // 1: the scope's globals
+        lua_pushglobaltable(L);             // 2: the shared ones
+        lua_pushnil(L);
+        while (lua_next(L, 2)) {            // key, value
+            if (lua_rawequal(L, -1, 2)) {   // `_G`: the scope gets its own below
+                lua_pop(L, 1);
+                continue;
+            }
+            lua_pushvalue(L, -2);
+            if (lua_istable(L, -2)) {
+                copyTable(L, -2);
+            } else {
+                lua_pushvalue(L, -2);
+            }
+            lua_rawset(L, 1);
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
         lua_pushvalue(L, -1);
         lua_setfield(L, -2, "_G");          // `_G` is the scope's own table: `_G.x = 1` does not leak into the others
         return 1;

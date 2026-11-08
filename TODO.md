@@ -21,8 +21,8 @@ each with its pull request.
 `kuge-script` (Lua, [docs/20-scripts](docs/20-scripts/README.md), ticket 043) is in: engine, `ScriptSystem`, hot reload,
 `Mods::scripts()`, the example mod `example/mods/waves`. What is left:
 
-- [ ] Mods are isolated in their **globals**, not in the standard tables (`math.floor = nil` in one mod breaks it for all) nor in memory
-  (one Lua state, one limit).
+- [ ] Mods are isolated in their globals and their copies of the standard tables, not in **memory** (one Lua state, one limit: a
+  mod that eats it counts against all). Per-mod memory needs one state per mod, or an allocator that knows who is running.
 - [ ] The module has not been seen on MSVC by hand (the CI builds it and runs its tests).
 - [ ] No game uses it yet: R-Type or Arena could load `mods/*/scripts` in their room (server) and say it in their docs.
 - [ ] Scripts that spawn from a **prefab file** (`world:spawn("enemy")`): needs the scene and prefab files of #98, step 1.

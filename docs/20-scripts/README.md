@@ -211,7 +211,7 @@ What belongs to whom:
 | a `local` | the file that wrote it |
 | a global (`timer = 0`, `function update`, `function helper`) | **all the files of the same mod**, and nobody else |
 | `_G` | the mod's own globals (`_G.x = 1` stays in the mod) |
-| `world`, `print`, `math`, `string`, `table`, `utf8`, `coroutine`, `pairs`... | everyone |
+| `world`, `print`, `math`, `string`, `table`, `utf8`, `coroutine`, `pairs`... | everyone has **its own copy**: `math.floor = nil` or `world.get = nil` stays in the mod |
 
 So the files of one mod (`scripts/a.lua`, `scripts/more/b.lua`) share their globals in load order (files by path name): `a.lua` can define
 a `helper` that `b.lua` calls, and a global `update` defined in two files of the same mod is replaced by the later file's. Two mods can
@@ -222,7 +222,7 @@ mods go on.
 
 What mods **cannot** do is call each other's functions, or read each other's variables: they meet in the components of the game, which is
 the point. A mod that wants to give something to another writes it in a component the game described (a `Config` entity, a `Hit` marker), and
-the other reads it with `world:get`. The standard tables are the one thing that is shared: a mod that writes `math.floor = nil` breaks it for all.
+the other reads it with `world:get`. The standard tables are not shared either: each mod has its own copy of `math`, `string`, `table`, `utf8`, `coroutine` and `world`, so a mod that writes `math.floor = nil` breaks it for itself only.
 
 ### 2.7 Time, randomness and "the same every time"
 
@@ -503,11 +503,13 @@ For people who change the engine, or who want to know what to trust.
 - **One Lua state per `ScriptEngine`** (Lua 5.5, from vcpkg: the feature `script`, `KUGE_BUILD_SCRIPT`, ON by default). Only the
   libraries `base`, `table`, `string`, `math`, `utf8`, `coroutine` are opened, then `dofile`, `loadfile`, `load`, `collectgarbage` are
   removed. Chunks are loaded in text mode only (`"t"`).
-- **Scopes** are what lets mods live together in that one state. Each scope is a table of globals whose metatable reads the real
-  globals (`__index`) and whose writes stay in itself; it also holds `_G` (itself). A chunk is loaded with this table as its `_ENV` (the first
-  upvalue of a chunk). Calling a function of a scope is a `rawget` in that table, so only what the scope itself defined is found:
-  `call(world, "update")` is a loop over the scopes in load order. Which scopes failed is the **system's** business (`ScriptSystem`), not the
-  engine's: the engine keeps no memory of failures, so a test or a game can call anything again.
+- **Scopes** are what lets mods live together in that one state. Each scope is a table of globals: a copy of the engine's globals, where
+  the libraries and `world` are copies too (shallow: they hold functions and strings), with no metatable, and holding `_G` (itself). So
+  nothing a mod writes reaches another, and there is no door to the originals: `getmetatable(_G)` is `nil`, and the metatable of strings
+  (whose `__index` is the engine's `string` table) is closed with `__metatable`, so `getmetatable("")` gives a text, not a table. A chunk is
+  loaded with the scope's table as its `_ENV` (the first upvalue of a chunk). Calling a function of a scope is a `rawget` in that table, so
+  only what the scope itself defined is found: `call(world, "update")` is a loop over the scopes in load order. Which scopes failed is the
+  **system's** business (`ScriptSystem`), not the engine's: the engine keeps no memory of failures, so a test or a game can call anything again.
 - **The budget** is a Lua *count hook*: every 1000 instructions it adds to a counter. Past the budget it raises an error **and
   from then on fails at every single instruction**, in every coroutine, so `pcall` cannot swallow it and loop. The count restarts at each `load()` or `call()`.
 - **Memory** goes through a custom allocator that refuses a request past the limit; Lua then raises `not enough memory`.
@@ -536,8 +538,8 @@ For people who change the engine, or who want to know what to trust.
 
 **Not built (yet)**
 
-- **Mods cannot call each other**, and share the standard tables (`string`, `math`...): isolation is of globals, not of the libraries.
-  They meet in components. (And since all mods run in one Lua state, a mod that eats memory counts against the same limit as the others.)
+- **Mods cannot call each other**; they meet in components. All mods run in one Lua state, so a mod that eats memory counts against
+  the same limit as the others (the globals and the standard tables are each mod's own, memory is not).
 - **Prefab files**: `world:spawn("enemy")` from a file waits for the scene and prefab files of the editor epic (#98): today a script
   gives the components in the call.
 - **Events** (a script that reacts to a collision, a death): scripts are polled each tick. The game can expose an event as a

@@ -306,6 +306,39 @@ Test(script, globals_of_a_mod_stay_its_own)
     Assert(f.ok(), "%s", f.why().c_str());
 }
 
+Test(script, mods_cannot_break_each_other)
+{
+    Fixture f;
+
+    // Every mod has its own copy of the standard tables and of `world`: what it does to them stays in the mod
+    f.scripts.loadString(R"(
+        math.floor = nil
+        string.upper = function() return "X" end
+        table.insert = nil
+        world.get = nil
+        print = nil
+        function update() end
+    )", "a.lua", "mod_a");
+    f.scripts.loadString(R"(
+        function update()
+            assert(math.floor(1.5) == 1 and string.upper("a") == "A" and type(table.insert) == "function")
+            assert(type(world.get) == "function" and type(print) == "function")
+        end
+    )", "b.lua", "mod_b");
+    Assert(f.ok(), "%s", f.why().c_str());
+
+    // And it cannot reach the real ones: not through the metatable of its globals, nor through the one of strings
+    f.scripts.loadString(R"(
+        function update()
+            assert(type(getmetatable(_G)) ~= "table", "the globals have no door to the shared ones")
+            assert(type(getmetatable("")) ~= "table", "the string metatable is closed")
+            assert(not pcall(setmetatable, "", {}), "and so is its change")
+            assert(("a"):upper() == "A" and ("ab"):rep(2) == "abab", "strings still have their methods")
+        end
+    )", "c.lua", "mod_c");
+    Assert(f.ok(), "%s", f.why().c_str());
+}
+
 Test(script, a_failing_mod_stops_alone)
 {
     Fixture f;
