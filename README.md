@@ -137,7 +137,8 @@ them). What differs from Linux:
   `rtype_smoke` and `arena3d_smoke`, which need the `sh` of Git for Windows.
 - `KUGE_SANITIZE` is for GCC and Clang only.
 
-The CI builds and tests both: Linux with GCC, Windows with MSVC.
+The CI builds on both (Linux with GCC, Windows with MSVC, with Visual Studio's generator and with Ninja) and **runs the tests on Linux
+only**: nothing is run on Windows in the CI, so the `*_smoke` games above are a check to do by hand there.
 
 ### Using KUGE from a game
 

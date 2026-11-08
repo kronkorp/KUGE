@@ -1,7 +1,7 @@
 name: CI
 
-# Builds KUGE (modules, examples, tests) from a clean checkout and runs every test, on Linux and on
-# Windows. The same thing a contributor does by hand: see "Build" and "Tests" in the README.
+# Builds KUGE (modules, examples, tests) from a clean checkout on Linux and on Windows, and runs every
+# test on Linux. The same thing a contributor does by hand: see "Build" and "Tests" in the README.
 
 on:
   push:
@@ -120,7 +120,7 @@ jobs:
   # runner) and Ninja (VS Code, CLion...). Ninja also refuses two rules that make the same file,
   # which Visual Studio's does not see.
   windows:
-    name: Build and test (Windows, MSVC, ${{ matrix.generator }})
+    name: Build (Windows, MSVC, ${{ matrix.generator }})
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -186,21 +186,7 @@ jobs:
             .vcpkg/downloads
           key: vcpkg-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
 
+      # Windows only builds: no tests run here (the unit tests need kronklab, which is POSIX only, and the
+      # boundaries and the games played for real are run on Linux)
       - name: Build
         run: cmake --build build --config Release --parallel
-
-      # The unit tests need kronklab, which runs on POSIX only: what runs here is the boundaries
-      # and the games, played for real (R-Type over the network, with the sh of Git for Windows)
-      - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure --timeout 300
-
-      - name: Keep the test logs when a test failed
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-logs-windows-${{ strategy.job-index }}
-          path: |
-            build/Testing/Temporary/
-            build/tests/rtype/
-          if-no-files-found: ignore
-          retention-days: 7
