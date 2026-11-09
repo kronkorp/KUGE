@@ -155,7 +155,11 @@ namespace
                 if (!in.is_open() || bytes.empty() || bytes.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
                     throw AudioError(std::format("cannot load the sound '{}': the file cannot be read, or is empty", file.string()));
                 }
-                Mix_Chunk* chunk = Mix_LoadWAV_RW(SDL_RWFromConstMem(bytes.data(), static_cast<int>(bytes.size())), 1);
+                // Closed here, not by SDL_mixer: 2.8 forgets it when the format is unknown (Mix_LoadMusic_RW returns early)
+                SDL_RWops* source = SDL_RWFromConstMem(bytes.data(), static_cast<int>(bytes.size()));
+                Mix_Chunk* chunk  = Mix_LoadWAV_RW(source, 0);
+
+                SDL_RWclose(source);
 
                 if (!chunk) {
                     throw AudioError(std::format("cannot load the sound '{}': {}", file.string(), Mix_GetError()));
